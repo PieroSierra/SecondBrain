@@ -1,6 +1,7 @@
-# Second Brain
 
-A personal knowledge base that lives in this folder. Drop content in, have it organised automatically, ask questions, and get sourced answers — either through Claude Code slash commands or a local web dashboard.
+![[dashboard/chrome-extension/icon-128.png]]
+# Second Brain
+A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — either through Claude Code **slash commands** or a **local web dashboard**.
 
 ---
 
@@ -22,7 +23,7 @@ Content flows in one direction: `raw/` → ingest → `wiki/` → query → `out
 
 - **Claude Code CLI** (`claude` on your PATH). Install from [claude.ai/code](https://claude.ai/code).
 - **Python 3** (macOS system Python is fine — no `pip install` needed).
-- The **Craft MCP** integration configured in Claude Code if you want Craft import.
+- (optional) The **Craft MCP** integration configured in Claude Code if you want Craft import.
 
 ---
 
@@ -78,6 +79,8 @@ You can also drop files directly into `raw/` — a `.md` note, a PDF, even an im
 
 The dashboard is a local web UI that surfaces the same six operations without opening a terminal.
 
+![[dashboard/dashboard_sample.png]]
+
 ### Start
 
 ```bash
@@ -99,6 +102,7 @@ python3 dashboard/bridge.py --port 4180 --no-open
 ### What the dashboard provides
 
 - **Hero query box** — ask a question and read the rendered answer directly in the page.
+- **Navigation bar** — browse past answers and wiki articles.
 - **Import controls** — paste Markdown, drop/select any file (PDF, image, plain text), import from a URL, or specify a Craft folder and document name.
 - **Ingest / Lint buttons** — trigger wiki maintenance and view the results inline.
 - **Wiki edit boxes** — after a lint report runs, or while viewing any wiki article, a suggestion box lets you describe an edit in plain English and apply it directly without touching files manually.
