@@ -1,0 +1,351 @@
+<!doctype html>
+<!--
+  Second Brain — Dashboard
+  Spec: specs/002-interactive-dashboard/spec.md
+  Plan: specs/002-interactive-dashboard/plan.md
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Second Brain</title>
+  <link rel="icon" type="image/png" sizes="any" href="/static/logo.png" />
+  <link rel="apple-touch-icon" href="/static/logo.png" />
+  <link rel="stylesheet" href="/static/styles.css" />
+  <script src="/static/lib/marked.min.js"></script>
+</head>
+<body>
+  <div class="app-shell">
+
+    <!-- ══════════════════ SIDEBAR ══════════════════ -->
+    <nav class="sidebar" aria-label="Navigation">
+
+      <div class="nav-tabs" role="tablist">
+        <button class="nav-tab nav-tab-active" role="tab" aria-selected="true" data-nav-tab="home">
+          <img class="nav-tab-icon" src="/static/icons/home.png" width="14" height="14" alt="" aria-hidden="true" />
+          Home
+        </button>
+        <button class="nav-tab" role="tab" aria-selected="false" data-nav-tab="wiki">
+          <img class="nav-tab-icon" src="/static/icons/wiki.png" width="14" height="14" alt="" aria-hidden="true" />
+          Wiki
+        </button>
+      </div>
+
+      <!-- Home nav list: "New question" + output history -->
+      <div class="nav-list" id="nav-list-home" role="tabpanel">
+        <button class="nav-item nav-item-new nav-item-active" id="nav-new-question">
+          <img class="nav-new-icon" src="/static/icons/plus.png" width="22" height="22" alt="" aria-hidden="true" />
+          New question
+        </button>
+        <div id="nav-outputs-list"></div>
+      </div>
+
+      <!-- Wiki nav list: INDEX + topic list -->
+      <div class="nav-list" id="nav-list-wiki" hidden role="tabpanel">
+        <div id="nav-wiki-list"></div>
+      </div>
+
+    </nav>
+
+    <!-- ══════════════════ MAIN PANEL ══════════════════ -->
+    <div class="main-panel">
+
+      <!-- Panel: Home / New Question -->
+      <div id="panel-home-new" class="panel">
+
+        <header class="site-header">
+          <div class="brand-row">
+            <img class="brand-logo" src="/static/logo.png" alt="" width="56" height="56" decoding="async" />
+            <h1 class="brand">Second Brain</h1>
+          </div>
+          <p class="brand-sub">a personal knowledge base</p>
+        </header>
+
+        <section id="status-strip" class="status-strip" aria-label="Vault status">
+          <div class="status-tile" data-metric="wiki_article_count">
+            <span class="status-num">—</span>
+            <span class="status-label">wiki articles</span>
+          </div>
+          <div class="status-tile" data-metric="raw_pending_count">
+            <span class="status-num">—</span>
+            <span class="status-label">pending ingest</span>
+          </div>
+          <div class="status-tile" data-metric="last_ingest_iso">
+            <span class="status-num">—</span>
+            <span class="status-label">last ingest</span>
+          </div>
+          <div class="status-tile" data-metric="outputs_query_count">
+            <span class="status-num">—</span>
+            <span class="status-label">saved queries</span>
+          </div>
+          <div class="status-tile" data-metric="outputs_lint_count">
+            <span class="status-num">—</span>
+            <span class="status-label">lint reports</span>
+          </div>
+        </section>
+
+        <main class="layout">
+          <!-- Hero: query -->
+          <section class="hero" aria-label="Ask your knowledge base">
+            <form id="query-form" class="query-form" data-long-op="query">
+              <label for="query-input" class="visually-hidden">Ask a question</label>
+              <textarea
+                id="query-input"
+                name="question"
+                class="query-input"
+                rows="1"
+                placeholder="What do you want to know?"
+                autofocus
+                required
+              ></textarea>
+              <button type="submit" class="query-submit">Ask ↵</button>
+              <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>
+            </form>
+            <section id="query-result" class="result-card" hidden>
+              <div class="result-actions">
+                <button type="button" class="copy-btn" data-copy="rich" title="Copy formatted result for pasting into Mail, Notion, Slack…">Copy</button>
+                <button type="button" class="copy-btn" data-copy="md" title="Copy the raw Markdown source">Copy as MD</button>
+              </div>
+              <div class="markdown-body"></div>
+              <footer class="result-footer">
+                <a class="output-file" href="#" hidden></a>
+                <span class="result-meta" hidden></span>
+              </footer>
+            </section>
+          </section>
+
+          <!-- Imports -->
+          <section id="imports" class="commands-section" aria-label="Add content">
+            <header class="section-header">
+              <h2 class="section-title">Add content</h2>
+              <p class="section-hint">
+                Captured content lands in <code>raw/</code>. It is <strong>not searchable</strong> until the next ingest.
+              </p>
+            </header>
+
+            <div class="imports-grid">
+              <!-- Paste Markdown -->
+              <form id="paste-form" class="import-card" data-long-op="md-add">
+                <h3 class="import-title">Paste Markdown</h3>
+                <label class="visually-hidden" for="paste-title">Optional title</label>
+                <input
+                  id="paste-title"
+                  class="import-input"
+                  type="text"
+                  placeholder="Optional title"
+                  autocomplete="off"
+                />
+                <label class="visually-hidden" for="paste-body">Markdown content</label>
+                <textarea
+                  id="paste-body"
+                  class="import-textarea"
+                  rows="6"
+                  placeholder="Paste Markdown here…"
+                  required
+                ></textarea>
+                <div class="import-row">
+                  <button type="submit" class="import-submit">Add</button>
+                  <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>
+                  <div class="import-status" data-import-status hidden></div>
+                </div>
+              </form>
+
+              <!-- File import (PDF / image / text) -->
+              <form id="file-form" class="import-card" data-long-op="file-import">
+                <h3 class="import-title">Import file</h3>
+                <p class="import-hint">Drag or browse to PDF, image (.png/.jpg/.gif/.webp), or plain text.</p>
+                <div class="dropzone" data-dropzone>
+                  <input
+                    id="file-input"
+                    class="visually-hidden"
+                    type="file"
+                    accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.txt,.md"
+                    required
+                  />
+                  <label for="file-input" class="file-picker-btn">Choose file…</label>
+                  <span class="file-picker-name file-picker-name-empty" data-file-filename>No file selected</span>
+                </div>
+                <div class="import-row">
+                  <button type="submit" class="import-submit">Import</button>
+                  <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>
+                  <div class="import-status" data-import-status hidden></div>
+                </div>
+              </form>
+
+              <!-- Web URL -->
+              <form id="web-form" class="import-card" data-long-op="web-import" data-mode="url">
+                <h3 class="import-title">Import from Web</h3>
+                <p class="import-hint" data-web-hint>Paste a URL to a public article or page.</p>
+                <div data-web-mode-url>
+                  <label class="visually-hidden" for="web-url">Page URL</label>
+                  <input
+                    id="web-url"
+                    class="import-input"
+                    type="url"
+                    placeholder="https://…"
+                    autocomplete="url"
+                    required
+                  />
+                </div>
+                <div data-web-mode-paste hidden>
+                  <p class="web-paste-context" data-web-paste-context></p>
+                  <label class="visually-hidden" for="web-paste-body">Pasted Markdown</label>
+                  <textarea
+                    id="web-paste-body"
+                    class="import-textarea"
+                    rows="6"
+                    placeholder="Paste the rendered Markdown of the article…"
+                  ></textarea>
+                  <button type="button" class="web-cancel-paste" data-web-cancel-paste>Cancel</button>
+                </div>
+                <div class="import-row">
+                  <button type="submit" class="import-submit">Import</button>
+                  <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>
+                  <div class="import-status" data-import-status hidden></div>
+                </div>
+              </form>
+
+              <!-- Craft -->
+              <form id="craft-form" class="import-card" data-long-op="craft-import">
+                <h3 class="import-title">Import from Craft</h3>
+                <p class="import-hint">Specify Folder and Document name in your Craft space.</p>
+                <label class="visually-hidden" for="craft-folder">Folder</label>
+                <input
+                  id="craft-folder"
+                  class="import-input"
+                  type="text"
+                  placeholder="Folder (e.g. AI Partnerships)"
+                  autocomplete="off"
+                  required
+                />
+                <label class="visually-hidden" for="craft-document">Document</label>
+                <input
+                  id="craft-document"
+                  class="import-input"
+                  type="text"
+                  placeholder="Document name"
+                  autocomplete="off"
+                  required
+                />
+                <div class="import-row">
+                  <button type="submit" class="import-submit">Import</button>
+                  <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>
+                  <div class="import-status" data-import-status hidden></div>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <!-- Maintenance -->
+          <section id="maintenance" class="commands-section" aria-label="Wiki maintenance">
+            <header class="section-header">
+              <h2 class="section-title">Maintain the wiki</h2>
+              <p class="section-hint">
+                Run an <strong>ingest</strong> to fold pending <code>raw/</code> items into the wiki, or
+                <strong>lint</strong> to scan the wiki for quality issues.
+              </p>
+            </header>
+
+            <div class="maintenance-grid">
+              <form id="ingest-form" class="maint-card" data-long-op="ingest">
+                <h3 class="maint-title">Ingest</h3>
+                <p class="maint-hint">Fold pending raw items into <code>wiki/</code> and rebuild <code>INDEX.md</code>.</p>
+                <button type="submit" class="maint-submit">Run ingest</button>
+                <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>
+                <section class="maint-result" data-maint-result hidden>
+                  <div class="markdown-body"></div>
+                  <footer class="result-footer">
+                    <span class="result-meta" hidden></span>
+                  </footer>
+                </section>
+              </form>
+
+              <form id="lint-form" class="maint-card" data-long-op="lint">
+                <h3 class="maint-title">Lint</h3>
+                <p class="maint-hint">Scan <code>wiki/</code> for orphans, broken wikilinks, and stale articles.</p>
+                <button type="submit" class="maint-submit">Run lint</button>
+                <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>
+                <section class="maint-result" data-maint-result hidden>
+                  <div class="markdown-body"></div>
+                  <footer class="result-footer">
+                    <span class="result-meta" hidden></span>
+                  </footer>
+                </section>
+                <div class="lint-edit-bar" id="lint-edit-bar" hidden>
+                  <p class="lint-edit-label">Apply edits based on this report</p>
+                  <textarea id="lint-edit-input" class="import-textarea" rows="3"
+                    placeholder="e.g. Clarify that the revenue figure in company-overview is 2024 actual, not a forecast"></textarea>
+                  <div class="lint-edit-row">
+                    <button type="button" id="lint-edit-btn" class="import-submit">Apply edits</button>
+                    <div class="op-status" id="lint-edit-op-status" hidden role="status" aria-live="polite"></div>
+                    <div class="import-status" id="lint-edit-import-status" hidden></div>
+                  </div>
+                </div>
+              </form>
+            </div>
+          </section>
+        </main>
+
+        <footer class="site-footer">
+          <span>localhost dashboard · single user · no auth</span>
+        </footer>
+
+      </div><!-- /panel-home-new -->
+
+      <!-- Panel: Output viewer -->
+      <div id="panel-output-viewer" class="panel" hidden>
+        <div class="viewer-content">
+          <div class="result-actions">
+            <button type="button" class="copy-btn" data-copy="rich" title="Copy formatted result for pasting into Mail, Notion, Slack…">Copy</button>
+            <button type="button" class="copy-btn" data-copy="md" title="Copy the raw Markdown source">Copy as MD</button>
+          </div>
+          <header class="viewer-header">
+            <h1 class="viewer-title"></h1>
+            <p class="viewer-meta"></p>
+          </header>
+          <div class="markdown-body viewer-body"></div>
+          <div class="lint-edit-bar" id="output-edit-bar" hidden>
+            <p class="lint-edit-label">Apply edits based on this report</p>
+            <textarea id="output-edit-input" class="import-textarea" rows="3"
+              placeholder="Describe the edit you want applied to the wiki…"></textarea>
+            <div class="lint-edit-row">
+              <button type="button" id="output-edit-btn" class="import-submit">Apply edits</button>
+              <div class="op-status" id="output-edit-op-status" hidden role="status" aria-live="polite"></div>
+              <div class="import-status" id="output-edit-import-status" hidden></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Panel: Wiki viewer -->
+      <div id="panel-wiki-viewer" class="panel" hidden>
+        <div class="wiki-viewer-chrome">
+          <nav class="wiki-breadcrumb" aria-label="Breadcrumb">
+            Wiki<span class="wiki-breadcrumb-sep"> / </span><span class="wiki-breadcrumb-article"></span>
+          </nav>
+          <div class="result-actions">
+            <button type="button" class="copy-btn" data-copy="rich" title="Copy formatted result for pasting into Mail, Notion, Slack…">Copy</button>
+            <button type="button" class="copy-btn" data-copy="md" title="Copy the raw Markdown source">Copy as MD</button>
+          </div>
+        </div>
+        <div class="viewer-content">
+          <div class="markdown-body viewer-body"></div>
+          <div class="lint-edit-bar" id="wiki-edit-bar">
+            <p class="lint-edit-label">Suggest an edit to this article</p>
+            <textarea id="wiki-edit-input" class="import-textarea" rows="2"
+              placeholder="e.g. Clarify that the 30% EBITDA is the Board's forward target, not current margin"></textarea>
+            <div class="lint-edit-row">
+              <button type="button" id="wiki-edit-btn" class="import-submit">Apply</button>
+              <div class="op-status" id="wiki-edit-op-status" hidden role="status" aria-live="polite"></div>
+              <div class="import-status" id="wiki-edit-import-status" hidden></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- /main-panel -->
+  </div><!-- /app-shell -->
+
+  <script type="module" src="/static/app.js"></script>
+</body>
+</html>

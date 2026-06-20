@@ -1,0 +1,53 @@
+# Second Brain — Vault Schema
+
+This vault is a personal knowledge base managed by Claude Code skills.
+
+> **First-time setup**: run `/second-brain-setup` in a Claude Code session open to this
+> folder to generate your personal `CLAUDE.md`, or copy this file to `CLAUDE.md` and
+> fill in the `[INTERESTS]` section manually.
+
+## Folder Rules
+
+- `raw/` — All source content. NEVER modified by AI skills. Append-only.
+  - `raw/craft/` — Notes imported from Craft via the second-brain-import-craft skill
+  - `raw/pdf/` — Text extracted from PDFs via the second-brain-import-pdf skill
+  - `raw/images/` — Visual descriptions of images imported via the second-brain-import-file skill
+  - `raw/.ingest-manifest.json` — Machine-managed ingestion state. Do not edit.
+- `wiki/` — AI-organised knowledge. Written ONLY by the second-brain-ingest skill.
+  - One markdown file per topic, cross-linked with [[wikilinks]]
+  - `wiki/INDEX.md` — Master topic index, rebuilt on every ingest
+- `outputs/` — Query answers and lint reports. Written by query and lint skills.
+  - `YYYY-MM-DD_query-<slug>.md` — Query output files
+  - `YYYY-MM-DD_lint.md` — Lint report files
+
+## AI Behaviour Rules
+
+- Never modify files in `raw/`
+- Never delete files in `wiki/`
+- Every wiki article must start with a summary paragraph
+- Every wiki article must end with a Sources footer listing contributing raw files
+- Use [[topic-name]] wikilink syntax (without .md extension) for cross-references
+- When synthesising wiki content, prioritise topics listed under [INTERESTS] below
+
+## Configuration
+
+### [INTERESTS]
+<!-- Replace these with your own areas of interest.
+     The ingest skill uses these to prioritise and organise wiki articles.
+     Be specific — name the domain, role, or project so the model knows what matters. -->
+
+- Topic One — brief description of what this covers and why it matters to you
+- Topic Two — brief description of what this covers and why it matters to you
+- Topic Three — brief description of what this covers and why it matters to you
+
+### [CRAFT] (optional — delete this section if you don't use Craft)
+<!--
+  To enable Craft import:
+  1. Add the Craft MCP server to Claude Code (Settings → MCP Servers).
+  2. Fill in your space name and MCP URL below.
+  3. Set CRAFT_ENABLED=1 in your .env file to show the import card in the dashboard.
+-->
+Space: YourSpaceName
+MCP URL: https://mcp.craft.do/links/YOUR_TOKEN/mcp
+Mode: targeted — always specify Folder/DocumentName at invocation (e.g. "AI/Meeting notes")
+Known folders: Folder1, Folder2, Folder3

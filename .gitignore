@@ -1,0 +1,43 @@
+# macOS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.tmp
+
+# Obsidian (vault is opened in Obsidian; ignore its workspace state and
+# any empty canvas/base/daily-note scaffolds it creates from menu clicks)
+.obsidian/
+Untitled*.canvas
+Untitled*.base
+Untitled*.md
+
+# Personal config (gitignored — each user generates their own)
+.env
+.env.*
+CLAUDE.md
+
+# Vault personal content — directory structure is kept via .gitkeep files.
+raw/.ingest-manifest.json
+raw/**
+!raw/.gitkeep
+!raw/craft/
+!raw/craft/.gitkeep
+!raw/pdf/
+!raw/pdf/.gitkeep
+!raw/images/
+!raw/images/.gitkeep
+!raw/web/
+!raw/web/.gitkeep
+wiki/**
+!wiki/.gitkeep
+outputs/**
+!outputs/.gitkeep
+
+# Dashboard transient state
+dashboard/.uploads/
+__pycache__/
+*.pyc

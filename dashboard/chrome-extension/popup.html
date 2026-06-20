@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Second Brain</title>
+  <style>
+    /* Design tokens — identical to the dashboard. */
+    :root {
+      --bg:          #FBF8F3;
+      --bg-elev:     #FFFFFF;
+      --bg-subtle:   #F2ECE0;
+      --ink:         #2A1F1A;
+      --ink-muted:   #756B62;
+      --ink-faint:   #B5ADA1;
+      --rule:        #E5DED2;
+      --rule-strong: #C9C0B0;
+      --clay:        #B85C38;
+      --clay-deep:   #8E4426;
+      --clay-soft:   #FBE6DD;
+      --error-bg:    #F9E4DD;
+      --error-ink:   #82331C;
+      --error-rule:  #DEB7A6;
+      --success-bg:  #ECF1E2;
+      --success-ink: #4A5C2C;
+      --success-rule:#C7D3A8;
+      --busy-bg:     #F5EDD8;
+      --busy-ink:    #7B5A1B;
+      --busy-rule:   #DCC68C;
+
+      --font-display: ui-serif, "New York", "Iowan Old Style", Charter, Georgia, serif;
+      --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+
+      --radius:    4px;
+      --radius-lg: 6px;
+      --shadow-paper: 0 1px 0 rgba(42, 31, 26, 0.04),
+                      0 4px 16px -8px rgba(42, 31, 26, 0.10);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 340px;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 14px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Card — like .import-card */
+    .card {
+      margin: 12px;
+      padding: 16px 18px 14px;
+      background: var(--bg-elev);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-paper);
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* Display heading */
+    .brand {
+      font-family: var(--font-display);
+      font-size: 1.25rem;
+      font-weight: 350;
+      font-style: italic;
+      color: var(--clay);
+      letter-spacing: -0.02em;
+      line-height: 1;
+    }
+
+    /* URL row */
+    .url-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      background: var(--bg);
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      overflow: hidden;
+    }
+    .url-icon {
+      color: var(--ink-faint);
+      font-size: 11px;
+      flex-shrink: 0;
+      font-style: normal;
+    }
+    .url-text {
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      color: var(--ink-muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      flex: 1;
+    }
+
+    /* Button — matches .import-submit exactly */
+    #import-btn {
+      align-self: flex-start;
+      padding: 6px 16px;
+      border: 1px solid var(--rule-strong);
+      border-radius: 100px;
+      background: var(--bg-elev);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 0.72rem;
+      font-weight: 500;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+    }
+    #import-btn:hover:not(:disabled) {
+      background: var(--ink);
+      color: var(--bg-elev);
+      border-color: var(--ink);
+    }
+    #import-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      background: var(--bg-elev);
+      color: var(--ink);
+    }
+
+    /* Op-status row — pulsing dot + animated verb sweep, matches dashboard */
+    .op-status {
+      display: none;
+      align-items: flex-start;
+      gap: 8px;
+      font-size: 0.82rem;
+      line-height: 1.4;
+      color: var(--ink-muted);
+    }
+    .op-status.visible { display: flex; }
+
+    /* Dot */
+    .op-status::before {
+      content: "";
+      display: block;
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      flex: none;
+      margin-top: calc((1.4em - 7px) / 2);
+    }
+    .op-status-running { color: var(--busy-ink); font-style: italic; }
+    .op-status-running::before {
+      background: var(--busy-ink);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+
+    /* Verb sweep — gold shimmer glides through the italic verb */
+    .op-verb {
+      font-style: italic;
+    }
+    .op-verb-anim {
+      background-color: var(--busy-ink);
+      background-image: linear-gradient(
+        100deg,
+        var(--busy-ink)  0%,
+        var(--busy-ink) 30%,
+        #F0B548         42%,
+        #FFD24A         50%,
+        #F0B548         58%,
+        var(--busy-ink) 70%,
+        var(--busy-ink) 100%
+      );
+      background-size: 200% 100%;
+      background-repeat: repeat;
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+      animation: verb-sweep 3s linear infinite;
+    }
+    @keyframes verb-sweep {
+      from { background-position:    0% 0; }
+      to   { background-position: -200% 0; }
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.35; transform: scale(1); }
+      50%      { opacity: 1;    transform: scale(1.4); }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .op-verb-anim {
+        animation: none;
+        background: none;
+        -webkit-background-clip: initial;
+        background-clip: initial;
+        -webkit-text-fill-color: currentColor;
+        color: var(--busy-ink);
+      }
+      .op-status-running::before { animation: none; opacity: 0.7; }
+    }
+
+    /* Status panels — matches .import-status */
+    .import-status {
+      display: none;
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      font-size: 0.8rem;
+      line-height: 1.45;
+      border-left: 2px solid transparent;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .import-status.visible { display: block; }
+    .import-status-success {
+      background: var(--success-bg);
+      color: var(--success-ink);
+      border-left-color: var(--success-rule);
+    }
+    .import-status-error {
+      background: var(--error-bg);
+      color: var(--error-ink);
+      border-left-color: var(--error-rule);
+    }
+    .status-filename {
+      margin-top: 4px;
+      font-family: var(--font-mono);
+      font-size: 0.72rem;
+      opacity: 0.8;
+    }
+
+    /* Hint shown below status when import is running in background */
+    .bg-hint {
+      font-size: 0.72rem;
+      color: var(--ink-faint);
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="brand">Second Brain</div>
+
+    <div class="url-row">
+      <span class="url-icon">↗</span>
+      <span class="url-text" id="page-url">Loading…</span>
+    </div>
+
+    <button id="import-btn">Import this page</button>
+
+    <!-- Pulsar + animated verb (shown while running) -->
+    <div class="op-status op-status-running" id="op-status">
+      <span class="op-verb op-verb-anim" id="op-verb">Importing…</span>
+    </div>
+    <div class="bg-hint" id="bg-hint" style="display:none">Running in background — you can close this.</div>
+
+    <!-- Result panel (shown on success or error) -->
+    <div class="import-status" id="import-status"></div>
+  </div>
+
+  <script src="Readability.js"></script>
+  <script src="turndown.js"></script>
+  <script src="popup.js"></script>
+</body>
+</html>

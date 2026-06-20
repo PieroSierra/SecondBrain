@@ -1,0 +1,1312 @@
+#!/usr/bin/env python3
+"""Second Brain dashboard bridge.
+
+Thin local HTTP proxy from the browser to the `claude` CLI.
+
+Responsibilities:
+  - Serve the static dashboard (index.html, styles.css, app.js, lib/*).
+  - On POST /run, look up `kind` in PROMPT_TEMPLATES, exec `claude -p ...
+    --output-format json`, and forward the JSON to the page.
+  - On GET /status (future story), read the filesystem.
+
+Non-responsibilities (deliberate):
+  - No KB logic. The bridge never parses the model's `result` text to make
+    decisions. The PROMPT_TEMPLATES dict is the only KB-aware code here.
+  - No persisted state. No DB, no cache, no log file beyond a single run.
+  - No external binary other than `claude`. No shell=True.
+
+Spec: specs/002-interactive-dashboard/plan.md
+Contract: specs/002-interactive-dashboard/contracts/bridge-http.md
+"""
+
+from __future__ import annotations
+
+import argparse
+import http.server
+import json
+import mimetypes
+import os
+import re
+import subprocess
+import sys
+import threading
+import time
+import urllib.parse
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Paths & constants
+# ---------------------------------------------------------------------------
+
+VAULT_ROOT = Path(__file__).resolve().parent.parent
+DASHBOARD_DIR = VAULT_ROOT / "dashboard"
+OUTPUTS_DIR = VAULT_ROOT / "outputs"
+RAW_DIR = VAULT_ROOT / "raw"
+
+DEFAULT_PORT = 4173
+
+
+def _load_env_file() -> None:
+    """Load .env from vault root into os.environ.
+
+    Uses setdefault so real environment variables always take precedence,
+    allowing per-shell overrides without editing this file.
+    """
+    env_path = VAULT_ROOT / ".env"
+    if not env_path.exists():
+        return
+    try:
+        for line in env_path.read_text().splitlines():
+            line = line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if "=" in line:
+                key, _, value = line.partition("=")
+                os.environ.setdefault(key.strip(), value.strip())
+    except OSError:
+        pass
+
+
+_load_env_file()
+
+# Override via CLAUDE_BIN env var or a .env file at the vault root.
+CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
+_CRAFT_ENABLED = os.environ.get("CRAFT_ENABLED", "").lower() in ("1", "true", "yes")
+
+# ---------------------------------------------------------------------------
+# Skill prompt templates — the only KB-aware code in this file.
+#
+# Each entry has:
+#   build      : callable (args_dict) -> prompt_str, raises KeyError on missing args
+#   timeout    : seconds for subprocess.run
+#   output_glob: pattern inside outputs/ to look for after the call, or None
+#   created_in : subdir of raw/ where the skill writes new files, or None
+#   args_required: keys the page must send (validated non-empty strings)
+# ---------------------------------------------------------------------------
+
+
+def _shell_quote(s: str) -> str:
+    """Quote a string for safe inclusion inside a double-quoted argv segment.
+
+    The prompt is passed to `claude` as a single argv entry, so the only
+    concern is the double-quote characters that already wrap the value inside
+    the prompt template. We escape `\\` and `"` so the model sees a clean
+    literal string regardless of what the user typed.
+    """
+
+    return s.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _build_query(args: dict) -> str:
+    return f'/second-brain-query "{_shell_quote(args["question"])}"'
+
+
+def _build_md_add(args: dict) -> str:
+    body = args["markdown"]
+    title = (args.get("title_hint") or "").strip()
+    if title:
+        return f'/second-brain-import-md "{_shell_quote(title)}" {body}'
+    return f"/second-brain-import-md {body}"
+
+
+def _build_craft_import(args: dict) -> str:
+    folder = args["folder"].strip()
+    document = args["document"].strip()
+    return f'/second-brain-import-craft "{_shell_quote(f"{folder}/{document}")}"'
+
+
+def _build_pdf_import(args: dict) -> str:
+    # `pdf_path` is set by the bridge after the file is staged to .uploads/.
+    path = args["pdf_path"]
+    return f'/second-brain-import-pdf "{_shell_quote(path)}"'
+
+
+def _build_file_import(args: dict) -> str:
+    # `file_path` is set by the bridge after the file is staged to .uploads/.
+    path = args["file_path"]
+    return f'/second-brain-import-file "{_shell_quote(path)}"'
+
+
+_IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
+_TEXT_EXTS  = frozenset({".txt", ".md"})
+ACCEPTED_FILE_EXTS = frozenset({".pdf"}) | _IMAGE_EXTS | _TEXT_EXTS
+
+
+def _file_import_subdir(file_path: str) -> str:
+    """Return the raw/ subdirectory for a given file type ('' = raw root)."""
+    ext = Path(file_path).suffix.lower()
+    if ext == ".pdf":
+        return "pdf"
+    if ext in _IMAGE_EXTS:
+        return "images"
+    return ""   # .txt / .md → raw/ root
+
+
+def _build_wiki_edit(args: dict) -> str:
+    prompt = args["prompt"]
+    slug = args.get("slug", "")
+    if slug:
+        return f'/second-brain-edit-wiki "{_shell_quote(prompt)}" "{_shell_quote(slug)}"'
+    return f'/second-brain-edit-wiki "{_shell_quote(prompt)}"'
+
+
+def _build_web_import(args: dict) -> str:
+    """Build the slash-command prompt for web-import.
+
+    Two modes (decided by presence of optional `pasted_markdown`):
+      - URL only: `/second-brain-import-web "<url>"` → skill fetches via WebFetch.
+      - Paste fallback: appends `--pasted-markdown "<body>"` → skill skips fetch,
+        uses the body verbatim. The URL is still required and becomes `source:`.
+    """
+
+    url = args["url"].strip()
+    pasted = (args.get("pasted_markdown") or "").strip()
+    if pasted:
+        return (
+            f'/second-brain-import-web "{_shell_quote(url)}" '
+            f'--pasted-markdown "{_shell_quote(pasted)}"'
+        )
+    return f'/second-brain-import-web "{_shell_quote(url)}"'
+
+
+def _build_ingest(_args: dict) -> str:
+    return "/second-brain-ingest"
+
+
+def _build_lint(_args: dict) -> str:
+    return "/second-brain-lint"
+
+
+PROMPT_TEMPLATES: dict[str, dict] = {
+    "query": {
+        "build": _build_query,
+        "timeout": 90,
+        "output_glob": "*query*.md",
+        "created_in": None,
+        "args_required": ["question"],
+        # Last-resort lookup when the skill short-circuits without echoing
+        # the file path (same question previously answered today).
+        "fallback_finder": lambda args: _find_query_file_by_slug(args["question"]),
+    },
+    "md-add": {
+        "build": _build_md_add,
+        "timeout": 60,
+        "output_glob": None,
+        "created_in": "",  # raw/ root (paste imports)
+        "args_required": ["markdown"],
+    },
+    "craft-import": {
+        "build": _build_craft_import,
+        "timeout": 90,
+        "output_glob": None,
+        "created_in": "craft",
+        "args_required": ["folder", "document"],
+        "allowed_tools": ["mcp__claude_ai_Craft__craft_read"],
+    },
+    "pdf-import": {
+        "build": _build_pdf_import,
+        # The PDF-import skill paginates Reads at ~20 pages per batch and
+        # observed throughput is ~30 s/page on this hardware. 1800 s covers
+        # roughly a 60-page PDF; only a truly hung skill should hit it.
+        "timeout": 1800,
+        "output_glob": None,
+        "created_in": "pdf",
+        # `pdf_path` is injected by /upload-pdf, not sent by the page directly.
+        "args_required": ["pdf_path"],
+    },
+    "web-import": {
+        "build": _build_web_import,
+        # WebFetch is fast; the slow step is the model thinking on a long article.
+        # 240 s covers a 10 000-word essay without hiding hangs.
+        "timeout": 240,
+        "output_glob": None,
+        "created_in": "web",
+        # `pasted_markdown` is optional; the builder branches on its presence.
+        "args_required": ["url"],
+    },
+    "file-import": {
+        "build": _build_file_import,
+        # Same generous timeout as pdf-import: images and long PDFs both need it.
+        "timeout": 1800,
+        "output_glob": None,
+        "created_in": None,           # overridden dynamically via created_in_fn
+        "created_in_fn": _file_import_subdir,  # called at run-time with file_path
+        "args_required": ["file_path"],
+    },
+    "wiki-edit": {
+        "build": _build_wiki_edit,
+        "timeout": 180,
+        "output_glob": None,
+        "created_in": None,  # writes to wiki/, not raw/
+        "args_required": ["prompt"],
+    },
+    "ingest": {
+        "build": _build_ingest,
+        "timeout": 600,  # batch ingest of dozens of files can take a while
+        "output_glob": None,
+        "created_in": None,  # ingest writes to wiki/, not raw/
+        "args_required": [],
+    },
+    "lint": {
+        "build": _build_lint,
+        "timeout": 240,
+        "output_glob": "*lint*.md",
+        "created_in": None,
+        "args_required": [],
+    },
+}
+
+# ---------------------------------------------------------------------------
+# Long-operations mutex
+# ---------------------------------------------------------------------------
+
+
+class Busy(Exception):
+    """Raised when another long operation is already in flight."""
+
+    def __init__(self, in_flight: dict):
+        super().__init__("busy")
+        self.in_flight = in_flight
+
+
+_lock = threading.Lock()
+_in_flight: dict | None = None
+
+
+@contextmanager
+def long_op(kind: str):
+    """Acquire the global long-operation mutex without blocking.
+
+    Raises Busy if another long op is in progress.
+    """
+
+    global _in_flight
+    acquired = _lock.acquire(blocking=False)
+    if not acquired:
+        raise Busy(_in_flight or {"kind": "unknown"})
+    try:
+        _in_flight = {"kind": kind, "started_at": _now_iso()}
+        yield
+    finally:
+        _in_flight = None
+        _lock.release()
+
+
+# ---------------------------------------------------------------------------
+# Subprocess: run claude -p
+# ---------------------------------------------------------------------------
+
+
+def run_claude(prompt: str, timeout: int, allowed_tools: list[str] | None = None) -> tuple[int, dict]:
+    """Exec `claude -p <prompt> --output-format json ...`.
+
+    Returns (status_code, body_dict). status_code is 200 on success, 504 on
+    timeout, 502 on spawn failure. The body always parses cleanly as JSON
+    for the page.
+    """
+
+    argv = [
+        CLAUDE_BIN,
+        "-p",
+        prompt,
+        "--output-format",
+        "json",
+        "--permission-mode",
+        "bypassPermissions",
+        "--add-dir",
+        str(VAULT_ROOT),
+    ]
+    if allowed_tools:
+        argv += ["--allowedTools", ",".join(allowed_tools)]
+    try:
+        cp = subprocess.run(
+            argv,
+            shell=False,
+            capture_output=True,
+            text=True,
+            cwd=str(VAULT_ROOT),
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        return 502, {"error": "spawn_failed", "detail": str(exc)}
+    except subprocess.TimeoutExpired:
+        return 504, {"error": "timeout", "after_seconds": timeout}
+
+    stdout = cp.stdout or ""
+    stderr = cp.stderr or ""
+
+    try:
+        body = json.loads(stdout) if stdout.strip() else {}
+    except json.JSONDecodeError:
+        # The CLI didn't return JSON; surface the raw text so the user sees
+        # what went wrong rather than a generic error.
+        return 200, {
+            "is_error": True,
+            "result": stdout or stderr or "(no output)",
+            "_bridge_note": "claude did not return valid JSON",
+        }
+
+    if cp.returncode != 0 and not body.get("is_error"):
+        body.setdefault("is_error", True)
+        if not body.get("result"):
+            body["result"] = stderr or f"claude exited with code {cp.returncode}"
+
+    return 200, body
+
+
+# ---------------------------------------------------------------------------
+# Filesystem snapshot helpers (for output_file discovery)
+# ---------------------------------------------------------------------------
+
+
+def _snapshot(dir_: Path, pattern: str = "**/*") -> set[Path]:
+    if not dir_.exists():
+        return set()
+    return {p for p in dir_.glob(pattern) if p.is_file()}
+
+
+_OUTPUTS_PATH_RE = re.compile(
+    r"`?(outputs/[^\s`)\"']+\.md)`?",
+    re.IGNORECASE,
+)
+
+# Allowlist for slugs / filenames passed as URL path segments.
+# Permits letters, digits, hyphens, underscores, and dots (for .md extensions).
+# Critically, it does NOT allow "/" or "\", so path-traversal is impossible.
+_SAFE_FILENAME_RE = re.compile(r"^[A-Za-z0-9_\-\.]+$")
+
+
+def _extract_outputs_path(text: str) -> str | None:
+    """Find the first reference to an outputs/<file>.md path in the text."""
+
+    if not text:
+        return None
+    m = _OUTPUTS_PATH_RE.search(text)
+    if not m:
+        return None
+    rel = m.group(1)
+    candidate = (VAULT_ROOT / rel).resolve()
+    try:
+        candidate.relative_to(OUTPUTS_DIR.resolve())
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return rel
+
+
+def _slugify_question(text: str, max_len: int = 50) -> str:
+    """Lowercase, alphanumeric+hyphen, truncated. Used both for prefix
+    matching and as a normalisation step on file names."""
+
+    s = text.lower()
+    s = re.sub(r"\s+", "-", s)
+    s = re.sub(r"[^a-z0-9-]", "", s)
+    s = re.sub(r"-+", "-", s).strip("-")
+    return s[:max_len].rstrip("-")
+
+
+def _find_query_file_by_slug(question: str) -> str | None:
+    """Locate the saved file for a question when the skill short-circuited
+    with an ack that doesn't include the file path.
+
+    The skill derives its filename slug from the question's *first heading
+    or first line*, not the whole question — so the bridge can't compute
+    the exact slug. Strategy: read each `*_query-*.md` file's `# Query: …`
+    heading and find one whose heading the supplied question starts with
+    (case-insensitive, after slugifying both sides). This handles both
+    "long question, short title" and exact matches.
+    """
+
+    if not OUTPUTS_DIR.exists():
+        return None
+    q_slug = _slugify_question(question)
+    if not q_slug:
+        return None
+
+    candidates: list[tuple[float, Path]] = []
+    for p in OUTPUTS_DIR.glob("*_query-*.md"):
+        if not p.is_file():
+            continue
+        try:
+            head = p.read_text().splitlines()[:2]
+        except OSError:
+            continue
+        if not head or not head[0].startswith("# Query: "):
+            continue
+        title = head[0][len("# Query: "):].strip()
+        title_slug = _slugify_question(title, max_len=200)
+        if not title_slug:
+            continue
+        # Either side starts with the other (handles short-title /
+        # long-question and identical-question cases).
+        if q_slug.startswith(title_slug) or title_slug.startswith(q_slug):
+            candidates.append((p.stat().st_mtime, p))
+
+    if not candidates:
+        return None
+    # Most recent match wins (same question asked across multiple days).
+    candidates.sort(reverse=True)
+    return str(candidates[0][1].relative_to(VAULT_ROOT))
+
+
+def _read_saved_output(rel_path: str) -> str | None:
+    """Read a file under outputs/ (relative to vault) and return its body.
+
+    Strips the canonical `# Query: ...` heading and `*Date: YYYY-MM-DD*` line
+    so the dashboard renders the same content the user typed without the
+    skill's metadata wrapper. Returns None on any error.
+    """
+
+    try:
+        p = (VAULT_ROOT / rel_path).resolve()
+        # Refuse to read anything outside outputs/.
+        p.relative_to(OUTPUTS_DIR.resolve())
+        text = p.read_text()
+    except (OSError, ValueError):
+        return None
+
+    lines = text.split("\n")
+    # Drop a leading "# Query: ..." heading and the "*Date: ...*" line that
+    # immediately follows (with optional blank lines between them). Be
+    # conservative — only strip when both signatures are present.
+    start = 0
+    if start < len(lines) and lines[start].startswith("# Query: "):
+        start += 1
+        while start < len(lines) and lines[start].strip() == "":
+            start += 1
+        if start < len(lines) and lines[start].startswith("*Date:"):
+            start += 1
+            while start < len(lines) and lines[start].strip() == "":
+                start += 1
+    return "\n".join(lines[start:]).strip()
+
+
+def _newest_match(dir_: Path, glob: str, exclude: set[Path]) -> str | None:
+    """Return the newest file matching glob that was NOT in `exclude`.
+
+    The exclude set is captured before the skill runs; matches must be files
+    the skill actually created (or rewrote — an in-place rewrite changes
+    mtime but does not change identity, so we also accept members of exclude
+    whose mtime is newer than the snapshot would have been). For now, the
+    conservative behaviour is: only return paths newly created during this
+    call. If no such file exists, return None — never surface a stale match.
+    """
+
+    if not dir_.exists():
+        return None
+    new_matches = [p for p in dir_.glob(glob) if p.is_file() and p not in exclude]
+    if not new_matches:
+        return None
+    newest = max(new_matches, key=lambda p: p.stat().st_mtime)
+    return str(newest.relative_to(VAULT_ROOT))
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _json_response(handler: http.server.BaseHTTPRequestHandler, status: int, body: dict) -> None:
+    payload = json.dumps(body).encode("utf-8")
+    handler.send_response(status)
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Content-Type", "application/json; charset=utf-8")
+    handler.send_header("Content-Length", str(len(payload)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(payload)
+
+
+def _safe_static_path(url_path: str) -> Path | None:
+    """Resolve a /static/... URL to a path inside dashboard/, or None."""
+
+    if not url_path.startswith("/static/"):
+        return None
+    rel = url_path[len("/static/"):]
+    if not rel or rel.startswith("/"):
+        return None
+    candidate = (DASHBOARD_DIR / rel).resolve()
+    try:
+        candidate.relative_to(DASHBOARD_DIR.resolve())
+    except ValueError:
+        return None
+    if not candidate.is_file():
+        return None
+    return candidate
+
+
+def _format_prompt(kind: str, args: dict) -> tuple[str | None, dict | None]:
+    """Return (prompt, None) on success or (None, error_dict) on failure."""
+
+    cfg = PROMPT_TEMPLATES[kind]
+    for required in cfg["args_required"]:
+        value = args.get(required)
+        if not isinstance(value, str) or not value.strip():
+            return None, {
+                "error": "bad_request",
+                "detail": f"missing or empty arg: {required}",
+            }
+    try:
+        prompt = cfg["build"](args)
+    except KeyError as exc:
+        return None, {"error": "bad_request", "detail": f"missing arg: {exc}"}
+    return prompt, None
+
+
+# ---------------------------------------------------------------------------
+# Vault status (filesystem-only, never spawns claude)
+# ---------------------------------------------------------------------------
+#
+# `GET /status` returns a snapshot of vault counts and last-ingest time.
+# Source of truth for "pending":
+#   - `raw/.ingest-manifest.json` has shape: { "<rel-path>": {last_modified, ingested_at}, ... }
+#   - A user-facing raw file is "pending" iff:
+#       (a) it is not in the manifest at all, OR
+#       (b) its current filesystem mtime > the manifest's ingested_at
+# "User-facing raw files" are: raw/*.md, raw/pdf/**/*.md, raw/craft/**/*.md.
+# We deliberately ignore *.assets/ contents and the manifest itself.
+
+WIKI_DIR = VAULT_ROOT / "wiki"
+INGEST_MANIFEST = RAW_DIR / ".ingest-manifest.json"
+
+# Tolerate small clock skew between filesystem mtime and manifest timestamps
+# (e.g. when the skill writes the manifest a fraction of a second before the
+# file is closed). Without this, files would always look "pending" by a few
+# hundred ms after every ingest.
+_MTIME_SLACK = timedelta(seconds=1)
+
+
+def _raw_user_files() -> dict[str, Path]:
+    """Return {relative_path: Path} for every user-facing file in raw/."""
+
+    out: dict[str, Path] = {}
+    if not RAW_DIR.exists():
+        return out
+    for p in RAW_DIR.rglob("*"):
+        if not p.is_file():
+            continue
+        # Skip dotfiles (.DS_Store, .ingest-manifest.json, etc.) at any level.
+        if any(part.startswith(".") for part in p.relative_to(RAW_DIR).parts):
+            continue
+        rel = p.relative_to(VAULT_ROOT).as_posix()
+        # Skip image/asset attachments — the manifest tracks them but they
+        # are not user-facing "raw items".
+        if ".assets/" in rel or rel.endswith(".assets"):
+            continue
+        out[rel] = p
+    return out
+
+
+def _vault_status() -> dict:
+    """Build the VaultStatus payload. Never raises — degraded fields are null."""
+
+    # wiki article count
+    wiki_count = 0
+    if WIKI_DIR.exists():
+        wiki_count = sum(
+            1 for p in WIKI_DIR.glob("*.md") if p.is_file() and p.name != "INDEX.md"
+        )
+
+    # outputs counts
+    def _glob_count(pattern: str) -> int:
+        if not OUTPUTS_DIR.exists():
+            return 0
+        return sum(1 for _ in OUTPUTS_DIR.glob(pattern))
+
+    outputs_query_count = _glob_count("*query*.md")
+    outputs_lint_count = _glob_count("*lint*.md")
+
+    # raw breakdown — counts of user-facing markdown files.
+    paste_count = 0
+    pdf_count = 0
+    web_count = 0
+    craft_count = 0
+    if RAW_DIR.exists():
+        paste_count = sum(
+            1 for p in RAW_DIR.glob("*.md") if p.is_file()
+        )
+        pdf_dir = RAW_DIR / "pdf"
+        if pdf_dir.exists():
+            pdf_count = sum(1 for p in pdf_dir.glob("*.md") if p.is_file())
+        web_dir = RAW_DIR / "web"
+        if web_dir.exists():
+            web_count = sum(1 for p in web_dir.glob("*.md") if p.is_file())
+        craft_dir = RAW_DIR / "craft"
+        if craft_dir.exists():
+            craft_count = sum(1 for p in craft_dir.glob("*.md") if p.is_file())
+
+    # Load manifest (degrade gracefully).
+    manifest: dict[str, dict] = {}
+    manifest_ok = False
+    if INGEST_MANIFEST.exists():
+        try:
+            manifest = json.loads(INGEST_MANIFEST.read_text())
+            if not isinstance(manifest, dict):
+                manifest = {}
+            else:
+                manifest_ok = True
+        except (OSError, json.JSONDecodeError):
+            manifest = {}
+
+    # Pending count
+    raw_files = _raw_user_files()
+    pending = 0
+    if manifest_ok:
+        for rel, p in raw_files.items():
+            entry = manifest.get(rel)
+            if not isinstance(entry, dict):
+                pending += 1
+                continue
+            ingested_at_str = entry.get("ingested_at")
+            if not ingested_at_str:
+                pending += 1
+                continue
+            try:
+                ingested_at = datetime.fromisoformat(ingested_at_str.replace("Z", "+00:00"))
+            except ValueError:
+                pending += 1
+                continue
+            file_mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
+            if file_mtime > ingested_at + _MTIME_SLACK:
+                pending += 1
+    else:
+        # No manifest = "everything is pending" view from the user's perspective.
+        pending = len(raw_files)
+
+    # last_ingest_iso
+    last_ingest_iso: str | None = None
+    last_ingest_source = "none"
+    if manifest_ok and manifest:
+        ts_values: list[datetime] = []
+        for entry in manifest.values():
+            if not isinstance(entry, dict):
+                continue
+            s = entry.get("ingested_at")
+            if not s:
+                continue
+            try:
+                ts_values.append(datetime.fromisoformat(s.replace("Z", "+00:00")))
+            except ValueError:
+                continue
+        if ts_values:
+            last_ingest_iso = max(ts_values).isoformat(timespec="seconds")
+            last_ingest_source = "manifest"
+
+    if last_ingest_iso is None:
+        index_md = WIKI_DIR / "INDEX.md"
+        if index_md.exists():
+            last_ingest_iso = datetime.fromtimestamp(
+                index_md.stat().st_mtime, tz=timezone.utc
+            ).isoformat(timespec="seconds")
+            last_ingest_source = "mtime"
+
+    return {
+        "wiki_article_count": wiki_count,
+        "raw_pending_count": pending,
+        "raw_breakdown": {
+            "paste": paste_count,
+            "pdf": pdf_count,
+            "web": web_count,
+            "craft": craft_count,
+        },
+        "outputs_query_count": outputs_query_count,
+        "outputs_lint_count": outputs_lint_count,
+        "last_ingest_iso": last_ingest_iso,
+        "last_ingest_source": last_ingest_source,
+    }
+
+
+def _wiki_list() -> list:
+    """Return [{slug, title, mtime_iso}] for all wiki articles, sorted by title.
+
+    INDEX.md is excluded from the list (it has its own nav entry) but remains
+    accessible via GET /wiki/INDEX.
+    """
+
+    if not WIKI_DIR.exists():
+        return []
+    result = []
+    for p in WIKI_DIR.glob("*.md"):
+        if not p.is_file() or p.name == "INDEX.md":
+            continue
+        slug = p.stem
+        title = slug.replace("-", " ").title()
+        try:
+            for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                stripped = line.strip()
+                if stripped.startswith("# "):
+                    title = stripped[2:].strip()
+                    break
+        except OSError:
+            pass
+        mtime = datetime.fromtimestamp(
+            p.stat().st_mtime, tz=timezone.utc
+        ).isoformat(timespec="seconds")
+        result.append({"slug": slug, "title": title, "mtime_iso": mtime})
+    result.sort(key=lambda x: x["title"].lower())
+    return result
+
+
+def _outputs_list() -> list:
+    """Return [{filename, date_iso, kind, title}] for all outputs, newest first."""
+
+    if not OUTPUTS_DIR.exists():
+        return []
+    _PAT = re.compile(r"^(\d{4}-\d{2}-\d{2})_(query|lint)(?:-(.+))?\.md$")
+    result = []
+    for p in OUTPUTS_DIR.glob("*.md"):
+        if not p.is_file():
+            continue
+        m = _PAT.match(p.name)
+        if not m:
+            continue
+        date_str = m.group(1)
+        kind = m.group(2)
+        slug = m.group(3) or ""
+        if kind == "lint":
+            title = "Lint report"
+        else:
+            raw = slug.replace("-", " ")
+            title = raw[:1].upper() + raw[1:] if raw else "Query"
+        result.append({
+            "filename": p.name,
+            "date_iso": date_str,
+            "kind": kind,
+            "title": title,
+            "_mtime": p.stat().st_mtime,
+        })
+    result.sort(key=lambda x: x["_mtime"], reverse=True)
+    for item in result:
+        del item["_mtime"]
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Multipart upload parser (RFC 7578 subset)
+# ---------------------------------------------------------------------------
+#
+# We accept a single file field. We do NOT use cgi.FieldStorage — it was
+# removed in Python 3.13 and absent on 3.14. We also do NOT use the
+# email.parser machinery, which decodes payloads as text and corrupts
+# binary content. Instead: split the raw bytes on the boundary, and read
+# the first file part.
+
+
+class UploadError(Exception):
+    pass
+
+
+def _parse_multipart_pdf(content_type: str, raw: bytes) -> tuple[str, bytes]:
+    """Extract (filename, body_bytes) from a multipart upload.
+
+    Raises UploadError(detail) with a human-readable message on any failure.
+    """
+
+    if not content_type:
+        raise UploadError("missing Content-Type")
+    if "multipart/form-data" not in content_type.lower():
+        raise UploadError("Content-Type must be multipart/form-data")
+
+    boundary = None
+    for part in content_type.split(";"):
+        part = part.strip()
+        if part.lower().startswith("boundary="):
+            boundary = part[len("boundary="):].strip().strip('"')
+            break
+    if not boundary:
+        raise UploadError("multipart boundary missing")
+
+    sep = b"--" + boundary.encode("ascii")
+    chunks = raw.split(sep)
+    # chunks[0] is the preamble, last is the closing "--\r\n" — both ignored.
+    for chunk in chunks[1:-1]:
+        # Each chunk starts with \r\n and ends with \r\n.
+        chunk = chunk.lstrip(b"\r\n")
+        if not chunk:
+            continue
+        header_end = chunk.find(b"\r\n\r\n")
+        if header_end < 0:
+            continue
+        headers_blob = chunk[:header_end].decode("utf-8", errors="replace")
+        body = chunk[header_end + 4 : -2]  # strip trailing \r\n
+
+        disposition = ""
+        for line in headers_blob.split("\r\n"):
+            if line.lower().startswith("content-disposition:"):
+                disposition = line.split(":", 1)[1].strip()
+                break
+        if "filename=" not in disposition:
+            continue  # not the file part
+
+        filename = ""
+        for piece in disposition.split(";"):
+            piece = piece.strip()
+            if piece.lower().startswith("filename="):
+                filename = piece[len("filename="):].strip().strip('"')
+                break
+        return filename, body
+
+    raise UploadError("no file part found in multipart body")
+
+
+def _stage_pdf(filename: str, body: bytes) -> Path:
+    """Validate and write the uploaded PDF to dashboard/.uploads/."""
+
+    if not filename.lower().endswith(".pdf"):
+        raise UploadError("not a PDF (filename must end in .pdf)")
+    if not body.startswith(b"%PDF-"):
+        raise UploadError("not a PDF (missing %PDF- header)")
+    uploads = DASHBOARD_DIR / ".uploads"
+    uploads.mkdir(exist_ok=True)
+    # Preserve the original stem so the skill's content-match dedup (which
+    # works off the staged filename's slug) recognises a re-upload of the
+    # same document as already-imported. Single-user bridge — back-to-back
+    # uploads with the same filename are vanishingly unlikely.
+    stem = Path(filename).stem or "upload"
+    safe_stem = "".join(c for c in stem if c.isalnum() or c in "-_.").strip("-._")
+    if not safe_stem:
+        safe_stem = "upload"
+    target = uploads / f"{safe_stem}.pdf"
+    target.write_bytes(body)
+    return target
+
+
+def _stage_file(filename: str, body: bytes) -> Path:
+    """Validate and write any accepted file to dashboard/.uploads/."""
+
+    ext = Path(filename).suffix.lower()
+    if ext not in ACCEPTED_FILE_EXTS:
+        raise UploadError(
+            f"unsupported file type: {ext}. Accepted: "
+            + ", ".join(sorted(ACCEPTED_FILE_EXTS))
+        )
+    uploads = DASHBOARD_DIR / ".uploads"
+    uploads.mkdir(exist_ok=True)
+    stem = Path(filename).stem or "upload"
+    safe_stem = "".join(c for c in stem if c.isalnum() or c in "-_.").strip("-._")
+    if not safe_stem:
+        safe_stem = "upload"
+    target = uploads / f"{safe_stem}{ext}"
+    target.write_bytes(body)
+    return target
+
+
+# ---------------------------------------------------------------------------
+# HTTP handler
+# ---------------------------------------------------------------------------
+
+
+class DashboardHandler(http.server.BaseHTTPRequestHandler):
+    server_version = "SecondBrainDashboard/0.1"
+
+    # Quiet the default request log; use sys.stderr ourselves below.
+    def log_message(self, format: str, *args) -> None:  # noqa: A002
+        sys.stderr.write("[bridge] %s - %s\n" % (self.address_string(), format % args))
+
+    # ----- CORS preflight (Chrome extension → localhost) ------------------
+
+    def do_OPTIONS(self) -> None:  # noqa: N802
+        self.send_response(204)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    # ----- GET ------------------------------------------------------------
+
+    def do_GET(self) -> None:  # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        if path == "/":
+            return self._serve_file(DASHBOARD_DIR / "index.html")
+        if path.startswith("/static/"):
+            resolved = _safe_static_path(path)
+            if resolved is None:
+                return self._not_found()
+            return self._serve_file(resolved)
+        if path == "/healthz":
+            return _json_response(self, 200, {"ok": True})
+        if path == "/config":
+            return _json_response(self, 200, {"vault_root": str(VAULT_ROOT), "craft_enabled": _CRAFT_ENABLED})
+        if path == "/status":
+            return _json_response(self, 200, _vault_status())
+        if path == "/wiki":
+            return _json_response(self, 200, _wiki_list())
+        if path.startswith("/wiki/") and len(path) > 6:
+            return self._serve_wiki_article(path[6:])
+        if path == "/outputs":
+            return _json_response(self, 200, _outputs_list())
+        if path.startswith("/outputs/") and len(path) > 9:
+            return self._serve_output_file(path[9:])
+
+        self._not_found()
+
+    # ----- POST -----------------------------------------------------------
+
+    def do_POST(self) -> None:  # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        if path == "/run":
+            return self._handle_run()
+        if path == "/upload-pdf":
+            return self._handle_upload_pdf()
+        if path == "/upload-file":
+            return self._handle_upload_file()
+
+        self._not_found()
+
+    # ----- handlers -------------------------------------------------------
+
+    def _handle_upload_pdf(self) -> None:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length <= 0:
+            return _json_response(
+                self, 400, {"error": "bad_request", "detail": "empty body"}
+            )
+        # Cap at 64 MB to avoid the page accidentally posting something huge.
+        if length > 64 * 1024 * 1024:
+            return _json_response(
+                self,
+                413,
+                {"error": "too_large", "detail": "PDF over 64 MB not supported"},
+            )
+
+        raw = self.rfile.read(length)
+        try:
+            filename, body = _parse_multipart_pdf(
+                self.headers.get("Content-Type", ""), raw
+            )
+            tempfile_path = _stage_pdf(filename, body)
+        except UploadError as exc:
+            return _json_response(
+                self, 400, {"error": "not_a_pdf", "detail": str(exc)}
+            )
+
+        try:
+            cfg = PROMPT_TEMPLATES["pdf-import"]
+            pdf_args = {"pdf_path": str(tempfile_path)}
+            prompt = cfg["build"](pdf_args)
+            envelope = self._run_kind("pdf-import", prompt, cfg, pdf_args)
+        finally:
+            try:
+                tempfile_path.unlink()
+            except OSError:
+                pass
+
+        status_code = envelope.pop("__status__", 200)
+        _json_response(self, status_code, envelope)
+
+    def _handle_upload_file(self) -> None:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length <= 0:
+            return _json_response(
+                self, 400, {"error": "bad_request", "detail": "empty body"}
+            )
+        if length > 64 * 1024 * 1024:
+            return _json_response(
+                self,
+                413,
+                {"error": "too_large", "detail": "File over 64 MB not supported"},
+            )
+
+        raw = self.rfile.read(length)
+        try:
+            filename, body = _parse_multipart_pdf(
+                self.headers.get("Content-Type", ""), raw
+            )
+            tempfile_path = _stage_file(filename, body)
+        except UploadError as exc:
+            return _json_response(
+                self, 400, {"error": "bad_file", "detail": str(exc)}
+            )
+
+        try:
+            cfg = PROMPT_TEMPLATES["file-import"]
+            file_args = {"file_path": str(tempfile_path)}
+            prompt = cfg["build"](file_args)
+            envelope = self._run_kind("file-import", prompt, cfg, file_args)
+        finally:
+            try:
+                tempfile_path.unlink()
+            except OSError:
+                pass
+
+        status_code = envelope.pop("__status__", 200)
+        _json_response(self, status_code, envelope)
+
+    def _handle_run(self) -> None:
+        body = self._read_json_body()
+        if body is None:
+            return  # response already sent
+
+        kind = body.get("kind")
+        args = body.get("args") or {}
+        if kind not in PROMPT_TEMPLATES:
+            return _json_response(
+                self,
+                400,
+                {"error": "bad_request", "detail": f"unknown kind: {kind!r}"},
+            )
+        if kind == "pdf-import":
+            return _json_response(
+                self,
+                400,
+                {
+                    "error": "bad_request",
+                    "detail": "pdf-import requires multipart upload — POST /upload-pdf",
+                },
+            )
+        if kind == "file-import":
+            return _json_response(
+                self,
+                400,
+                {
+                    "error": "bad_request",
+                    "detail": "file-import requires multipart upload — POST /upload-file",
+                },
+            )
+
+        prompt, err = _format_prompt(kind, args)
+        if err is not None:
+            return _json_response(self, 400, err)
+
+        cfg = PROMPT_TEMPLATES[kind]
+        envelope = self._run_kind(kind, prompt, cfg, args)
+        status_code = envelope.pop("__status__", 200)
+        _json_response(self, status_code, envelope)
+
+    def _run_kind(self, kind: str, prompt: str, cfg: dict, args: dict | None = None) -> dict:
+        """Acquire the mutex, run the skill, and return the response envelope.
+
+        The envelope includes a private `__status__` key the caller pops to
+        send the right HTTP code (200/409/504/502).
+        """
+        args = args or {}
+
+        before_outputs = _snapshot(OUTPUTS_DIR) if cfg.get("output_glob") else set()
+        scoped_raw_dir = None
+        if cfg.get("created_in_fn") and args:
+            sub = cfg["created_in_fn"](args.get("file_path", ""))
+            scoped_raw_dir = RAW_DIR if sub == "" else (RAW_DIR / sub)
+        elif cfg.get("created_in") is not None:
+            sub = cfg["created_in"]
+            scoped_raw_dir = RAW_DIR if sub == "" else (RAW_DIR / sub)
+        before_raw = _snapshot(scoped_raw_dir, "*") if scoped_raw_dir else set()
+
+        try:
+            with long_op(kind):
+                status, result = run_claude(prompt, timeout=cfg["timeout"], allowed_tools=cfg.get("allowed_tools"))
+        except Busy as busy:
+            return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
+
+        if status != 200:
+            return {"__status__": status, **result, "kind": kind}
+
+        output_file = None
+        if cfg.get("output_glob"):
+            output_file = _newest_match(OUTPUTS_DIR, cfg["output_glob"], before_outputs)
+
+        # If no new file was created but the skill's reply references an
+        # existing outputs/<file>.md path (which happens when the same query
+        # runs twice in a day and the skill short-circuits), surface that
+        # path. If the reply doesn't even mention a path, fall back to a
+        # slug-based lookup using the original arg (e.g. the question text).
+        result_text = result.get("result", "") or ""
+        if output_file is None and cfg.get("output_glob"):
+            output_file = _extract_outputs_path(result_text)
+        if output_file is None and cfg.get("fallback_finder"):
+            try:
+                output_file = cfg["fallback_finder"](args)
+            except (KeyError, OSError):
+                output_file = None
+
+        created_files = []
+        if scoped_raw_dir and scoped_raw_dir.exists():
+            after = _snapshot(scoped_raw_dir, "*")
+            created_files = sorted(
+                str(p.relative_to(VAULT_ROOT)) for p in (after - before_raw)
+            )
+
+        # The skill's contract (second-brain-query Step 7, second-brain-lint
+        # equivalent) is that the saved file IS the canonical record. The
+        # in-conversation reply is supposed to mirror it, but the model
+        # sometimes elides to an "Answer saved to: …" ack — and a previous
+        # length-based heuristic guessed wrong on terse answers. Just always
+        # prefer the file body when one resolves. The bridge is reading what
+        # the skill already wrote; no synthesis.
+        if output_file:
+            file_body = _read_saved_output(output_file)
+            if file_body:
+                result = {**result, "result": file_body}
+
+        return {
+            "__status__": 200,
+            **result,
+            "kind": kind,
+            "output_file": output_file,
+            "created_files": created_files,
+        }
+
+    # ----- helpers --------------------------------------------------------
+
+    def _read_json_body(self) -> dict | None:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length <= 0:
+            _json_response(self, 400, {"error": "bad_request", "detail": "empty body"})
+            return None
+        raw = self.rfile.read(length)
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            _json_response(self, 400, {"error": "bad_request", "detail": f"invalid JSON: {exc}"})
+            return None
+        if not isinstance(data, dict):
+            _json_response(self, 400, {"error": "bad_request", "detail": "body must be a JSON object"})
+            return None
+        return data
+
+    def _serve_file(self, path: Path) -> None:
+        if not path.is_file():
+            return self._not_found()
+        ctype, _ = mimetypes.guess_type(str(path))
+        if ctype is None:
+            ctype = "application/octet-stream"
+        # Treat .js as a module-friendly mime; some old guesses return text/plain.
+        if path.suffix == ".js":
+            ctype = "application/javascript; charset=utf-8"
+        if path.suffix in (".html", ".css"):
+            ctype = f"{ctype}; charset=utf-8"
+        data = path.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_text_file(self, path: Path) -> None:
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return self._not_found()
+        self.send_response(200)
+        self.send_header("Access-Control-Allow-Origin", "*")
+        self.send_header("Content-Type", "text/plain; charset=utf-8")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def _serve_wiki_article(self, slug: str) -> None:
+        if not _SAFE_FILENAME_RE.fullmatch(slug) or "/" in slug or "\\" in slug:
+            return _json_response(self, 404, {"error": "not_found"})
+        p = WIKI_DIR / f"{slug}.md"
+        try:
+            resolved = p.resolve()
+            resolved.relative_to(WIKI_DIR.resolve())
+        except ValueError:
+            return _json_response(self, 404, {"error": "not_found"})
+        if not resolved.is_file():
+            return _json_response(self, 404, {"error": "not_found", "detail": f"no article: {slug}"})
+        self._serve_text_file(resolved)
+
+    def _serve_output_file(self, filename: str) -> None:
+        if not _SAFE_FILENAME_RE.fullmatch(filename) or "/" in filename or "\\" in filename:
+            return _json_response(self, 404, {"error": "not_found"})
+        p = OUTPUTS_DIR / filename
+        try:
+            resolved = p.resolve()
+            resolved.relative_to(OUTPUTS_DIR.resolve())
+        except ValueError:
+            return _json_response(self, 404, {"error": "not_found"})
+        if not resolved.is_file():
+            return _json_response(self, 404, {"error": "not_found", "detail": f"no output: {filename}"})
+        self._serve_text_file(resolved)
+
+    def _not_found(self) -> None:
+        _json_response(self, 404, {"error": "not_found", "detail": self.path})
+
+
+# ---------------------------------------------------------------------------
+# Startup
+# ---------------------------------------------------------------------------
+
+
+def _clean_uploads() -> None:
+    uploads = DASHBOARD_DIR / ".uploads"
+    if not uploads.exists():
+        return
+    for p in uploads.iterdir():
+        if p.name == ".gitignore":
+            continue
+        try:
+            p.unlink()
+        except OSError:
+            pass
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="Second Brain dashboard bridge")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=DEFAULT_PORT,
+        help=f"Port to bind on 127.0.0.1 (default {DEFAULT_PORT})",
+    )
+    parser.add_argument(
+        "--no-open",
+        action="store_true",
+        help="Do not auto-open the browser on startup",
+    )
+    parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="Host to bind. Refuses anything other than localhost.",
+    )
+    args = parser.parse_args(argv)
+
+    if args.host not in ("127.0.0.1", "localhost"):
+        sys.stderr.write(
+            f"refusing to bind to {args.host!r}: dashboard is localhost-only\n"
+        )
+        return 2
+
+    _clean_uploads()
+
+    server = http.server.ThreadingHTTPServer((args.host, args.port), DashboardHandler)
+    url = f"http://{args.host}:{args.port}/"
+    sys.stderr.write(f"Second Brain dashboard listening on {url}\n")
+    sys.stderr.write(f"Vault: {VAULT_ROOT}\n")
+
+    if not args.no_open and sys.platform == "darwin":
+        try:
+            subprocess.Popen(
+                ["open", url],
+                shell=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError:
+            pass
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        sys.stderr.write("\nShutting down.\n")
+        server.server_close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
