@@ -192,7 +192,7 @@ PROMPT_TEMPLATES: dict[str, dict] = {
     },
     "md-add": {
         "build": _build_md_add,
-        "timeout": 60,
+        "timeout": 180,
         "output_glob": None,
         "created_in": "",  # raw/ root (paste imports)
         "args_required": ["markdown"],
