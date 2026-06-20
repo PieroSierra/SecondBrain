@@ -1,5 +1,5 @@
 
-![[dashboard/chrome-extension/icon-128.png]]
+![Second Brain](dashboard/chrome-extension/icon-128.png)
 # Second Brain
 A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — either through Claude Code **slash commands** or a **local web dashboard**.
 
@@ -79,7 +79,7 @@ You can also drop files directly into `raw/` — a `.md` note, a PDF, even an im
 
 The dashboard is a local web UI that surfaces the same six operations without opening a terminal.
 
-![[dashboard/dashboard_sample.png]]
+![Dashboard screenshot](dashboard/dashboard_sample.png)
 
 ### Start
 
