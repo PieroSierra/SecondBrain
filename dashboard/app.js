@@ -12,8 +12,23 @@
 
 const $ = (sel, root = document) => root.querySelector(sel);
 
+// Bridge CSRF token — injected into the index.html <meta> server-side and
+// readable only by same-origin scripts. Sent on every bridge request so the
+// bridge can distinguish the real dashboard from a cross-origin forgery.
+const BRIDGE_TOKEN =
+  document.querySelector('meta[name="bridge-token"]')?.content || "";
+
+// fetch() wrapper that attaches the bridge token. Use for ALL same-origin
+// bridge calls (GET and POST); the bridge rejects unauthenticated requests
+// to every endpoint except the static shell.
+function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (BRIDGE_TOKEN) headers.set("X-Bridge-Token", BRIDGE_TOKEN);
+  return fetch(path, { ...options, headers });
+}
+
 async function postJSON(path, body) {
-  const res = await fetch(path, {
+  const res = await apiFetch(path, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -28,7 +43,7 @@ async function postJSON(path, body) {
 }
 
 async function postMultipart(path, formData) {
-  const res = await fetch(path, { method: "POST", body: formData });
+  const res = await apiFetch(path, { method: "POST", body: formData });
   let data;
   try {
     data = await res.json();
@@ -40,7 +55,30 @@ async function postMultipart(path, formData) {
 
 // --- Markdown rendering ---------------------------------------------------
 
-// marked is loaded globally via <script src="/static/lib/marked.min.js">.
+// Escape HTML special chars so untrusted text can't break out of an
+// attribute or inject markup.
+function escapeHtml(s) {
+  return String(s).replace(
+    /[&<>"']/g,
+    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]),
+  );
+}
+
+// Sanitise rendered HTML before it ever reaches innerHTML. marked does NOT
+// sanitise — wiki/query/output content is partly derived from imported web
+// pages, so a poisoned article could otherwise smuggle <script>/onerror into
+// the dashboard (same origin as the bridge). DOMPurify strips all of that;
+// the CSP header is the second line of defence.
+function sanitizeHtml(html) {
+  if (typeof window.DOMPurify !== "undefined") {
+    return window.DOMPurify.sanitize(html);
+  }
+  // DOMPurify failed to load — fail closed by neutralising markup entirely
+  // rather than rendering unsanitised HTML.
+  return escapeHtml(html);
+}
+
+// marked + DOMPurify are loaded globally via <script src="/static/lib/...">.
 function renderMarkdown(md, { clickableWikilinks = false } = {}) {
   if (!md) return "";
   if (typeof window.marked === "undefined") {
@@ -50,17 +88,31 @@ function renderMarkdown(md, { clickableWikilinks = false } = {}) {
     return pre.outerHTML;
   }
   // Highlight [[wikilink]] tokens. In the wiki viewer they become clickable
-  // <a> tags; elsewhere they're non-interactive <span> chips.
+  // <a> tags; elsewhere they're non-interactive <span> chips. The captured
+  // name is HTML-escaped so a crafted [[...]] can't inject markup.
   const withWikilinks = clickableWikilinks
     ? md.replace(
         /\[\[([^\]\n]+)\]\]/g,
-        (_, name) => `<a class="wikilink" href="#" data-wiki-slug="${name}">${name}</a>`,
+        (_, name) => `<a class="wikilink" href="#" data-wiki-slug="${escapeHtml(name)}">${escapeHtml(name)}</a>`,
       )
     : md.replace(
         /\[\[([^\]\n]+)\]\]/g,
-        (_, name) => `<span class="wikilink">${name}</span>`,
+        (_, name) => `<span class="wikilink">${escapeHtml(name)}</span>`,
       );
-  return window.marked.parse(withWikilinks, { gfm: true, breaks: false });
+  const html = window.marked.parse(withWikilinks, { gfm: true, breaks: false });
+  return sanitizeHtml(html);
+}
+
+// Render a "could not load" message without using innerHTML on a template
+// string (which would interpolate err.message into markup). Colour is set via
+// the CSSOM, which CSP does not restrict.
+function showLoadError(bodyEl, message) {
+  if (!bodyEl) return;
+  bodyEl.textContent = "";
+  const p = document.createElement("p");
+  p.textContent = `Could not load: ${message}`;
+  p.style.color = "var(--error-ink)";
+  bodyEl.appendChild(p);
 }
 
 // --- Op-status (per-form running / done / error) -------------------------
@@ -248,7 +300,7 @@ let _configLoaded = false;
 async function ensureConfig() {
   if (_configLoaded) return;
   try {
-    const res = await fetch("/config");
+    const res = await apiFetch("/config");
     if (!res.ok) return;
     const data = await res.json();
     VAULT_ROOT = data.vault_root || "";
@@ -286,7 +338,7 @@ async function refreshStatus() {
   const ctrl = new AbortController();
   const timer = window.setTimeout(() => ctrl.abort(), 2000);
   try {
-    const res = await fetch("/status", { signal: ctrl.signal });
+    const res = await apiFetch("/status", { signal: ctrl.signal });
     if (!res.ok) return;
     const data = await res.json();
     applyStatus(data);
@@ -1220,7 +1272,7 @@ async function loadOutputsList(force = false) {
   const container = document.getElementById("nav-outputs-list");
   if (!container) return;
   try {
-    const res = await fetch("/outputs");
+    const res = await apiFetch("/outputs");
     if (!res.ok) return;
     const items = await res.json();
     if (!Array.isArray(items)) return;
@@ -1277,15 +1329,13 @@ async function openOutput(filename, title, date, kind) {
   }
 
   try {
-    const res = await fetch(`/outputs/${encodeURIComponent(filename)}`);
+    const res = await apiFetch(`/outputs/${encodeURIComponent(filename)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const md = await res.text();
     if (bodyEl)    bodyEl.innerHTML           = renderMarkdown(md);
     if (contentEl) contentEl.dataset.markdown = md;
   } catch (err) {
-    if (bodyEl) {
-      bodyEl.innerHTML = `<p style="color:var(--error-ink)">Could not load: ${err.message}</p>`;
-    }
+    showLoadError(bodyEl, err.message);
   }
 }
 
@@ -1296,7 +1346,7 @@ async function loadWikiList() {
   const container = document.getElementById("nav-wiki-list");
   if (!container) return;
   try {
-    const res = await fetch("/wiki");
+    const res = await apiFetch("/wiki");
     if (!res.ok) return;
     const items = await res.json();
     if (!Array.isArray(items)) return;
@@ -1347,7 +1397,7 @@ async function openWikiArticle(slug, displayTitle) {
   if (wikiEditImpSt) { wikiEditImpSt.hidden = true; wikiEditImpSt.className = "import-status"; }
 
   try {
-    const res = await fetch(`/wiki/${encodeURIComponent(slug)}`);
+    const res = await apiFetch(`/wiki/${encodeURIComponent(slug)}`);
     if (!res.ok) throw new Error(`Article not found: ${slug}`);
     const md = await res.text();
     if (bodyEl) {
@@ -1358,9 +1408,7 @@ async function openWikiArticle(slug, displayTitle) {
     }
     panel.dataset.markdown = md;
   } catch (err) {
-    if (bodyEl) {
-      bodyEl.innerHTML = `<p style="color:var(--error-ink)">Could not load: ${err.message}</p>`;
-    }
+    showLoadError(bodyEl, err.message);
   }
 }
 

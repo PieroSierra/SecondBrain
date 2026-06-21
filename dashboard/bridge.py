@@ -27,6 +27,7 @@ import json
 import mimetypes
 import os
 import re
+import secrets
 import subprocess
 import sys
 import threading
@@ -74,6 +75,112 @@ _load_env_file()
 # Override via CLAUDE_BIN env var or a .env file at the vault root.
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
 _CRAFT_ENABLED = os.environ.get("CRAFT_ENABLED", "").lower() in ("1", "true", "yes")
+
+# ---------------------------------------------------------------------------
+# Security: CSRF gate
+# ---------------------------------------------------------------------------
+#
+# The bridge binds to 127.0.0.1, but "localhost-only" is NOT a security
+# boundary on its own: any web page the user visits can issue a cross-origin
+# fetch() to http://127.0.0.1:<port>/run and trigger a skill. Because each
+# skill runs the `claude` CLI with file-system access, that is a real RCE
+# vector. We close it with two independent checks on every state-changing or
+# data-returning endpoint (see DashboardHandler._authorize):
+#
+#   1. A per-startup secret token. The dashboard reads it from a <meta> tag in
+#      index.html (same-origin only — a cross-origin page cannot read the DOM)
+#      and echoes it as `X-Bridge-Token`. A cross-origin attacker cannot learn
+#      it, so cannot forge an authorized request.
+#   2. An Origin allowlist. The Chrome extension is a separate origin
+#      (chrome-extension://<id>) and authenticates by Origin alone (no token).
+#
+# A Host-header check additionally defeats DNS-rebinding (where a malicious
+# domain resolves to 127.0.0.1 to bypass the localhost boundary).
+
+# Fresh per process start; never persisted.
+BRIDGE_TOKEN = secrets.token_urlsafe(32)
+
+# Populated in main() once the port is known.
+DASHBOARD_ORIGINS: frozenset[str] = frozenset()
+
+# Optional pin for the extension's origin (e.g.
+# "chrome-extension://abcdefghijklmnopabcdefghijklmnop"). When unset, any
+# chrome-extension:// origin is accepted — acceptable for a single-user local
+# tool, since a malicious *installed* extension already has far broader
+# capabilities than reaching localhost. Set EXTENSION_ORIGIN in .env to pin it.
+_EXTENSION_ORIGIN = os.environ.get("EXTENSION_ORIGIN", "").strip()
+
+# Placeholder substituted with BRIDGE_TOKEN when index.html is served.
+_TOKEN_PLACEHOLDER = "__BRIDGE_TOKEN__"
+
+# Content-Security-Policy for the dashboard document. `script-src 'self'`
+# (no 'unsafe-inline') neutralises injected <script> and inline event
+# handlers even if markdown sanitisation is somehow bypassed.
+_CSP = (
+    "default-src 'self'; "
+    "script-src 'self'; "
+    "style-src 'self' 'unsafe-inline'; "
+    "img-src 'self' data:; "
+    "connect-src 'self'; "
+    "object-src 'none'; "
+    "base-uri 'none'; "
+    "frame-ancestors 'none'; "
+    "form-action 'self'"
+)
+
+
+def _is_extension_origin(origin: str) -> bool:
+    """True if `origin` is the (optionally pinned) Chrome-extension origin."""
+    if not origin or not origin.startswith("chrome-extension://"):
+        return False
+    if _EXTENSION_ORIGIN:
+        return origin == _EXTENSION_ORIGIN
+    return True
+
+
+def _origin_allowed(origin: str | None) -> bool:
+    """True if `origin` may read responses / send authorized requests."""
+    if not origin:
+        return False
+    return origin in DASHBOARD_ORIGINS or _is_extension_origin(origin)
+
+
+# ---------------------------------------------------------------------------
+# Security: vault-confined Write/Edit via a lockdown settings file
+# ---------------------------------------------------------------------------
+#
+# The CLI --allowedTools flag cannot path-scope Write/Edit (verified: a
+# `Write(<path>/**)` entry on the flag matches nothing and denies all writes,
+# while bare `Write` allows writing anywhere — e.g. ~/.zshrc, ~/.claude). The
+# Claude Code *settings file* format DOES honour path patterns, so we hand the
+# skill subprocess a minimal settings file via `--settings` that allows
+# Write/Edit only under the vault. Together with --disallowedTools (Bash, net,
+# subagents) this bounds what a prompt-injection in imported content can do:
+# no shell, no network egress, and file writes confined to this folder.
+#
+# Path format: the settings matcher denotes an absolute path with a leading
+# `//` (mirroring the `Read(//tmp/**)` rule Claude Code itself writes), so we
+# prepend one extra slash to VAULT_ROOT (which already starts with `/`).
+
+_LOCKDOWN_SETTINGS_PATH = DASHBOARD_DIR / ".lockdown-settings.json"
+
+
+def _ensure_lockdown_settings() -> None:
+    """(Re)write the lockdown settings file that confines Write/Edit to the vault."""
+    cfg = {
+        "permissions": {
+            "allow": [
+                f"Write(/{VAULT_ROOT}/**)",
+                f"Edit(/{VAULT_ROOT}/**)",
+            ]
+        }
+    }
+    _LOCKDOWN_SETTINGS_PATH.write_text(json.dumps(cfg, indent=2))
+
+
+# Written once at import so run_claude always has it (covers test entry points
+# that call run_claude without going through main()).
+_ensure_lockdown_settings()
 
 # ---------------------------------------------------------------------------
 # Skill prompt templates — the only KB-aware code in this file.
@@ -179,6 +286,52 @@ def _build_lint(_args: dict) -> str:
     return "/second-brain-lint"
 
 
+# ---------------------------------------------------------------------------
+# Per-skill tool allow-lists (Layer 2 — blast-radius containment)
+#
+# Each skill runs with ONLY the tools it needs. Two mechanisms work together,
+# because Claude Code UNIONS allow-rules from --allowedTools with the project's
+# settings.local.json — an allow-list alone cannot exclude a tool the settings
+# file already permits:
+#
+#   * --allowedTools (below) pre-authorises the needed tools so the headless
+#     `-p` run never blocks on a permission prompt. Write/Edit are PATH-SCOPED
+#     to the vault, so a prompt-injection in imported content cannot use them to
+#     overwrite files elsewhere (e.g. ~/.zshrc, ~/.claude/settings.json). This
+#     confinement only holds if settings.local.json grants no *bare* Write/Edit
+#     (see the security note in dashboard/README.md) — verified by test.
+#   * --disallowedTools (below) DENIES the dangerous tools outright. Deny rules
+#     beat every allow rule (CLI flag, project settings, or user-global
+#     settings), so this is the authoritative guarantee that no skill can run
+#     Bash, reach the network (except web-import's WebFetch), or spawn a
+#     subagent to escape the sandbox — regardless of ambient settings.
+#
+# The Write tool auto-creates parent directories, so no skill needs Bash to
+# `mkdir`. Sets derived from each skill's SKILL.md and confirmed by running
+# each skill headlessly through the bridge.
+# ---------------------------------------------------------------------------
+
+# NOTE on Write/Edit: these are granted (vault-scoped) via the --settings
+# lockdown file, NOT here. The CLI --allowedTools flag cannot path-scope
+# Write/Edit — `Write(<path>/**)` on the flag matches nothing (denies all
+# writes), while bare `Write` allows writing ANYWHERE. Only the settings-file
+# format honours path patterns. So the allow-lists below carry just the
+# read/network/MCP tools; _LOCKDOWN_SETTINGS adds vault-confined Write/Edit.
+
+# Read-only research + a single output file (query, lint).
+_TOOLS_READ_REPORT = ["Read", "Glob", "Grep"]
+# Read raw, create/update wiki articles in place (ingest, wiki-edit).
+_TOOLS_WIKI_WRITE = ["Read", "Glob", "Grep"]
+# Read a source + write one raw file (md/pdf/file imports).
+_TOOLS_IMPORT = ["Read", "Glob"]
+
+# Tools no skill needs and that an injected prompt could abuse to break out:
+# arbitrary execution (Bash), network egress (WebFetch), or subagent spawning
+# (Agent/Workflow). Denied on every skill; web-import overrides to keep WebFetch.
+_DENY_DEFAULT = ["Bash", "WebFetch", "Agent", "Workflow"]
+_DENY_WEB = ["Bash", "Agent", "Workflow"]  # web-import legitimately needs WebFetch
+
+
 PROMPT_TEMPLATES: dict[str, dict] = {
     "query": {
         "build": _build_query,
@@ -186,6 +339,8 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "output_glob": "*query*.md",
         "created_in": None,
         "args_required": ["question"],
+        "allowed_tools": _TOOLS_READ_REPORT,
+        "disallowed_tools": _DENY_DEFAULT,
         # Last-resort lookup when the skill short-circuits without echoing
         # the file path (same question previously answered today).
         "fallback_finder": lambda args: _find_query_file_by_slug(args["question"]),
@@ -196,6 +351,8 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "output_glob": None,
         "created_in": "",  # raw/ root (paste imports)
         "args_required": ["markdown"],
+        "allowed_tools": _TOOLS_IMPORT,
+        "disallowed_tools": _DENY_DEFAULT,
     },
     "craft-import": {
         "build": _build_craft_import,
@@ -203,7 +360,9 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "output_glob": None,
         "created_in": "craft",
         "args_required": ["folder", "document"],
-        "allowed_tools": ["mcp__claude_ai_Craft__craft_read"],
+        # MCP craft reader + read tools; vault-scoped Write via lockdown settings.
+        "allowed_tools": ["mcp__claude_ai_Craft__craft_read", "Read", "Glob"],
+        "disallowed_tools": _DENY_DEFAULT,
     },
     "pdf-import": {
         "build": _build_pdf_import,
@@ -215,6 +374,8 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "created_in": "pdf",
         # `pdf_path` is injected by /upload-pdf, not sent by the page directly.
         "args_required": ["pdf_path"],
+        "allowed_tools": _TOOLS_IMPORT,
+        "disallowed_tools": _DENY_DEFAULT,
     },
     "web-import": {
         "build": _build_web_import,
@@ -225,6 +386,8 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "created_in": "web",
         # `pasted_markdown` is optional; the builder branches on its presence.
         "args_required": ["url"],
+        "allowed_tools": ["WebFetch", "Read", "Glob"],
+        "disallowed_tools": _DENY_WEB,
     },
     "file-import": {
         "build": _build_file_import,
@@ -234,6 +397,8 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "created_in": None,           # overridden dynamically via created_in_fn
         "created_in_fn": _file_import_subdir,  # called at run-time with file_path
         "args_required": ["file_path"],
+        "allowed_tools": _TOOLS_IMPORT,
+        "disallowed_tools": _DENY_DEFAULT,
     },
     "wiki-edit": {
         "build": _build_wiki_edit,
@@ -241,6 +406,8 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "output_glob": None,
         "created_in": None,  # writes to wiki/, not raw/
         "args_required": ["prompt"],
+        "allowed_tools": _TOOLS_WIKI_WRITE,
+        "disallowed_tools": _DENY_DEFAULT,
     },
     "ingest": {
         "build": _build_ingest,
@@ -248,6 +415,8 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "output_glob": None,
         "created_in": None,  # ingest writes to wiki/, not raw/
         "args_required": [],
+        "allowed_tools": _TOOLS_WIKI_WRITE,
+        "disallowed_tools": _DENY_DEFAULT,
     },
     "lint": {
         "build": _build_lint,
@@ -255,6 +424,8 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "output_glob": "*lint*.md",
         "created_in": None,
         "args_required": [],
+        "allowed_tools": _TOOLS_READ_REPORT,
+        "disallowed_tools": _DENY_DEFAULT,
     },
 }
 
@@ -299,7 +470,12 @@ def long_op(kind: str):
 # ---------------------------------------------------------------------------
 
 
-def run_claude(prompt: str, timeout: int, allowed_tools: list[str] | None = None) -> tuple[int, dict]:
+def run_claude(
+    prompt: str,
+    timeout: int,
+    allowed_tools: list[str] | None = None,
+    disallowed_tools: list[str] | None = None,
+) -> tuple[int, dict]:
     """Exec `claude -p <prompt> --output-format json ...`.
 
     Returns (status_code, body_dict). status_code is 200 on success, 504 on
@@ -307,19 +483,33 @@ def run_claude(prompt: str, timeout: int, allowed_tools: list[str] | None = None
     for the page.
     """
 
+    # No `--permission-mode bypassPermissions`. In non-interactive `-p` mode,
+    # tools absent from `--allowedTools` are denied outright (there is no human
+    # to prompt), so `--allowedTools` acts as a hard allow-list. This bounds the
+    # blast radius of a prompt-injection attack carried in imported content:
+    # e.g. read-only skills get no Bash and no Write, and no skill can act
+    # outside the tools it needs. `--add-dir`/`cwd` keep file tools inside the
+    # vault. Each skill MUST declare `allowed_tools`; without it the skill can
+    # use no tools and will fail loudly rather than run unconstrained.
     argv = [
         CLAUDE_BIN,
         "-p",
         prompt,
         "--output-format",
         "json",
-        "--permission-mode",
-        "bypassPermissions",
         "--add-dir",
         str(VAULT_ROOT),
+        # Lockdown settings: vault-confined Write/Edit (path-scoping the CLI
+        # flag can't express). Deny rules below still override everything.
+        "--settings",
+        str(_LOCKDOWN_SETTINGS_PATH),
     ]
     if allowed_tools:
         argv += ["--allowedTools", ",".join(allowed_tools)]
+    if disallowed_tools:
+        # Deny rules override every allow rule (this flag, project settings, or
+        # user-global settings) — the authoritative blast-radius guarantee.
+        argv += ["--disallowedTools", ",".join(disallowed_tools)]
     try:
         cp = subprocess.run(
             argv,
@@ -514,10 +704,24 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+def _cors_header(handler: http.server.BaseHTTPRequestHandler) -> None:
+    """Echo Access-Control-Allow-Origin only for allowlisted origins.
+
+    Reflecting `*` (the old behaviour) let any web page read the response —
+    an info-disclosure leak of wiki/query content. We echo the specific
+    request Origin only when it is allowed, and omit the header otherwise so
+    the browser blocks the cross-origin read.
+    """
+    origin = handler.headers.get("Origin")
+    if _origin_allowed(origin):
+        handler.send_header("Access-Control-Allow-Origin", origin)
+        handler.send_header("Vary", "Origin")
+
+
 def _json_response(handler: http.server.BaseHTTPRequestHandler, status: int, body: dict) -> None:
     payload = json.dumps(body).encode("utf-8")
     handler.send_response(status)
-    handler.send_header("Access-Control-Allow-Origin", "*")
+    _cors_header(handler)
     handler.send_header("Content-Type", "application/json; charset=utf-8")
     handler.send_header("Content-Length", str(len(payload)))
     handler.send_header("Cache-Control", "no-store")
@@ -915,11 +1119,47 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     def do_OPTIONS(self) -> None:  # noqa: N802
         self.send_response(204)
-        self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        # Approve the preflight ONLY for allowlisted origins; for anything else
+        # we omit the CORS headers so the browser refuses to send the real
+        # request. (The server-side _authorize check is the real guard; this
+        # just stops the request earlier.)
+        origin = self.headers.get("Origin")
+        if _origin_allowed(origin):
+            self.send_header("Access-Control-Allow-Origin", origin)
+            self.send_header("Vary", "Origin")
+            self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+            self.send_header("Access-Control-Allow-Headers", "Content-Type, X-Bridge-Token")
         self.send_header("Content-Length", "0")
         self.end_headers()
+
+    # ----- Authorization (CSRF gate) --------------------------------------
+
+    def _authorize(self, allow_extension: bool = False) -> bool:
+        """Return True if this request may touch vault data / trigger a skill.
+
+        Two independent ways to pass:
+          - a valid X-Bridge-Token header (the dashboard, same-origin), or
+          - an allowlisted chrome-extension:// Origin (the extension), when
+            `allow_extension` is set (state-changing endpoints only).
+
+        A Host-header check rejects DNS-rebinding attempts up front.
+        """
+        host = self.headers.get("Host", "")
+        hostname = host.rsplit(":", 1)[0] if host else ""
+        if hostname not in ("localhost", "127.0.0.1"):
+            return False
+
+        token = self.headers.get("X-Bridge-Token", "")
+        if token and secrets.compare_digest(token, BRIDGE_TOKEN):
+            return True
+
+        if allow_extension and _is_extension_origin(self.headers.get("Origin", "")):
+            return True
+
+        return False
+
+    def _deny(self) -> None:
+        _json_response(self, 403, {"error": "forbidden", "detail": "unauthorized origin or missing bridge token"})
 
     # ----- GET ------------------------------------------------------------
 
@@ -927,8 +1167,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
+        # Ungated bootstrap surface: the HTML shell + static assets + liveness.
+        # index.html carries the bridge token but is readable only same-origin
+        # (a cross-origin page cannot read another origin's DOM), so the token
+        # stays secret. Static assets and /healthz expose no vault data.
         if path == "/":
-            return self._serve_file(DASHBOARD_DIR / "index.html")
+            return self._serve_index()
         if path.startswith("/static/"):
             resolved = _safe_static_path(path)
             if resolved is None:
@@ -936,6 +1180,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._serve_file(resolved)
         if path == "/healthz":
             return _json_response(self, 200, {"ok": True})
+
+        # Everything below returns vault data → require authorization.
+        if not self._authorize():
+            return self._deny()
+
         if path == "/config":
             return _json_response(self, 200, {"vault_root": str(VAULT_ROOT), "craft_enabled": _CRAFT_ENABLED})
         if path == "/status":
@@ -956,6 +1205,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        # All POST endpoints trigger a skill → require authorization. The
+        # extension authenticates by its allowlisted Origin (no token).
+        if path in ("/run", "/upload-pdf", "/upload-file"):
+            if not self._authorize(allow_extension=True):
+                return self._deny()
 
         if path == "/run":
             return self._handle_run()
@@ -1106,7 +1361,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         try:
             with long_op(kind):
-                status, result = run_claude(prompt, timeout=cfg["timeout"], allowed_tools=cfg.get("allowed_tools"))
+                status, result = run_claude(
+                    prompt,
+                    timeout=cfg["timeout"],
+                    allowed_tools=cfg.get("allowed_tools"),
+                    disallowed_tools=cfg.get("disallowed_tools"),
+                )
         except Busy as busy:
             return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
 
@@ -1176,6 +1436,29 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return None
         return data
 
+    def _serve_index(self) -> None:
+        """Serve index.html with the per-startup token injected and CSP set.
+
+        The token replaces a placeholder in a <meta> tag. Because this is the
+        document origin, only same-origin scripts can read it back out of the
+        DOM — a cross-origin page cannot, so the token cannot leak via a drive-
+        by fetch.
+        """
+        index = DASHBOARD_DIR / "index.html"
+        try:
+            html = index.read_text(encoding="utf-8")
+        except OSError:
+            return self._not_found()
+        html = html.replace(_TOKEN_PLACEHOLDER, BRIDGE_TOKEN)
+        data = html.encode("utf-8")
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Security-Policy", _CSP)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _serve_file(self, path: Path) -> None:
         if not path.is_file():
             return self._not_found()
@@ -1201,7 +1484,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         except OSError:
             return self._not_found()
         self.send_response(200)
-        self.send_header("Access-Control-Allow-Origin", "*")
+        _cors_header(self)
         self.send_header("Content-Type", "text/plain; charset=utf-8")
         self.send_header("Content-Length", str(len(data)))
         self.send_header("Cache-Control", "no-store")
@@ -1281,6 +1564,13 @@ def main(argv: list[str] | None = None) -> int:
             f"refusing to bind to {args.host!r}: dashboard is localhost-only\n"
         )
         return 2
+
+    # The dashboard is reachable on both localhost and 127.0.0.1; allow both as
+    # request Origins regardless of which name the browser used to load it.
+    global DASHBOARD_ORIGINS
+    DASHBOARD_ORIGINS = frozenset(
+        {f"http://localhost:{args.port}", f"http://127.0.0.1:{args.port}"}
+    )
 
     _clean_uploads()
 

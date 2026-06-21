@@ -8,11 +8,16 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <!-- Bridge CSRF token, substituted server-side when "/" is served.
+       Readable only by same-origin scripts; a cross-origin page cannot
+       reach into this DOM, so the token stays secret. -->
+  <meta name="bridge-token" content="__BRIDGE_TOKEN__" />
   <title>Second Brain</title>
   <link rel="icon" type="image/png" sizes="any" href="/static/logo.png" />
   <link rel="apple-touch-icon" href="/static/logo.png" />
   <link rel="stylesheet" href="/static/styles.css" />
   <script src="/static/lib/marked.min.js"></script>
+  <script src="/static/lib/purify.min.js"></script>
 </head>
 <body>
   <div class="app-shell">
@@ -287,7 +292,7 @@
         </main>
 
         <footer class="site-footer">
-          <span>localhost dashboard · single user · no auth</span>
+          <span>localhost dashboard · single user · token-gated</span>
         </footer>
 
       </div><!-- /panel-home-new -->

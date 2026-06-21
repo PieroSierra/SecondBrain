@@ -17,7 +17,18 @@ Every action is performed by shelling out to `claude -p "..." --output-format js
 - Accepts PDF uploads at `POST /upload-pdf`, stages them in `dashboard/.uploads/`, runs the import skill, and cleans up.
 - Reads `raw/.ingest-manifest.json` plus the filesystem for `GET /status` — never spawns `claude` for that.
 
-There is no framework, no `pip install`, no `node_modules`, no database, no auth, no remote exposure. Listens only on `127.0.0.1`.
+There is no framework, no `pip install`, no `node_modules`, no database, no remote exposure. Listens only on `127.0.0.1`.
+
+## Security model
+
+Binding to `127.0.0.1` is **not** a security boundary on its own — any web page you visit can issue a cross-origin request to `http://127.0.0.1:4173`. The bridge therefore gates every data/action endpoint:
+
+- **CSRF token.** A fresh random token is generated each start and injected into `index.html`; the page echoes it as `X-Bridge-Token`. A cross-origin page cannot read another origin's DOM, so it cannot learn the token. Requests without it get `403`.
+- **Origin + Host checks.** Requests from a non-allowlisted `Origin` are rejected, and a `Host`-header check defeats DNS-rebinding. The Chrome extension authenticates by its `chrome-extension://` origin (no token); pin it with `EXTENSION_ORIGIN` in `.env` if you want to allow only one extension id.
+- **Scoped executor.** Skills run **without** `bypassPermissions`. Each skill gets only the tools it needs via `--allowedTools`; `Write`/`Edit` are granted **path-scoped to the vault** through a generated `--settings` lockdown file (`.lockdown-settings.json`), so a write can't land outside this folder; and `--disallowedTools` denies `Bash`, network egress, and subagent spawning outright (deny beats every allow). This bounds the blast radius of a prompt-injection carried in imported content.
+- **Output sanitisation + CSP.** Rendered Markdown is sanitised with DOMPurify before it touches the DOM, and `index.html` ships a strict `Content-Security-Policy` (`script-src 'self'`).
+
+> **Important:** the vault-confinement of `Write`/`Edit` only holds if `.claude/settings.local.json` does **not** grant a *bare* `Write`, `Edit`, or `Bash` (a bare allow unions back to "anywhere"). Keep `permissions.allow` entries narrow/path-scoped.
 
 ## Customising the port
 
@@ -29,7 +40,9 @@ python3 dashboard/bridge.py --port 4180 --no-open
 
 ## Permissions
 
-The skills are invoked with `--permission-mode bypassPermissions`. On corporate-managed Claude Code installs, that is not always sufficient — you may also need bare `Write`, `Edit`, and `Bash` entries under `permissions.allow` in `.claude/settings.local.json`. The dashboard surfaces any denials as part of the model's reply.
+The skills are **not** invoked with `bypassPermissions`. Each skill is run with an explicit `--allowedTools` list (the minimum it needs, with `Write`/`Edit` path-scoped to the vault) plus a `--disallowedTools` deny list (`Bash`, `WebFetch` except web-import, `Agent`, `Workflow`). The dashboard surfaces any denials as part of the model's reply.
+
+Do **not** add bare `Write`, `Edit`, or `Bash` to `permissions.allow` in `.claude/settings.local.json` to "fix" a denial — that re-opens the vault-escape hole the scoping closes. If a skill genuinely needs another capability, add the narrowest possible rule (path-scoped or command-scoped).
 
 ## Troubleshooting
 
@@ -67,6 +80,7 @@ dashboard/
 ├── chrome-extension/    browser extension (load unpacked in Chrome)
 └── lib/
     ├── marked.min.js    vendored Markdown renderer
+    ├── purify.min.js    vendored DOMPurify (HTML sanitiser)
     └── PROVENANCE.md    SHA-pinned source of truth
 ```
 

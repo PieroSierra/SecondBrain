@@ -46,10 +46,16 @@ function showSuccess(filename) {
   btn.disabled = false;
   opStatus.classList.remove("visible");
   bgHint.style.display = "none";
-  const inner = "Imported successfully!" +
-    (filename ? `<div class="status-filename">raw/web/${filename}</div>` : "");
   statusEl.className = "import-status import-status-success visible";
-  statusEl.innerHTML = inner;
+  // Build with textContent, never innerHTML — `filename` originates from the
+  // bridge response and must not be interpreted as markup.
+  statusEl.textContent = "Imported successfully!";
+  if (filename) {
+    const fn = document.createElement("div");
+    fn.className = "status-filename";
+    fn.textContent = `raw/web/${filename}`;
+    statusEl.appendChild(fn);
+  }
 }
 
 function showError(msg) {
