@@ -149,7 +149,9 @@ The `.env` file is gitignored — it never leaves your machine.
 
 ### Permissions
 
-Skills are invoked with `--permission-mode bypassPermissions`. On managed Claude Code installs you may also need `Write`, `Edit`, and `Bash` entries under `permissions.allow` in `.claude/settings.local.json`.
+The dashboard runs each skill **without** `bypassPermissions`. The bridge grants only the tools a skill needs, denies `Bash`/network/subagent tools outright, and confines `Write`/`Edit` to this folder — so a prompt-injection in imported content can't run commands or write outside the vault. It also gates every request with a per-session token and an `Origin` check so other web pages can't drive it. See [`dashboard/README.md`](dashboard/README.md#security-model) for the full model.
+
+Avoid "fixing" a permission denial by adding bare `Write`, `Edit`, or `Bash` to `permissions.allow` in `.claude/settings.local.json` — that re-opens the vault-escape hole. Add the narrowest (path- or command-scoped) rule instead.
 
 ### Troubleshooting
 
@@ -157,7 +159,7 @@ Skills are invoked with `--permission-mode bypassPermissions`. On managed Claude
 |---|---|
 | "Connection refused" in the browser | The bridge isn't running — start it with `./run.sh`. |
 | `claude: command not found` in the bridge log | Ensure `claude` is on the PATH of the shell that launches the bridge, or set `CLAUDE_BIN` in `.env`. |
-| Long operation returns 504 | Skill timed out. Run the same prompt directly in terminal to debug: `claude -p "/second-brain-query \"...\"" --output-format json --permission-mode bypassPermissions`. |
+| Long operation returns 504 | Skill timed out. Run the same prompt directly in terminal to debug: `claude -p "/second-brain-query \"...\"" --output-format json`. |
 | 409 Busy | Another operation is in flight — wait for it to finish. |
 | Status strip shows `—` | `raw/.ingest-manifest.json` is missing; run `/second-brain-ingest` once to create it. |
 
@@ -176,12 +178,20 @@ SecondBrain/
 ├── wiki/                       AI-organised topic articles
 │   └── INDEX.md                Master topic index (rebuilt on every ingest)
 ├── outputs/                    Query answers and lint reports
+├── .claude/skills/             Claude Code skills — the engine behind every command
+│   ├── second-brain-query/        ask the knowledge base
+│   ├── second-brain-ingest/       fold raw/ into wiki/
+│   ├── second-brain-lint/         scan the wiki for issues
+│   ├── second-brain-edit-wiki/    apply natural-language edits to articles
+│   ├── second-brain-import-{md,web,pdf,file,craft}/   capture content
+│   └── second-brain-setup/        first-time configuration
 ├── dashboard/                  Local web UI
 │   ├── bridge.py               Python stdlib HTTP server + claude proxy
 │   ├── index.html              Single-page dashboard
 │   ├── styles.css              Visual design
 │   ├── app.js                  Front-end controller
 │   ├── lib/marked.min.js       Vendored Markdown renderer
+│   ├── lib/purify.min.js       Vendored DOMPurify (HTML sanitiser)
 │   └── chrome-extension/       Browser extension (load unpacked in Chrome)
 ├── run.sh                      Start the dashboard (idempotent port cleanup)
 ├── CLAUDE.md                   Vault schema + your declared interests (gitignored — personal)
