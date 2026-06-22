@@ -335,7 +335,7 @@ _DENY_WEB = ["Bash", "Agent", "Workflow"]  # web-import legitimately needs WebFe
 PROMPT_TEMPLATES: dict[str, dict] = {
     "query": {
         "build": _build_query,
-        "timeout": 90,
+        "timeout": 180,
         "output_glob": "*query*.md",
         "created_in": None,
         "args_required": ["question"],
