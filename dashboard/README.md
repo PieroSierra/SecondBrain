@@ -69,19 +69,32 @@ The bridge must be running (`./run.sh`) for the extension to work. It sends the 
 
 ## Layout
 
+The dashboard is a thin front-end; every action it exposes runs one of the
+`second-brain-*` skills under `.claude/skills/`. Shown in vault context:
+
 ```
-dashboard/
-├── bridge.py            HTTP server + claude proxy
-├── index.html           single-page UI
-├── styles.css           visual design (cream paper, serif display)
-├── app.js               front-end controller (vanilla ES module)
-├── README.md            this file
-├── .uploads/            transient PDF staging (gitignored)
-├── chrome-extension/    browser extension (load unpacked in Chrome)
-└── lib/
-    ├── marked.min.js    vendored Markdown renderer
-    ├── purify.min.js    vendored DOMPurify (HTML sanitiser)
-    └── PROVENANCE.md    SHA-pinned source of truth
+SecondBrain/                     vault root
+├── dashboard/                   this web front-end
+│   ├── bridge.py                HTTP server + claude proxy
+│   ├── index.html               single-page UI
+│   ├── styles.css               visual design (cream paper, serif display)
+│   ├── app.js                   front-end controller (vanilla ES module)
+│   ├── README.md                this file
+│   ├── .uploads/                transient PDF staging (gitignored)
+│   ├── chrome-extension/        browser extension (load unpacked in Chrome)
+│   └── lib/
+│       ├── marked.min.js        vendored Markdown renderer
+│       ├── purify.min.js        vendored DOMPurify (HTML sanitiser)
+│       └── PROVENANCE.md        SHA-pinned source of truth
+├── .claude/skills/              the skills each dashboard action invokes
+│   ├── second-brain-query/      ← Ask a question
+│   ├── second-brain-ingest/     ← Run ingest
+│   ├── second-brain-lint/       ← Run lint
+│   ├── second-brain-edit-wiki/  ← Apply a wiki edit
+│   └── second-brain-import-{md,web,pdf,file,craft}/  ← Add content
+├── raw/                         captured source content (gitignored)
+├── wiki/                        AI-organised knowledge (gitignored)
+└── outputs/                     query answers & lint reports (gitignored)
 ```
 
 ## Spec
