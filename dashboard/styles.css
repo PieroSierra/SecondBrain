@@ -933,7 +933,7 @@ body { overflow: hidden; }
   align-items: center;
   justify-content: center;
   gap: 6px;
-  padding: 10px 6px;
+  padding: 8px 6px;
   border: none;
   background: transparent;
   color: var(--ink-faint);
@@ -961,8 +961,8 @@ body { overflow: hidden; }
 
 .nav-tab-icon {
   flex-shrink: 0;
-  width: 18px;
-  height: 18px;
+  width: 22px;
+  height: 22px;
   opacity: 0.45;
   transition: opacity 0.12s ease;
 }
@@ -1007,8 +1007,8 @@ body { overflow: hidden; }
 /* "New question" row */
 .nav-item-new {
   gap: 10px;
-  padding-top: 10px;
-  padding-bottom: 10px;
+  padding-top: 9px;
+  padding-bottom: 9px;
   font-weight: 600;
   color: var(--ink);
 }
@@ -1021,6 +1021,8 @@ body { overflow: hidden; }
 .nav-new-icon {
   width: 22px;
   height: 22px;
+  min-width: 26px;      /* same slot as .nav-item-icon, keeps the column aligned */
+  object-fit: contain;
   flex-shrink: 0;
   opacity: 0.85;
   transition: opacity 0.12s ease;
@@ -1030,9 +1032,9 @@ body { overflow: hidden; }
 /* Small PNG icons inside nav list items */
 .nav-item-icon {
   flex-shrink: 0;
-  width: 16px;
-  height: 16px;
-  min-width: 22px;      /* fixed slot = same width as .nav-new-icon, aligns text columns */
+  width: 20px;
+  height: 20px;
+  min-width: 26px;      /* fixed slot = same width as .nav-new-icon, aligns text columns */
   object-fit: contain;
   opacity: 0.35;
   transition: opacity 0.12s ease;
