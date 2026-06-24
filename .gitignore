@@ -19,6 +19,7 @@ Untitled*.md
 .env
 .env.*
 CLAUDE.md
+AGENTS.md
 
 # Vault personal content — directory structure is kept via .gitkeep files.
 raw/.ingest-manifest.json
@@ -42,3 +43,7 @@ dashboard/.uploads/
 dashboard/.lockdown-settings.json
 __pycache__/
 *.pyc
+
+# Codex skills link — runtime artifact pointing at .claude/skills (symlink on
+# POSIX, junction on Windows). Recreated on every bridge start; never committed.
+/.agents/skills

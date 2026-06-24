@@ -308,6 +308,10 @@ async function ensureConfig() {
       const craftEl = document.getElementById("craft-form");
       if (craftEl) craftEl.hidden = true;
     }
+    // Show which agent CLI backs the skills (claude | codex). Config-derived,
+    // so set once here — refreshStatus only updates the metric tiles.
+    const engineLabel = { claude: "Claude Code", codex: "Codex" }[data.engine] || data.engine;
+    if (engineLabel) setTile("engine", engineLabel, null);
     _configLoaded = true;
   } catch {
     /* best-effort */

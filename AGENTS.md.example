@@ -2,11 +2,10 @@
 
 This vault is a personal knowledge base managed by AI agent skills (Claude Code or OpenAI Codex).
 
-> **First-time setup**: run `/second-brain-setup` (Claude Code) or `$second-brain-setup`
-> (Codex) in a session open to this folder. It generates your config file and records your
-> engine choice in `.env`. Alternatively, copy this file to `CLAUDE.md` (Claude Code) and/or
-> `AGENTS.md` (Codex) and fill in the `[INTERESTS]` section manually — the two files share
-> the same body; setup writes both so you can switch engines later.
+> **Codex note**: this `AGENTS.md` is the Codex-read twin of `CLAUDE.md` — same body, different
+> filename. Run `$second-brain-setup` (or `/second-brain-setup` under Claude Code) to generate
+> both, or copy this file to `AGENTS.md` and fill in `[INTERESTS]` manually. Codex also reads
+> MCP servers from `~/.codex/config.toml`, not from this file (see the `[CRAFT]` section below).
 
 ## Folder Rules
 

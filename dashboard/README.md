@@ -10,7 +10,7 @@ The bridge prints `http://127.0.0.1:4173/` and opens it in your browser. Stop wi
 
 ## What it does
 
-Every action is performed by shelling out to `claude -p "..." --output-format json`. The bridge is a single Python stdlib script (~700 lines) that:
+Every action is performed by shelling out to the configured agent CLI — `claude -p "..." --output-format json` (default) or `codex exec "$..." --sandbox workspace-write` when `AGENT_ENGINE=codex`. The bridge is a single Python stdlib script (~700 lines) that:
 
 - Serves the static page (`index.html`, `styles.css`, `app.js`, `lib/marked.min.js`).
 - Forwards `POST /run` requests to the corresponding skill (`/second-brain-query`, `-md-add`, `-craft-import`, `-pdf-import`, `-ingest`, `-lint`).
@@ -29,6 +29,8 @@ Binding to `127.0.0.1` is **not** a security boundary on its own — any web pag
 - **Output sanitisation + CSP.** Rendered Markdown is sanitised with DOMPurify before it touches the DOM, and `index.html` ships a strict `Content-Security-Policy` (`script-src 'self'`).
 
 > **Important:** the vault-confinement of `Write`/`Edit` only holds if `.claude/settings.local.json` does **not** grant a *bare* `Write`, `Edit`, or `Bash` (a bare allow unions back to "anywhere"). Keep `permissions.allow` entries narrow/path-scoped.
+
+**Engine note — Codex (`AGENT_ENGINE=codex`).** The same operations run via `codex exec`. Codex has no per-tool allow/deny list and is inherently shell-capable, so confinement is by **sandbox + working root**, not tool denial: every op runs with `--sandbox workspace-write -C <vault>`, which limits file writes to the vault and disables network egress by default (web-import is the one op granted network). The trade-off vs. Claude Code is deliberate and worth understanding: writes are still vault-confined, but Codex **can** run shell commands inside the sandbox — there is no "deny `Bash`" equivalent. The `.claude/skills/` ↔ `.agents/skills` link means both engines run the *same* skill instructions; only the enforcement mechanism differs. Choose the engine with this in mind.
 
 ## Customising the port
 
@@ -49,7 +51,8 @@ Do **not** add bare `Write`, `Edit`, or `Bash` to `permissions.allow` in `.claud
 | Symptom | Likely cause |
 |---|---|
 | Browser shows "Connection refused" | Bridge isn't running — start it from the vault root. |
-| `claude: command not found` in the bridge log | Install Claude Code and ensure `claude` is on `PATH`. |
+| `claude: command not found` in the bridge log | Install Claude Code and ensure `claude` is on `PATH` (or set `AGENT_ENGINE=codex`). |
+| `codex: command not found` in the bridge log | With `AGENT_ENGINE=codex`, install the Codex CLI and ensure `codex` is on `PATH` (or set `CODEX_BIN`). |
 | Long operation returns 504 | Skill exceeded its per-kind timeout. Try the same prompt directly: `claude -p "..." --output-format json` to debug. |
 | `409 busy` when starting an op | Another long operation is in flight; wait or check the busy banner. |
 | Status strip stuck on `—` | `/status` is failing — check the bridge log for stack traces. |

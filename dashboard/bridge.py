@@ -28,8 +28,10 @@ import mimetypes
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
+import tempfile
 import threading
 import time
 import urllib.parse
@@ -74,6 +76,16 @@ _load_env_file()
 
 # Override via CLAUDE_BIN env var or a .env file at the vault root.
 CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
+CODEX_BIN = os.environ.get("CODEX_BIN", "codex")
+
+# Which agent CLI backs the skills: "claude" (default) or "codex". Both run the
+# SAME skills (one canonical .claude/skills/ tree, exposed to Codex via a
+# .agents/skills link — see _ensure_skills_link). Anything unrecognised falls
+# back to claude so a typo never silently changes the safety model.
+AGENT_ENGINE = os.environ.get("AGENT_ENGINE", "claude").strip().lower()
+if AGENT_ENGINE not in ("claude", "codex"):
+    AGENT_ENGINE = "claude"
+
 _CRAFT_ENABLED = os.environ.get("CRAFT_ENABLED", "").lower() in ("1", "true", "yes")
 
 # ---------------------------------------------------------------------------
@@ -181,6 +193,76 @@ def _ensure_lockdown_settings() -> None:
 # Written once at import so run_claude always has it (covers test entry points
 # that call run_claude without going through main()).
 _ensure_lockdown_settings()
+
+
+# ---------------------------------------------------------------------------
+# Cross-engine skills: expose the canonical .claude/skills/ tree to Codex
+# ---------------------------------------------------------------------------
+#
+# Claude Code reads skills from .claude/skills/; Codex reads them from
+# .agents/skills/. Rather than duplicate (and drift) the SKILL.md files, we
+# keep .claude/skills/ as the single source of truth and point .agents/skills
+# at it. Both tools resolve the link transparently.
+#
+# The link is created at runtime (never committed): git cannot represent a
+# Windows junction, and a committed POSIX symlink breaks on Windows clones
+# (core.symlinks defaults to false there). So .agents/skills is gitignored and
+# (re)created here on every start.
+
+_CLAUDE_SKILLS_DIR = VAULT_ROOT / ".claude" / "skills"
+_AGENTS_SKILLS_DIR = VAULT_ROOT / ".agents" / "skills"
+
+
+def _ensure_skills_link() -> None:
+    """Make .agents/skills resolve to .claude/skills (for Codex).
+
+    POSIX → symlink; Windows → directory junction (mklink /J, no admin needed);
+    last-resort copy only where neither works (non-NTFS / network volume).
+    Idempotent and best-effort: a failure here only affects the Codex engine,
+    so it never blocks startup.
+    """
+    src = _CLAUDE_SKILLS_DIR
+    link = _AGENTS_SKILLS_DIR
+    if not src.is_dir():
+        return  # nothing to link (unexpected, but don't crash the bridge)
+
+    try:
+        if link.exists():
+            # Correct link/junction already in place? Leave it.
+            try:
+                if link.resolve() == src.resolve():
+                    return
+            except OSError:
+                pass
+            if link.is_symlink():
+                link.unlink()  # our own stale symlink — safe to drop the link
+            else:
+                # A real dir or junction we can't verify. Never rmtree it (on
+                # Windows that could follow a junction and delete the *target*
+                # skills). Leave whatever is there.
+                return
+
+        link.parent.mkdir(parents=True, exist_ok=True)
+        if os.name == "nt":
+            # Directory junction: transparent to both tools, no admin/Dev Mode.
+            subprocess.run(
+                ["cmd", "/c", "mklink", "/J", str(link), str(src)],
+                shell=False, capture_output=True, text=True, check=False,
+            )
+            if not link.exists():
+                # Junctions unsupported here (non-NTFS / network) → copy.
+                # Refreshed on each start since we only reach this when no
+                # link exists yet.
+                shutil.copytree(src, link)
+        else:
+            os.symlink(os.path.relpath(src, link.parent), link, target_is_directory=True)
+    except (OSError, subprocess.SubprocessError):
+        # Best-effort: Codex falls back to its own discovery / the user can
+        # link manually. Claude is unaffected (it reads .claude/skills direct).
+        pass
+
+
+_ensure_skills_link()
 
 # ---------------------------------------------------------------------------
 # Skill prompt templates — the only KB-aware code in this file.
@@ -356,7 +438,7 @@ PROMPT_TEMPLATES: dict[str, dict] = {
     },
     "craft-import": {
         "build": _build_craft_import,
-        "timeout": 90,
+        "timeout": 1800,  # Craft fetches over MCP can be slow; match pdf/file imports
         "output_glob": None,
         "created_in": "craft",
         "args_required": ["folder", "document"],
@@ -388,6 +470,9 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "args_required": ["url"],
         "allowed_tools": ["WebFetch", "Read", "Glob"],
         "disallowed_tools": _DENY_WEB,
+        # Codex has no WebFetch tool; it fetches via shell, which the
+        # workspace-write sandbox blocks by default. Grant network for this op.
+        "codex_network": True,
     },
     "file-import": {
         "build": _build_file_import,
@@ -545,6 +630,96 @@ def run_claude(
             body["result"] = stderr or f"claude exited with code {cp.returncode}"
 
     return 200, body
+
+
+def _to_codex_prompt(prompt: str) -> str:
+    """Translate a Claude slash-command prompt to Codex skill-invocation syntax.
+
+    The skill name and all arguments are identical; only the leading sigil
+    differs — Claude routes `/second-brain-query "…"`, Codex routes
+    `$second-brain-query "…"`. The argument text is the same and the skill
+    instructions parse it the same way ("extract the question from the
+    argument string"), so a one-character swap is the whole translation.
+    """
+    if prompt.startswith("/"):
+        return "$" + prompt[1:]
+    return prompt
+
+
+def run_codex(prompt: str, cfg: dict) -> tuple[int, dict]:
+    """Exec `codex exec "$skill …"` and return (status_code, body_dict).
+
+    Mirrors run_claude's contract: 200 on success (body has `result`/`is_error`),
+    504 on timeout, 502 on spawn failure. Confinement here is by sandbox +
+    working root rather than per-tool allow/deny: every op writes into the vault
+    (outputs/, raw/, wiki/), so all run under `--sandbox workspace-write -C
+    <vault>`, which limits writes to the vault and disables network by default.
+    Codex's final assistant message is captured via `-o <file>` (clean
+    equivalent of Claude's `.result`), avoiding JSONL event parsing.
+    """
+    timeout = cfg.get("timeout")
+    codex_prompt = _to_codex_prompt(prompt)
+
+    last_msg_fd, last_msg_path = tempfile.mkstemp(prefix="codex-out-", suffix=".txt")
+    os.close(last_msg_fd)
+    try:
+        argv = [
+            CODEX_BIN,
+            "exec",
+            codex_prompt,
+            "-C", str(VAULT_ROOT),
+            "--skip-git-repo-check",
+            "--sandbox", "workspace-write",
+            "-o", last_msg_path,
+        ]
+        if cfg.get("codex_network"):
+            # web-import needs egress; workspace-write blocks it by default.
+            argv += ["-c", "sandbox_workspace_write.network_access=true"]
+
+        try:
+            cp = subprocess.run(
+                argv,
+                shell=False,
+                capture_output=True,
+                text=True,
+                cwd=str(VAULT_ROOT),
+                timeout=timeout,
+                check=False,
+            )
+        except FileNotFoundError as exc:
+            return 502, {"error": "spawn_failed", "detail": str(exc)}
+        except subprocess.TimeoutExpired:
+            return 504, {"error": "timeout", "after_seconds": timeout}
+
+        try:
+            result_text = Path(last_msg_path).read_text().strip()
+        except OSError:
+            result_text = ""
+    finally:
+        try:
+            os.unlink(last_msg_path)
+        except OSError:
+            pass
+
+    stderr = cp.stderr or ""
+    body: dict = {"result": result_text or stderr or "(no output)"}
+    if cp.returncode != 0:
+        body["is_error"] = True
+        if not result_text:
+            body["result"] = stderr or f"codex exited with code {cp.returncode}"
+    return 200, body
+
+
+def run_skill(prompt: str, cfg: dict) -> tuple[int, dict]:
+    """Dispatch a built skill prompt to the configured engine (claude|codex)."""
+    if AGENT_ENGINE == "codex":
+        return run_codex(prompt, cfg)
+    return run_claude(
+        prompt,
+        timeout=cfg["timeout"],
+        allowed_tools=cfg.get("allowed_tools"),
+        disallowed_tools=cfg.get("disallowed_tools"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -1186,7 +1361,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._deny()
 
         if path == "/config":
-            return _json_response(self, 200, {"vault_root": str(VAULT_ROOT), "craft_enabled": _CRAFT_ENABLED})
+            return _json_response(self, 200, {"vault_root": str(VAULT_ROOT), "craft_enabled": _CRAFT_ENABLED, "engine": AGENT_ENGINE})
         if path == "/status":
             return _json_response(self, 200, _vault_status())
         if path == "/wiki":
@@ -1361,12 +1536,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         try:
             with long_op(kind):
-                status, result = run_claude(
-                    prompt,
-                    timeout=cfg["timeout"],
-                    allowed_tools=cfg.get("allowed_tools"),
-                    disallowed_tools=cfg.get("disallowed_tools"),
-                )
+                status, result = run_skill(prompt, cfg)
         except Busy as busy:
             return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
 

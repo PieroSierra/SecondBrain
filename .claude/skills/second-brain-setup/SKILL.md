@@ -13,18 +13,40 @@ Initialize or update this personal knowledge base vault. This skill creates the 
 
 ## What this skill does
 
-1. Checks whether `CLAUDE.md` already exists and reads existing configuration as defaults
-2. Asks you to declare your primary interests (topics you want the wiki to focus on)
-3. Asks for your Craft space or folder name (used by `/second-brain-craft-import`)
-4. Creates `raw/`, `wiki/`, and `outputs/` directories if they do not exist
-5. Writes or updates `CLAUDE.md` with the vault schema, your interests, and Craft config
-6. Confirms completion and suggests next steps
+1. Checks whether `CLAUDE.md` / `AGENTS.md` already exist and reads existing configuration as defaults
+2. Asks which agent engine you use — Claude Code or OpenAI Codex — and records it in `.env`
+3. Asks you to declare your primary interests (topics you want the wiki to focus on)
+4. Asks for your Craft space or folder name
+5. Creates `raw/`, `wiki/`, and `outputs/` directories if they do not exist
+6. Writes or updates `CLAUDE.md` and `AGENTS.md` (identical vault schema, one per engine) with your interests and Craft config
+7. Confirms completion and suggests next steps
 
 ## Execution
 
 ### Step 1 — Check existing configuration
 
-Read `CLAUDE.md` if it exists. Look for the `[INTERESTS]` block and `[CRAFT]` block. If found, extract the current values to use as defaults in the questions below.
+Read `CLAUDE.md` (or `AGENTS.md`) if it exists. Look for the `[INTERESTS]` block and `[CRAFT]` block. If found, extract the current values to use as defaults in the questions below. Also read `.env` if present and note any existing `AGENT_ENGINE` value.
+
+### Step 1b — Choose your agent engine
+
+Present this prompt:
+
+```
+Which agent runs your Second Brain skills?
+  1) Claude Code   (the `claude` CLI)   [default]
+  2) OpenAI Codex  (the `codex` CLI)
+Press Enter for Claude Code, or type 1 / 2:
+```
+
+If an `AGENT_ENGINE` value already exists in `.env`, show it as the default and let the user press Enter to keep it.
+
+Write the choice to `.env` at the vault root as `AGENT_ENGINE=claude` or `AGENT_ENGINE=codex`:
+- If `.env` does not exist, create it with that single line.
+- If it exists and already has an `AGENT_ENGINE=` line, replace that line in place.
+- If it exists without one, append the line.
+- Never write more than one `AGENT_ENGINE` line.
+
+The dashboard reads this to decide which CLI to invoke. Both engines run the same skills; the choice changes nothing else.
 
 ### Step 2 — Declare interests
 
@@ -77,9 +99,9 @@ Create the following directories if they do not already exist:
 
 Report which directories were created vs already existed.
 
-### Step 5 — Write CLAUDE.md
+### Step 5 — Write CLAUDE.md and AGENTS.md
 
-Write `CLAUDE.md` at the vault root using exactly this structure. Preserve the `<!-- SPECKIT START -->` block verbatim if it already exists — insert it at the top, then write the vault schema below it.
+Write the vault schema to **both** `CLAUDE.md` (read by Claude Code) and `AGENTS.md` (read by Codex) at the vault root, with **identical bodies**, using exactly the structure below. Writing both means the skills work whichever engine is active and you can switch engines later without re-running setup. Preserve the `<!-- SPECKIT START -->` block verbatim if it already exists — insert it at the top, then write the vault schema below it.
 
 ```markdown
 <!-- SPECKIT START -->
@@ -90,7 +112,7 @@ at specs/001-personal-knowledge-base/plan.md
 
 # Second Brain — Vault Schema
 
-This vault is a personal knowledge base managed by Claude Code skills.
+This vault is a personal knowledge base managed by AI agent skills (Claude Code or OpenAI Codex).
 
 ## Folder Rules
 
@@ -123,6 +145,20 @@ Space: <craft-space-value-from-step-3>
 <interests-from-step-2-one-per-line-with-dash-prefix>
 ```
 
+Write this identical content to `AGENTS.md` as well (nothing engine-specific is embedded — both files just describe the vault).
+
+**Codex + Craft only:** if the chosen engine is Codex *and* a Craft space was configured, Codex reads MCP servers from `~/.codex/config.toml`, not from the agent file. Show the user the block to add there:
+
+```toml
+[mcp_servers.craft]
+command = "npx"
+args = ["-y", "mcp-remote", "<MCP URL from the [CRAFT] section>"]
+```
+
+(`mcp-remote` bridges a remote/HTTP MCP into Codex's stdio MCP client — the common pattern; adjust if your Codex version supports remote MCP servers natively. Claude Code users configure the same Craft MCP through Claude Code's own MCP settings and need no `config.toml`.)
+
+The dashboard auto-creates the `.agents/skills` link that lets Codex find these skills, so there is nothing to link by hand.
+
 ### Step 6 — Confirm completion
 
 Output a summary:
@@ -138,6 +174,8 @@ Directories:
   outputs/    [created | already existed]
 
 CLAUDE.md: [created | updated]
+AGENTS.md: [created | updated]
+Engine:    [Claude Code | Codex]   (saved to .env as AGENT_ENGINE)
 
 Declared interests:
   - [interest-1]
@@ -147,7 +185,9 @@ Declared interests:
 Craft import scope: [space-name | not configured]
 
 Next steps:
-  • Drop markdown files into raw/ and run /second-brain-ingest
-  • Import Craft notes with /second-brain-craft-import
-  • Import a PDF with /second-brain-pdf-import /path/to/file.pdf
+  • Open the dashboard with ./run.sh (uses your chosen engine automatically), or
+  • Run a skill directly — /second-brain-ingest under Claude Code,
+    $second-brain-ingest under Codex
+  • Drop markdown files into raw/, then ingest to build the wiki
+  • Import Craft notes, a PDF, or a web page from the dashboard's Import cards
 ```

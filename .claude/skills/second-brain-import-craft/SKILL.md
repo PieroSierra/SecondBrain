@@ -7,7 +7,7 @@ user-invocable: true
 
 # Second Brain — Craft Import
 
-Import a specific document from your configured Craft space into `raw/craft/` as a markdown file. The space name and MCP URL are read from the `[CRAFT]` section of `CLAUDE.md`. Always requires a precise target — no bulk or space-wide import.
+Import a specific document from your configured Craft space into `raw/craft/` as a markdown file. The space name and MCP URL are read from the `[CRAFT]` section of your vault config file (`CLAUDE.md` for Claude Code, `AGENTS.md` for Codex). Always requires a precise target — no bulk or space-wide import.
 
 **Contract**: `specs/001-personal-knowledge-base/contracts/second-brain-craft-import.md`
 
@@ -25,7 +25,7 @@ If invoked without an argument, ask: "Which document do you want to import? Plea
 
 ## Craft Space Configuration
 
-Read the following from the `[CRAFT]` section of `CLAUDE.md` before proceeding:
+Read the following from the `[CRAFT]` section of your vault config file (`CLAUDE.md`, or `AGENTS.md` under Codex) before proceeding:
 - **Space**: the `Space:` value (read-only)
 - **MCP URL**: the `MCP URL:` value
 - **Known folders**: the `Known folders:` value (used for error messages when a folder is not found)
@@ -42,7 +42,7 @@ The Craft MCP server exposes these tools. Use them in this order:
 
 **Important**: Craft MCP tool names may vary by server version. If the above names don't match, call the available tools with a descriptive intent (e.g., "list documents in AI Partnerships folder", "get document titled X"). The Craft MCP server at the configured URL is read-only — no write operations are available or needed.
 
-**If Craft MCP is not connected**: The skill will surface: "Craft MCP is not available. Please ensure the Craft MCP server is connected in your Claude Code environment. Check the `MCP URL` in your `CLAUDE.md [CRAFT]` section."
+**If Craft MCP is not connected**: The skill will surface: "Craft MCP is not available. Please ensure the Craft MCP server is connected in your agent environment (Claude Code MCP settings, or `~/.codex/config.toml` `[mcp_servers.craft]` under Codex). Check the `MCP URL` in your config file's `[CRAFT]` section."
 
 ## Execution
 
@@ -52,7 +52,7 @@ Parse the argument as `<Folder>/<DocumentName>`. If no `/` separator is found, t
 
 ### Step 2 — Connect to Craft via MCP
 
-Use the Craft MCP tool at the URL configured in `CLAUDE.md [CRAFT]` → `MCP URL`. Navigate to the specified folder and locate the document by name.
+Use the Craft MCP tool at the URL configured in your config file's `[CRAFT]` → `MCP URL`. Navigate to the specified folder and locate the document by name.
 
 If the document is not found:
 - List available documents in that folder (if accessible)
@@ -136,6 +136,6 @@ Next step: run /second-brain-ingest to incorporate into the wiki
 |-----------|-----------|
 | No argument provided | Ask user to specify Folder/DocumentName |
 | Craft MCP unavailable | Report clear error; write nothing |
-| Folder not found | Report error with list of known folders from CLAUDE.md |
+| Folder not found | Report error with list of known folders from the config file |
 | Document not found | Report error with available documents in that folder |
 | Content is empty | Report warning; write nothing |

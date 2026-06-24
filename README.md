@@ -1,7 +1,7 @@
 
 ![Second Brain](dashboard/chrome-extension/icon-128.png)
 # Second Brain
-A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — either through Claude Code **slash commands** or a **local web dashboard**.
+A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — through **Claude Code**, **OpenAI Codex** skills, or a **local web dashboard**.
 
 ---
 
@@ -21,25 +21,55 @@ Content flows in one direction: `raw/` → ingest → `wiki/` → query → `out
 
 ## Prerequisites
 
-- **Claude Code CLI** (`claude` on your PATH). Install from [claude.ai/code](https://claude.ai/code).
+- **An agent CLI on your PATH — either one:**
+  - **Claude Code** (`claude`) — install from [claude.ai/code](https://claude.ai/code), then sign in. *(default)*
+  - **OpenAI Codex** (`codex`) — install per [OpenAI's Codex CLI docs](https://developers.openai.com/codex/cli), then `codex login` (or set `CODEX_API_KEY`).
+
+  Both run the **same** Second Brain skills; pick one at setup. Switch any time by changing `AGENT_ENGINE` in `.env`.
 - **Python 3** (macOS system Python is fine — no `pip install` needed).
-- (optional) The **Craft MCP** integration configured in Claude Code if you want Craft import.
+- (optional) The **Craft MCP** integration — configured in Claude Code's MCP settings, or in `~/.codex/config.toml` for Codex — if you want Craft import.
 
 ---
 
 ## First-time setup
 
 ```bash
-/second-brain-setup
+/second-brain-setup     # Claude Code
+$second-brain-setup     # Codex
 ```
 
-This walks you through declaring your interests and writes the `CLAUDE.md` configuration file. Run it once, or again any time you want to update your interests.
+This asks which agent engine you use (Claude Code or Codex), records it in `.env`, declares your interests, and writes the configuration file — `CLAUDE.md` and `AGENTS.md` both, so you can switch engines later. Run it once, or again any time you want to update your interests.
 
 ---
 
-## Usage — Claude Code slash commands
+## Agent engine — Claude Code or Codex
 
-All knowledge-base operations are Claude Code skills. Run them by typing the slash command in a Claude Code session open to this folder.
+Every Second Brain operation is an [agent skill](https://agentskills.io) — a `SKILL.md` of plain instructions. **Claude Code** and **OpenAI Codex** run the *same* skills, so you can use whichever you prefer. The choice lives in one place: `AGENT_ENGINE` in `.env`.
+
+|                          | Claude Code *(default)*                         | Codex                                            |
+| ------------------------ | ----------------------------------------------- | ------------------------------------------------ |
+| `.env`                   | `AGENT_ENGINE=claude`                           | `AGENT_ENGINE=codex`                             |
+| Binary                   | `claude` (override with `CLAUDE_BIN`)           | `codex` (override with `CODEX_BIN`)              |
+| Invoke a skill by hand   | `/second-brain-query "…"`                       | `$second-brain-query "…"`                        |
+| Config file it reads     | `CLAUDE.md`                                      | `AGENTS.md`                                       |
+| Vault confinement        | per-tool allow/deny + vault-scoped `Write`      | `--sandbox workspace-write` rooted at the vault  |
+
+`/second-brain-setup` writes **both** `CLAUDE.md` and `AGENTS.md` (identical content), and the canonical `.claude/skills/` tree is exposed to Codex through a `.agents/skills` link the dashboard creates automatically — so nothing else needs changing when you switch.
+
+### Switching engines
+
+1. Set `AGENT_ENGINE=codex` (or `claude`) in `.env` at the vault root.
+2. Restart the dashboard with `./run.sh` — the value is read at startup.
+
+That's the whole switch. The dashboard's top status bar shows the active engine (the **"… agent"** tile), and the rest of the vault — interests, raw content, wiki — is untouched by the choice. Custom binaries stay independent: `CLAUDE_BIN` is used only under `claude` and `CODEX_BIN` only under `codex`, so flipping back and forth always relaunches the right one.
+
+> **Security note:** the two engines enforce the sandbox differently. Claude Code denies `Bash`/network and path-scopes writes to the vault; Codex confines writes to the vault via its sandbox but **can still run shell commands inside it** (there is no "deny `Bash`" in Codex). Read [`dashboard/README.md`](dashboard/README.md#security-model) before choosing for an untrusted-content workflow.
+
+---
+
+## Usage — Claude Code (`/`) or Codex (`$`) skills
+
+All knowledge-base operations are agent skills. Run them by typing the skill name in a session open to this folder — prefixed with `/` under Claude Code or `$` under Codex (e.g. `/second-brain-query "…"` or `$second-brain-query "…"`). The commands below show the Claude Code form; swap the leading `/` for `$` on Codex.
 
 ### Capture
 
@@ -110,7 +140,7 @@ python3 dashboard/bridge.py --port 4180 --no-open
 
 ### How it works
 
-The dashboard is a static HTML page. Every long operation fires a `POST /run` request to a tiny Python bridge (`dashboard/bridge.py`) which execs `claude -p "/second-brain-..." --output-format json` and streams the result back. The bridge has no knowledge-base logic of its own — the skills are the only system of record.
+The dashboard is a static HTML page. Every long operation fires a `POST /run` request to a tiny Python bridge (`dashboard/bridge.py`) which execs the configured agent — `claude -p "/second-brain-..." --output-format json`, or `codex exec "$second-brain-..." --sandbox workspace-write` when `AGENT_ENGINE=codex` — and streams the result back. The bridge has no knowledge-base logic of its own — the skills are the only system of record.
 
 ### Chrome extension
 
@@ -138,10 +168,16 @@ The extension extracts the page's main content, converts it to Markdown, and sav
 Create a `.env` file at the vault root to override defaults without editing any code:
 
 ```
+# Which agent CLI backs the skills: claude (default) or codex.
+AGENT_ENGINE=claude
+
 # Use a different claude binary (e.g. a Max subscription account):
 CLAUDE_BIN=claude-personal
 
-# Show the Craft import card in the dashboard (requires Craft MCP in Claude Code):
+# Use a different codex binary (used when AGENT_ENGINE=codex):
+CODEX_BIN=codex
+
+# Show the Craft import card in the dashboard (Craft MCP must be configured for your engine):
 CRAFT_ENABLED=1
 ```
 
@@ -159,7 +195,9 @@ Avoid "fixing" a permission denial by adding bare `Write`, `Edit`, or `Bash` to 
 |---|---|
 | "Connection refused" in the browser | The bridge isn't running — start it with `./run.sh`. |
 | `claude: command not found` in the bridge log | Ensure `claude` is on the PATH of the shell that launches the bridge, or set `CLAUDE_BIN` in `.env`. |
-| Long operation returns 504 | Skill timed out. Run the same prompt directly in terminal to debug: `claude -p "/second-brain-query \"...\"" --output-format json`. |
+| `codex: command not found` in the bridge log | With `AGENT_ENGINE=codex`, ensure `codex` is on the PATH, or set `CODEX_BIN` in `.env`. |
+| Long operation returns 504 | Skill timed out. Run the same prompt directly to debug: `claude -p "/second-brain-query \"...\"" --output-format json` (or `codex exec "$second-brain-query \"...\""`). |
+| Status bar "agent" tile wrong, or change to `.env` ignored | The engine is read at startup — restart the bridge (`./run.sh`) after editing `AGENT_ENGINE`. |
 | 409 Busy | Another operation is in flight — wait for it to finish. |
 | Status strip shows `—` | `raw/.ingest-manifest.json` is missing; run `/second-brain-ingest` once to create it. |
 
@@ -178,7 +216,7 @@ SecondBrain/
 ├── wiki/                       AI-organised topic articles
 │   └── INDEX.md                Master topic index (rebuilt on every ingest)
 ├── outputs/                    Query answers and lint reports
-├── .claude/skills/             Claude Code skills — the engine behind every command
+├── .claude/skills/             Agent skills — the engine behind every command (Codex reads them via the .agents/skills link)
 │   ├── second-brain-query/        ask the knowledge base
 │   ├── second-brain-ingest/       fold raw/ into wiki/
 │   ├── second-brain-lint/         scan the wiki for issues
@@ -186,7 +224,7 @@ SecondBrain/
 │   ├── second-brain-import-{md,web,pdf,file,craft}/   capture content
 │   └── second-brain-setup/        first-time configuration
 ├── dashboard/                  Local web UI
-│   ├── bridge.py               Python stdlib HTTP server + claude proxy
+│   ├── bridge.py               Python stdlib HTTP server + claude/codex proxy
 │   ├── index.html              Single-page dashboard
 │   ├── styles.css              Visual design
 │   ├── app.js                  Front-end controller
