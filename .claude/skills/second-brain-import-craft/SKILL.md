@@ -14,9 +14,9 @@ Import a specific document from your configured Craft space into `raw/craft/` as
 ## Invocation
 
 ```
-/second-brain-craft-import "AI Partnerships/Meeting with Anthropic"
-/second-brain-craft-import "AI Product/Thin Slices Q3"
-/second-brain-craft-import "Board Meetings/June 2026 MBR"
+/second-brain-import-craft "AI Partnerships/Meeting with Anthropic"
+/second-brain-import-craft "AI Product/Thin Slices Q3"
+/second-brain-import-craft "Board Meetings/June 2026 MBR"
 ```
 
 The argument is always `Folder/DocumentName` — the folder name followed by the document name, separated by `/`.

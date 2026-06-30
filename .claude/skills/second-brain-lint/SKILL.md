@@ -1,3 +1,10 @@
+---
+name: "second-brain-lint"
+description: "Scan wiki/ for quality issues — contradictions, unsupported claims, and content gaps — and save a structured report to outputs/."
+argument-hint: ""
+user-invocable: true
+---
+
 # Second Brain — Lint
 
 Scan `wiki/` for quality issues — contradictions, unsupported claims, and content gaps — and save a structured report to `outputs/`.

@@ -101,7 +101,7 @@ In fetch mode, parse the top three lines of the WebFetch reply:
 
 Then strip these three lines (and the blank line that follows) from the body before writing.
 
-In paste-fallback mode, derive the title from the pasted body the same way `second-brain-md-add` does:
+In paste-fallback mode, derive the title from the pasted body the same way `second-brain-import-md` does:
 1. First `# Heading` if present.
 2. First non-empty line truncated to 80 chars.
 3. "Untitled webpage" as a fallback.

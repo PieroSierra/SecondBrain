@@ -1,3 +1,10 @@
+---
+name: "second-brain-edit-wiki"
+description: "Apply targeted edits to one or more wiki articles from a natural-language instruction, preserving structural invariants."
+argument-hint: "\"<edit_prompt>\" [<slug>]"
+user-invocable: true
+---
+
 # Second Brain — Wiki Edit
 
 Apply targeted edits to one or more wiki articles based on a natural-language instruction, while preserving all structural invariants.

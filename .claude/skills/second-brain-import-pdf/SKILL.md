@@ -1,3 +1,10 @@
+---
+name: "second-brain-import-pdf"
+description: "Extract text from a PDF, convert it to markdown, and write the result into raw/pdf/, ready for ingestion."
+argument-hint: "/path/to/document.pdf [\"Optional title\"]"
+user-invocable: true
+---
+
 # Second Brain — PDF Import
 
 Extract text from a PDF file, convert it to markdown, and write the result into `raw/pdf/`. The extracted content is then ready for ingestion via `/second-brain-ingest`.
@@ -7,8 +14,8 @@ Extract text from a PDF file, convert it to markdown, and write the result into 
 ## Invocation
 
 ```
-/second-brain-pdf-import /path/to/document.pdf
-/second-brain-pdf-import /path/to/document.pdf "Optional custom title"
+/second-brain-import-pdf /path/to/document.pdf
+/second-brain-import-pdf /path/to/document.pdf "Optional custom title"
 ```
 
 | Argument | Required | Description |

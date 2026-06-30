@@ -1,3 +1,10 @@
+---
+name: "second-brain-query"
+description: "Answer a natural-language question by synthesising content from wiki/, and save the response to outputs/."
+argument-hint: "\"<question>\""
+user-invocable: true
+---
+
 # Second Brain — Query
 
 Answer a natural-language question by synthesising content from `wiki/`, and save the response to `outputs/`.
@@ -64,8 +71,8 @@ Using only the content read from wiki articles, synthesise a clear, grounded ans
 This topic is not yet in your knowledge base.
 
 To add it, you could:
-- Import relevant Craft notes with /second-brain-craft-import
-- Import a PDF with /second-brain-pdf-import
+- Import relevant Craft notes with /second-brain-import-craft
+- Import a PDF with /second-brain-import-pdf
 - Add a markdown file to raw/ and run /second-brain-ingest
 ```
 Do not attempt to answer from general knowledge. Write an output file noting the gap (see Step 6) and stop.

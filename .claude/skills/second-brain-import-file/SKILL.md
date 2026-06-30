@@ -1,3 +1,10 @@
+---
+name: "second-brain-import-file"
+description: "Import a file of any supported type (PDF, image, .txt/.md) into the vault's raw/ directory, ready for ingestion."
+argument-hint: "/path/to/file"
+user-invocable: true
+---
+
 # Second Brain — Add File
 
 Import a file of any supported type into the vault's `raw/` directory.

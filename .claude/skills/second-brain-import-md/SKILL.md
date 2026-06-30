@@ -1,3 +1,10 @@
+---
+name: "second-brain-import-md"
+description: "Accept pasted markdown content directly and write it as a raw source file into raw/, ready for ingestion."
+argument-hint: "[\"Optional Title\"] <markdown content>"
+user-invocable: true
+---
+
 # Second Brain — Add Markdown
 
 Accepts pasted markdown content directly and writes it as a raw source file into `raw/`, ready for ingestion. Use this when you have content from any source (a web article, a copied document, notes, a transcript, an email) and want to get it into the knowledge base without exporting a file first.
@@ -5,8 +12,8 @@ Accepts pasted markdown content directly and writes it as a raw source file into
 ## Invocation
 
 ```
-/second-brain-md-add [markdown content]
-/second-brain-md-add "Optional Title" [markdown content]
+/second-brain-import-md [markdown content]
+/second-brain-import-md "Optional Title" [markdown content]
 ```
 
 | Argument | Required | Description |

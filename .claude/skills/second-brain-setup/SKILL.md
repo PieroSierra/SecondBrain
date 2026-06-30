@@ -76,7 +76,7 @@ Present this prompt:
 
 ```
 What is the name of your Craft space or folder to import from?
-(This is the default scope for /second-brain-craft-import)
+(This is the default scope for /second-brain-import-craft)
 ```
 
 If an existing value was found, show it as the default:
@@ -117,8 +117,8 @@ This vault is a personal knowledge base managed by AI agent skills (Claude Code 
 ## Folder Rules
 
 - `raw/` — All source content. NEVER modified by AI skills. Append-only.
-  - `raw/craft/` — Notes imported from Craft via the second-brain-craft-import skill
-  - `raw/pdf/` — Text extracted from PDFs via the second-brain-pdf-import skill
+  - `raw/craft/` — Notes imported from Craft via the second-brain-import-craft skill
+  - `raw/pdf/` — Text extracted from PDFs via the second-brain-import-pdf skill
   - `raw/.ingest-manifest.json` — Machine-managed ingestion state. Do not edit.
 - `wiki/` — AI-organised knowledge. Written ONLY by the second-brain-ingest skill.
   - One markdown file per topic, cross-linked with [[wikilinks]]
