@@ -174,8 +174,26 @@
                     required
                   />
                   <label for="file-input" class="file-picker-btn">Choose file…</label>
-                  <span class="file-picker-name file-picker-name-empty" data-file-filename>No file selected</span>
+                  <div class="file-picker-name-row">
+                    <span class="file-picker-name file-picker-name-empty" data-file-filename>No file selected</span>
+                    <button
+                      type="button"
+                      class="file-clear"
+                      data-file-clear
+                      aria-label="Clear selected file"
+                      title="Clear selected file"
+                      hidden
+                    >×</button>
+                  </div>
                 </div>
+                <label class="visually-hidden" for="file-context">Optional context</label>
+                <textarea
+                  id="file-context"
+                  class="import-textarea import-context"
+                  data-file-context
+                  rows="2"
+                  placeholder="Second Brain (e.g. a date, source, why it matters)"
+                ></textarea>
                 <div class="import-row">
                   <button type="submit" class="import-submit">Import</button>
                   <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>

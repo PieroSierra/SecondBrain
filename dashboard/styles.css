@@ -729,6 +729,30 @@ textarea:focus-visible {
   font-size: 0.83rem;
   background: var(--bg-elev);
 }
+.import-context {
+  min-height: 0;          /* let rows drive height for the short context field */
+  margin-top: 8px;
+}
+/* Subtle clear-selection "×" shown beside the chosen filename. */
+.file-picker-name-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.file-clear {
+  border: none;
+  background: transparent;
+  color: var(--ink-faint);
+  font-size: 1rem;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  border-radius: 100px;
+  transition: color 0.15s ease;
+}
+.file-clear:hover {
+  color: var(--ink);
+}
 
 /* PDF drop zone + decoupled button + wrapping filename, all stacked. */
 .dropzone {

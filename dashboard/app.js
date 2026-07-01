@@ -794,6 +794,8 @@ const ACCEPTED_MIME_TYPES = new Set([
 const fileForm     = $("#file-form");
 const fileInput    = $("#file-input");
 const fileFilename = fileForm.querySelector("[data-file-filename]");
+const fileClear    = fileForm.querySelector("[data-file-clear]");
+const fileContext  = fileForm.querySelector("[data-file-context]");
 const fileDropzone = fileForm.querySelector("[data-dropzone]");
 const FILE_FILENAME_EMPTY = "No file selected";
 
@@ -802,12 +804,21 @@ function syncFileFilename() {
   if (file) {
     fileFilename.textContent = file.name;
     fileFilename.classList.remove("file-picker-name-empty");
+    fileClear.hidden = false;
   } else {
     fileFilename.textContent = FILE_FILENAME_EMPTY;
     fileFilename.classList.add("file-picker-name-empty");
+    fileClear.hidden = true;
   }
 }
 fileInput.addEventListener("change", syncFileFilename);
+
+// Clear the selected file without having to pick another one. Leaves any
+// typed context in place — clearing the file shouldn't discard the note.
+fileClear.addEventListener("click", () => {
+  fileInput.value = "";
+  syncFileFilename();
+});
 
 // --- Drag-and-drop ---
 // Prevent the browser from opening files dropped *outside* the dropzone.
@@ -883,6 +894,8 @@ fileForm.addEventListener("submit", (e) => {
   }
   const fd = new FormData();
   fd.append("file", file);
+  const ctx = fileContext.value.trim();
+  if (ctx) fd.append("context", ctx);
   runImport(fileForm, "file-import", {
     url: "/upload-file",
     upload: true,

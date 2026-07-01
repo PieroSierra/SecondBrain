@@ -309,12 +309,24 @@ def _build_craft_import(args: dict) -> str:
 def _build_pdf_import(args: dict) -> str:
     # `pdf_path` is set by the bridge after the file is staged to .uploads/.
     path = args["pdf_path"]
+    context = (args.get("context") or "").strip()
+    if context:
+        return (
+            f'/second-brain-import-pdf "{_shell_quote(path)}" '
+            f'--context "{_shell_quote(context)}"'
+        )
     return f'/second-brain-import-pdf "{_shell_quote(path)}"'
 
 
 def _build_file_import(args: dict) -> str:
     # `file_path` is set by the bridge after the file is staged to .uploads/.
     path = args["file_path"]
+    context = (args.get("context") or "").strip()
+    if context:
+        return (
+            f'/second-brain-import-file "{_shell_quote(path)}" '
+            f'--context "{_shell_quote(context)}"'
+        )
     return f'/second-brain-import-file "{_shell_quote(path)}"'
 
 
@@ -1183,10 +1195,14 @@ class UploadError(Exception):
     pass
 
 
-def _parse_multipart_pdf(content_type: str, raw: bytes) -> tuple[str, bytes]:
-    """Extract (filename, body_bytes) from a multipart upload.
+def _parse_multipart_pdf(
+    content_type: str, raw: bytes
+) -> tuple[str, bytes, dict[str, str]]:
+    """Extract (filename, body_bytes, fields) from a multipart upload.
 
-    Raises UploadError(detail) with a human-readable message on any failure.
+    `fields` holds any non-file text parts, keyed by their form field name
+    (e.g. an optional "context" note). Raises UploadError(detail) with a
+    human-readable message on any failure.
     """
 
     if not content_type:
@@ -1205,6 +1221,9 @@ def _parse_multipart_pdf(content_type: str, raw: bytes) -> tuple[str, bytes]:
 
     sep = b"--" + boundary.encode("ascii")
     chunks = raw.split(sep)
+    filename: str | None = None
+    body: bytes = b""
+    fields: dict[str, str] = {}
     # chunks[0] is the preamble, last is the closing "--\r\n" — both ignored.
     for chunk in chunks[1:-1]:
         # Each chunk starts with \r\n and ends with \r\n.
@@ -1215,23 +1234,32 @@ def _parse_multipart_pdf(content_type: str, raw: bytes) -> tuple[str, bytes]:
         if header_end < 0:
             continue
         headers_blob = chunk[:header_end].decode("utf-8", errors="replace")
-        body = chunk[header_end + 4 : -2]  # strip trailing \r\n
+        part_body = chunk[header_end + 4 : -2]  # strip trailing \r\n
 
         disposition = ""
         for line in headers_blob.split("\r\n"):
             if line.lower().startswith("content-disposition:"):
                 disposition = line.split(":", 1)[1].strip()
                 break
-        if "filename=" not in disposition:
-            continue  # not the file part
 
-        filename = ""
+        part_name = ""
+        part_filename = ""
         for piece in disposition.split(";"):
             piece = piece.strip()
             if piece.lower().startswith("filename="):
-                filename = piece[len("filename="):].strip().strip('"')
-                break
-        return filename, body
+                part_filename = piece[len("filename="):].strip().strip('"')
+            elif piece.lower().startswith("name="):
+                part_name = piece[len("name="):].strip().strip('"')
+
+        if part_filename:
+            if filename is None:  # first file part wins
+                filename, body = part_filename, part_body
+        elif part_name:
+            fields[part_name] = part_body.decode("utf-8", errors="replace")
+
+    if filename is None:
+        raise UploadError("no file part found in multipart body")
+    return filename, body, fields
 
     raise UploadError("no file part found in multipart body")
 
@@ -1414,7 +1442,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         raw = self.rfile.read(length)
         try:
-            filename, body = _parse_multipart_pdf(
+            filename, body, fields = _parse_multipart_pdf(
                 self.headers.get("Content-Type", ""), raw
             )
             tempfile_path = _stage_pdf(filename, body)
@@ -1425,7 +1453,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         try:
             cfg = PROMPT_TEMPLATES["pdf-import"]
-            pdf_args = {"pdf_path": str(tempfile_path)}
+            pdf_args = {
+                "pdf_path": str(tempfile_path),
+                "context": (fields.get("context") or "").strip()[:2000],
+            }
             prompt = cfg["build"](pdf_args)
             envelope = self._run_kind("pdf-import", prompt, cfg, pdf_args)
         finally:
@@ -1452,7 +1483,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         raw = self.rfile.read(length)
         try:
-            filename, body = _parse_multipart_pdf(
+            filename, body, fields = _parse_multipart_pdf(
                 self.headers.get("Content-Type", ""), raw
             )
             tempfile_path = _stage_file(filename, body)
@@ -1463,7 +1494,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         try:
             cfg = PROMPT_TEMPLATES["file-import"]
-            file_args = {"file_path": str(tempfile_path)}
+            file_args = {
+                "file_path": str(tempfile_path),
+                "context": (fields.get("context") or "").strip()[:2000],
+            }
             prompt = cfg["build"](file_args)
             envelope = self._run_kind("file-import", prompt, cfg, file_args)
         finally:
