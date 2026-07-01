@@ -13,6 +13,7 @@
 :root {
   /* palette */
   --bg:          #FBF8F3;
+  --bg-content:  #FDFDFC;   /* content panel — lighter/less yellow than the nav */
   --bg-elev:     #FFFFFF;
   --bg-subtle:   #F2ECE0;
   --ink:         #2A1F1A;
@@ -1120,6 +1121,7 @@ body { overflow: hidden; }
 .main-panel {
   overflow-y: auto;
   height: 100vh;
+  background: var(--bg-content);
 }
 
 /* Panels fill the main-panel; shown/hidden via the HTML `hidden` attr */

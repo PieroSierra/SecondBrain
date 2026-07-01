@@ -109,7 +109,7 @@ You can also drop files directly into `raw/` — a `.md` note, a PDF, even an im
 
 The dashboard is a local web UI that surfaces the same six operations without opening a terminal.
 
-![Dashboard screenshot](dashboard/dashboard_sample.png)
+![Dashboard screenshot|697](dashboard/dashboard_sample.png)
 
 ### Start
 
