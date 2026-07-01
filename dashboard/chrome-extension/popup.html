@@ -100,6 +100,27 @@
       flex: 1;
     }
 
+    /* Optional context textarea — matches .import-textarea */
+    .context-field {
+      width: 100%;
+      padding: 8px 10px;
+      border: 1px solid var(--rule);
+      border-radius: var(--radius);
+      background: var(--bg);
+      color: var(--ink);
+      font-family: var(--font-body);
+      font-size: 13px;
+      line-height: 1.45;
+      resize: vertical;
+      min-height: 56px;
+    }
+    .context-field:focus {
+      outline: none;
+      border-color: var(--clay);
+      background: var(--bg-elev);
+    }
+    .context-field::placeholder { color: var(--ink-faint); }
+
     /* Button — matches .import-submit exactly */
     #import-btn {
       align-self: flex-start;
@@ -244,6 +265,9 @@
       <span class="url-icon">↗</span>
       <span class="url-text" id="page-url">Loading…</span>
     </div>
+
+    <textarea id="context-field" class="context-field" rows="2" maxlength="2000"
+              placeholder="Optional context or notes…"></textarea>
 
     <button id="import-btn">Import this page</button>
 

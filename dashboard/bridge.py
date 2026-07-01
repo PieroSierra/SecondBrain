@@ -360,16 +360,25 @@ def _build_web_import(args: dict) -> str:
       - URL only: `/second-brain-import-web "<url>"` → skill fetches via WebFetch.
       - Paste fallback: appends `--pasted-markdown "<body>"` → skill skips fetch,
         uses the body verbatim. The URL is still required and becomes `source:`.
+
+    An optional `context` note (from the dashboard field or the Chrome
+    extension) is appended as `--context "<text>"` and composes with either
+    mode; the skill embeds it as a Document Context block.
     """
 
     url = args["url"].strip()
     pasted = (args.get("pasted_markdown") or "").strip()
+    context = (args.get("context") or "").strip()[:2000]
     if pasted:
-        return (
+        cmd = (
             f'/second-brain-import-web "{_shell_quote(url)}" '
             f'--pasted-markdown "{_shell_quote(pasted)}"'
         )
-    return f'/second-brain-import-web "{_shell_quote(url)}"'
+    else:
+        cmd = f'/second-brain-import-web "{_shell_quote(url)}"'
+    if context:
+        cmd += f' --context "{_shell_quote(context)}"'
+    return cmd
 
 
 def _build_ingest(_args: dict) -> str:

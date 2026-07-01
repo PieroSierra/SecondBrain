@@ -192,7 +192,7 @@
                   class="import-textarea import-context"
                   data-file-context
                   rows="2"
-                  placeholder="Second Brain (e.g. a date, source, why it matters)"
+                  placeholder="Optional context (e.g. a date, source, why it matters)"
                 ></textarea>
                 <div class="import-row">
                   <button type="submit" class="import-submit">Import</button>
@@ -227,6 +227,15 @@
                   ></textarea>
                   <button type="button" class="web-cancel-paste" data-web-cancel-paste>Cancel</button>
                 </div>
+                <label class="visually-hidden" for="web-context">Optional context</label>
+                <textarea
+                  id="web-context"
+                  class="import-textarea import-context"
+                  data-web-context
+                  rows="2"
+                  maxlength="2000"
+                  placeholder="Optional context (e.g. a date, source, why it matters)"
+                ></textarea>
                 <div class="import-row">
                   <button type="submit" class="import-submit">Import</button>
                   <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>

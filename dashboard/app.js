@@ -953,6 +953,7 @@ const webModeUrl = webForm.querySelector("[data-web-mode-url]");
 const webModePaste = webForm.querySelector("[data-web-mode-paste]");
 const webPasteContext = webForm.querySelector("[data-web-paste-context]");
 const webCancelPaste = webForm.querySelector("[data-web-cancel-paste]");
+const webContext = $("#web-context");
 
 function setWebMode(mode, opts = {}) {
   webForm.dataset.mode = mode;
@@ -1002,6 +1003,8 @@ webForm.addEventListener("submit", (e) => {
   }
   const mode = webForm.dataset.mode;
   const args = { url };
+  const ctx = webContext.value.trim();
+  if (ctx) args.context = ctx;
   if (mode === "paste") {
     const md = webPasteBody.value;
     if (!md.trim()) {
@@ -1032,9 +1035,10 @@ webForm.addEventListener("submit", (e) => {
       return true;
     },
     onSuccess: () => {
-      // Real success — return to URL mode and clear the field.
+      // Real success — return to URL mode and clear the fields.
       setWebMode("url");
       webUrl.value = "";
+      webContext.value = "";
     },
   });
 });

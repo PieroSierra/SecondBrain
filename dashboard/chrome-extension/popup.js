@@ -221,7 +221,8 @@ btn.addEventListener("click", async () => {
   // Step 4 — Hand off to service worker. The fetch runs independently of this
   // popup, so the user can close it freely. The result lands in storage.
   showRunningBackground();
-  chrome.runtime.sendMessage({ type: "import", url: pageData.url, pasted_markdown: markdown });
+  const context = (document.getElementById("context-field")?.value || "").trim();
+  chrome.runtime.sendMessage({ type: "import", url: pageData.url, pasted_markdown: markdown, context });
 });
 
 init();

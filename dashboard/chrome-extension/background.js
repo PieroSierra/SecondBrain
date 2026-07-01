@@ -14,11 +14,11 @@ const BRIDGE_PORT = 4173;
 
 chrome.runtime.onMessage.addListener((msg) => {
   if (msg.type !== "import") return;
-  doImport(msg.url, msg.pasted_markdown);
+  doImport(msg.url, msg.pasted_markdown, msg.context);
   // Return false — we communicate back via storage, not sendResponse.
 });
 
-async function doImport(url, markdown) {
+async function doImport(url, markdown, context) {
   // Record start time so the popup can detect a stale running state if this
   // service worker is ever killed despite the keepalive.
   await chrome.storage.local.set({
@@ -39,7 +39,7 @@ async function doImport(url, markdown) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         kind: "web-import",
-        args: { url, pasted_markdown: markdown },
+        args: { url, pasted_markdown: markdown, context: context || "" },
       }),
     });
 
