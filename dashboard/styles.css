@@ -331,9 +331,28 @@ textarea:focus-visible {
 }
 /* When the textarea is tall enough that we hit max-height, restore scrolling. */
 .query-input.query-input-overflow { overflow-y: auto; }
-.query-input::placeholder {
-  color: var(--ink-faint);
+/* Custom placeholder rendered as a normal centered block, not the textarea's
+   own centered text — a center-aligned <textarea> picks up a sub-pixel
+   horizontal scroll offset at fractional zoom levels and drifts right. This
+   overlay matches the textarea's box metrics and centers reliably at any zoom. */
+.query-field {
+  position: relative;
+}
+.query-placeholder {
+  position: absolute;
+  inset: 0;
+  padding: 14px 0 12px;                       /* match .query-input padding */
+  font-family: var(--font-display);
+  font-size: clamp(1.1rem, 2.4vw, 1.35rem);   /* match .query-input */
+  line-height: 1.45;                          /* match .query-input */
   font-style: italic;
+  color: var(--ink-faint);
+  text-align: center;
+  pointer-events: none;
+  font-variation-settings: "opsz" 36;
+}
+.query-field.has-value .query-placeholder {
+  display: none;
 }
 .query-input:focus {
   outline: none;

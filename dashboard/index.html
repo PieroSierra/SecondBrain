@@ -98,15 +98,17 @@
           <section class="hero" aria-label="Ask your knowledge base">
             <form id="query-form" class="query-form" data-long-op="query">
               <label for="query-input" class="visually-hidden">Ask a question</label>
-              <textarea
-                id="query-input"
-                name="question"
-                class="query-input"
-                rows="1"
-                placeholder="What do you want to know?"
-                autofocus
-                required
-              ></textarea>
+              <div class="query-field">
+                <textarea
+                  id="query-input"
+                  name="question"
+                  class="query-input"
+                  rows="1"
+                  autofocus
+                  required
+                ></textarea>
+                <div class="query-placeholder" aria-hidden="true">What do you want to know?</div>
+              </div>
               <button type="submit" class="query-submit">Ask ↵</button>
               <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>
             </form>

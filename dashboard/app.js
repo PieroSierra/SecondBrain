@@ -535,6 +535,7 @@ document.addEventListener("click", async (e) => {
 
 const queryForm = $("#query-form");
 const queryInput = $("#query-input");
+const queryField = queryInput.closest(".query-field");
 const queryOp = queryForm.querySelector("[data-op-status]");
 const queryResult = $("#query-result");
 const queryResultBody = queryResult.querySelector(".markdown-body");
@@ -551,6 +552,8 @@ queryInput.addEventListener("keydown", (e) => {
 
 // Auto-grow the query textarea as the question gets longer.
 function autoGrowQuery() {
+  // Hide the custom placeholder once there's any content (mirrors native placeholder).
+  queryField.classList.toggle("has-value", queryInput.value.length > 0);
   // Reset to natural height so shrinking works when the user deletes.
   queryInput.style.height = "auto";
   const target = queryInput.scrollHeight;
