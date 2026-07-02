@@ -137,20 +137,38 @@ textarea:focus-visible {
   padding: 0 32px;
   display: flex;
   flex-wrap: wrap;
+  align-items: baseline;
   justify-content: center;
-  gap: 0;
+  gap: 2px 0;
   font-size: 0.83rem;
   color: var(--ink-muted);
   letter-spacing: 0.01em;
 }
-.status-tile {
+.status-strip [hidden] { display: none; }
+/* Each metric (number + label) reads as one word in the pipeline sentence. */
+.status-seg {
   display: inline-flex;
   align-items: baseline;
   gap: 6px;
-  padding: 4px 16px;
-  border-right: 1px solid var(--rule);
+  padding: 4px 6px;
 }
-.status-tile:last-child { border-right: none; }
+/* Explicit separators between segments: "|" between groups, "→" for flow. */
+.status-sep {
+  color: var(--ink-faint);
+  margin: 0 4px;
+  user-select: none;
+}
+.status-arrow {
+  color: var(--ink-muted);
+  margin: 0 6px;
+}
+/* Full-width, zero-height item → forces everything after it onto a new row,
+   so the pipeline (line 1) and the last-ingest/agent metadata (line 2) split. */
+.status-break {
+  flex-basis: 100%;
+  width: 100%;
+  height: 4px;
+}
 .status-num {
   font-family: var(--font-mono);
   font-size: 0.92em;
@@ -164,11 +182,16 @@ textarea:focus-visible {
 }
 .status-tile-empty .status-num,
 .status-tile-empty .status-label { color: var(--ink-faint); }
-.status-tile[title] { cursor: help; }
+.status-seg[title] { cursor: help; }
+/* Pending ingests demand attention — deep brick red on both number and label. */
+.status-ready .status-num,
+.status-ready .status-label { color: var(--error-ink); }
 
 @media (max-width: 720px) {
   .status-strip { gap: 4px 0; padding: 0 16px; }
-  .status-tile { padding: 4px 10px; }
+  .status-seg { padding: 4px; }
+  .status-sep { margin: 0 2px; }
+  .status-arrow { margin: 0 4px; }
 }
 
 /* ---------- Layout ---------- */

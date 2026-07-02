@@ -353,22 +353,23 @@ async function refreshStatus() {
 }
 
 function applyStatus(data) {
+  setTile("raw_total_count", data.raw_total_count, null);
+  setTile("raw_pending_count", data.raw_pending_count, null);
   setTile("wiki_article_count", data.wiki_article_count, null);
-
-  // Pending count gets a tooltip with the per-source breakdown if available.
-  const b = data.raw_breakdown ?? {};
-  const breakdown = `paste ${b.paste ?? 0} · pdf ${b.pdf ?? 0} · web ${b.web ?? 0} · craft ${b.craft ?? 0}`;
-  setTile("raw_pending_count", data.raw_pending_count, breakdown, breakdown);
+  setTile("outputs_query_count", data.outputs_query_count, null);
 
   const ingest = formatIngestTime(data.last_ingest_iso, data.last_ingest_source);
   setTile("last_ingest_iso", ingest.label, ingest.sublabel, ingest.title);
 
-  setTile("outputs_query_count", data.outputs_query_count, null);
-  setTile("outputs_lint_count", data.outputs_lint_count, null);
+  // The "| N ready to ingest" pipe + segment appear only when work is pending.
+  const showReady = Number(data.raw_pending_count) > 0;
+  document
+    .querySelectorAll('#status-strip [data-seg="ready"]')
+    .forEach((el) => { el.hidden = !showReady; });
 }
 
 function setTile(metric, value, sublabel, title) {
-  const tile = document.querySelector(`.status-tile[data-metric="${metric}"]`);
+  const tile = document.querySelector(`#status-strip [data-metric="${metric}"]`);
   if (!tile) return;
   const numEl = tile.querySelector(".status-num");
   const labelEl = tile.querySelector(".status-label");

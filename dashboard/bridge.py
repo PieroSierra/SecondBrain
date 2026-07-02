@@ -1056,27 +1056,42 @@ def _vault_status() -> dict:
         except (OSError, json.JSONDecodeError):
             manifest = {}
 
-    # Pending count
+    # Pending count.
+    #
+    # We compare the manifest's *recorded* `last_modified` against `ingested_at`
+    # — the exact staleness rule the ingest skill documents (a file is stale iff
+    # last_modified > ingested_at; SKILL.md). We deliberately do NOT consult the
+    # live filesystem mtime: this is a git-backed, append-only vault, and a
+    # branch switch / checkout / clone rewrites every file's mtime to "now"
+    # without touching content. Trusting fs mtime there reports dozens of
+    # phantom "changed" files (all sharing one checkout timestamp) when nothing
+    # actually changed. The manifest's own record is immune to that.
     raw_files = _raw_user_files()
     pending = 0
     if manifest_ok:
         for rel, p in raw_files.items():
             entry = manifest.get(rel)
             if not isinstance(entry, dict):
-                pending += 1
+                pending += 1  # no manifest entry → genuinely new
                 continue
             ingested_at_str = entry.get("ingested_at")
             if not ingested_at_str:
-                pending += 1
+                pending += 1  # never confirmed ingested
                 continue
             try:
                 ingested_at = datetime.fromisoformat(ingested_at_str.replace("Z", "+00:00"))
             except ValueError:
                 pending += 1
                 continue
-            file_mtime = datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc)
-            if file_mtime > ingested_at + _MTIME_SLACK:
-                pending += 1
+            last_modified_str = entry.get("last_modified")
+            if not last_modified_str:
+                continue  # recorded as ingested, no known later change → current
+            try:
+                last_modified = datetime.fromisoformat(last_modified_str.replace("Z", "+00:00"))
+            except ValueError:
+                continue
+            if last_modified > ingested_at + _MTIME_SLACK:
+                pending += 1  # edited after it was last ingested
     else:
         # No manifest = "everything is pending" view from the user's perspective.
         pending = len(raw_files)
@@ -1110,6 +1125,9 @@ def _vault_status() -> dict:
 
     return {
         "wiki_article_count": wiki_count,
+        # Total user-facing raw files — the same universe pending is measured
+        # against, so raw_pending_count is always a subset of this.
+        "raw_total_count": len(raw_files),
         "raw_pending_count": pending,
         "raw_breakdown": {
             "paste": paste_count,
@@ -1392,6 +1410,16 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._serve_file(resolved)
         if path == "/healthz":
             return _json_response(self, 200, {"ok": True})
+        if path == "/busy":
+            # Liveness of the long-op mutex, for the native app's Dock indicator.
+            # Non-sensitive (just whether a skill is running and its kind); a
+            # best-effort read of the module global is fine — any momentary race
+            # self-corrects on the next poll.
+            snap = _in_flight
+            return _json_response(self, 200, {
+                "running": snap is not None,
+                "kind": (snap or {}).get("kind"),
+            })
 
         # Everything below returns vault data → require authorization.
         if not self._authorize():

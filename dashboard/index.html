@@ -66,31 +66,40 @@
           <p class="brand-sub">a personal knowledge base</p>
         </header>
 
+        <!-- Reads left-to-right as a pipeline: raw notes → wiki → answers.
+             The "| N ready to ingest" pair (pipe + segment, both data-seg="ready")
+             is shown only when raw_pending_count > 0; JS toggles them together. -->
         <section id="status-strip" class="status-strip" aria-label="Vault status">
-          <div class="status-tile" data-metric="wiki_article_count">
+          <span class="status-seg" data-metric="raw_total_count">
+            <span class="status-num">—</span>
+            <span class="status-label">raw notes</span>
+          </span>
+          <span class="status-sep status-sep-pipe" data-seg="ready" hidden>|</span>
+          <span class="status-seg status-ready" data-metric="raw_pending_count" data-seg="ready" hidden>
+            <span class="status-num">—</span>
+            <span class="status-label">ready to ingest</span>
+          </span>
+          <span class="status-sep status-arrow" aria-hidden="true">→</span>
+          <span class="status-seg" data-metric="wiki_article_count">
             <span class="status-num">—</span>
             <span class="status-label">wiki articles</span>
-          </div>
-          <div class="status-tile" data-metric="raw_pending_count">
+          </span>
+          <span class="status-sep status-arrow" aria-hidden="true">→</span>
+          <span class="status-seg" data-metric="outputs_query_count">
             <span class="status-num">—</span>
-            <span class="status-label">pending ingest</span>
-          </div>
-          <div class="status-tile" data-metric="last_ingest_iso">
+            <span class="status-label">answers</span>
+          </span>
+          <!-- Force a wrap: the pipeline sits on line 1, metadata on line 2. -->
+          <span class="status-break" aria-hidden="true"></span>
+          <span class="status-seg" data-metric="last_ingest_iso">
             <span class="status-num">—</span>
             <span class="status-label">last ingest</span>
-          </div>
-          <div class="status-tile" data-metric="outputs_query_count">
-            <span class="status-num">—</span>
-            <span class="status-label">saved queries</span>
-          </div>
-          <div class="status-tile" data-metric="outputs_lint_count">
-            <span class="status-num">—</span>
-            <span class="status-label">lint reports</span>
-          </div>
-          <div class="status-tile" data-metric="engine">
+          </span>
+          <span class="status-sep status-sep-pipe" aria-hidden="true">|</span>
+          <span class="status-seg" data-metric="engine">
             <span class="status-num">—</span>
             <span class="status-label">agent</span>
-          </div>
+          </span>
         </section>
 
         <main class="layout">
