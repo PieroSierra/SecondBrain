@@ -34,11 +34,28 @@ The ingest state is tracked in `raw/.ingest-manifest.json`:
 ```
 
 - Keys are vault-relative file paths (e.g., `raw/article.md`)
-- `last_modified`: ISO 8601 timestamp of the file's last modification
+- `last_modified`: ISO 8601 timestamp of the file's content as of the last time
+  it was ingested — captured **once** at ingest time (Step 5) and then frozen in
+  the manifest. It is the authoritative record of "the version we synthesised".
 - `ingested_at`: ISO 8601 timestamp of when it was last successfully ingested
 - A file is **new** if it has no manifest entry
-- A file is **stale** if `last_modified` is more recent than `ingested_at`
+- A file is **stale** if its manifest `last_modified` is more recent than its `ingested_at`
 - A file is **current** if `last_modified` ≤ `ingested_at` — skip it
+
+> **Decide staleness from the manifest record ONLY — never from the live
+> filesystem mtime (`stat`/`ls -l`).** This is a git-backed vault: switching
+> branches, checking out, or cloning re-materialises every `raw/` file and
+> stamps it with a *fresh* filesystem mtime even though the content is
+> byte-for-byte unchanged. Trusting the filesystem mtime therefore makes the
+> whole vault look "stale" after any branch switch and triggers a full,
+> pointless re-synthesis (dozens of files sharing one checkout timestamp). The
+> manifest's recorded `last_modified` is immune to that churn.
+>
+> Consequence (acceptable, by design): `raw/` is **append-only** — genuine new
+> content always arrives as a *new file* (a new dated filename), which is still
+> detected as **new**. An in-place content edit to an already-ingested file is
+> intentionally NOT re-detected. To force re-ingestion of such a file, re-add it
+> under a new dated filename, or delete its manifest entry so it reads as new.
 
 ## Wiki Article Format
 
@@ -91,9 +108,10 @@ Recursively list all files in `raw/` (including subdirectories `raw/craft/`, `ra
 4. Track the PDF path itself in the manifest (so it is not re-extracted unless modified)
 5. If extraction fails (password-protected, unreadable, empty): log `[skip] <path> — PDF extraction failed: <reason>` and do not add to the manifest
 
-**Queue logic**: For each `.md` or `.txt` file, check its last-modified timestamp against the manifest:
-- New or stale → add to the **processing queue** (bring along any associated images from the same directory)
-- Current → skip silently (also skip associated images)
+**Queue logic**: For each `.md` or `.txt` file, look up its entry in the manifest and classify it from the **manifest record only**. Do NOT call `stat`/`ls -l` to read the file's current filesystem mtime (see the warning under "Manifest Format" for why — branch switches make fs mtime lie):
+- **New** — no manifest entry → add to the **processing queue** (bring along any associated images from the same directory)
+- **Stale** — manifest `last_modified` > manifest `ingested_at` → add to the processing queue
+- **Current** — `last_modified` ≤ `ingested_at` → skip silently (also skip associated images)
 
 If the processing queue is empty: output "Nothing to ingest — all files are up to date." and stop.
 
@@ -149,8 +167,13 @@ Sort rows alphabetically by topic name. Every file in `wiki/` except `INDEX.md` 
 After ALL wiki writes complete successfully, write an updated `raw/.ingest-manifest.json`:
 - Keep all existing manifest entries (tombstone pattern — don't remove deleted files)
 - Add new entries for newly ingested files
-- Update `ingested_at` for re-ingested stale files
-- Use the current timestamp as `ingested_at`
+- For each file ingested this run, set `last_modified` to the file's current
+  filesystem mtime **at this moment** (a one-time capture — this frozen value is
+  what future runs compare against; it is never re-read from disk during the
+  queue scan) and set `ingested_at` to the current timestamp. Because
+  `ingested_at` is "now" and therefore ≥ the just-captured `last_modified`, the
+  file reads as **current** on the next run and is correctly skipped — no matter
+  how a later branch switch rewrites its filesystem mtime.
 - Write the manifest as a full overwrite (atomic)
 
 ### Step 6 — Report
