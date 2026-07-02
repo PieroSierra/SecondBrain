@@ -1307,7 +1307,34 @@ async function loadOutputsList(force = false) {
       btn.className = "nav-item nav-item-output";
       btn.dataset.outputFilename = item.filename;
       btn.appendChild(makeNavIcon("answer"));
-      btn.appendChild(document.createTextNode(item.title));
+
+      // Wrap the title so the trash control can sit in a fixed right-hand
+      // column: the label flexes, the trash slot is always reserved (even
+      // when hidden) so revealing it on hover never re-wraps the text.
+      const label = document.createElement("span");
+      label.className = "nav-item-label";
+      label.textContent = item.title;
+      btn.appendChild(label);
+
+      const trash = document.createElement("span");
+      trash.className = "nav-item-trash";
+      trash.setAttribute("role", "button");
+      trash.setAttribute("aria-label", `Delete ${item.title}`);
+      trash.title = "Delete";
+      const trashIcon = document.createElement("img");
+      trashIcon.src = "/static/icons/trash.png";
+      trashIcon.width = 20;
+      trashIcon.height = 20;
+      trashIcon.alt = "";
+      trashIcon.setAttribute("aria-hidden", "true");
+      trash.appendChild(trashIcon);
+      trash.addEventListener("click", (e) => {
+        // Don't let the click bubble to the row (which would open the output).
+        e.stopPropagation();
+        openDeleteModal(item.filename, item.title, btn);
+      });
+      btn.appendChild(trash);
+
       btn.title = `${item.date_iso} · ${item.kind}`;
       btn.addEventListener("click", () => {
         setActiveNavItem(btn);
@@ -1513,6 +1540,69 @@ rawModal?.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && rawModal && !rawModal.hidden) closeRawModal();
+});
+
+// ── Delete-answer modal ──────────────────────────────────────────────────
+// Confirms before removing a saved output. Reuses the raw-modal scrim for the
+// darkened backdrop. Holds the pending target between opening and confirming.
+
+const deleteModal = document.getElementById("delete-modal");
+let _pendingDelete = null; // { filename, title, btn }
+
+function openDeleteModal(filename, title, btn) {
+  if (!deleteModal) return;
+  _pendingDelete = { filename, title, btn };
+  const nameEl = deleteModal.querySelector(".delete-modal-name");
+  if (nameEl) nameEl.textContent = title;
+  const confirmBtn = deleteModal.querySelector("[data-delete-confirm]");
+  if (confirmBtn) {
+    confirmBtn.disabled = false;
+    confirmBtn.textContent = "Delete";
+  }
+  deleteModal.hidden = false;
+  confirmBtn?.focus();
+}
+
+function closeDeleteModal() {
+  if (deleteModal) deleteModal.hidden = true;
+  _pendingDelete = null;
+}
+
+async function confirmDelete() {
+  if (!_pendingDelete) return;
+  const { filename, btn } = _pendingDelete;
+  const confirmBtn = deleteModal.querySelector("[data-delete-confirm]");
+  if (confirmBtn) confirmBtn.disabled = true;
+  try {
+    const res = await apiFetch(`/outputs/${encodeURIComponent(filename)}`, {
+      method: "DELETE",
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    // If the deleted answer was open in the viewer, fall back to New Question.
+    const wasActive = btn.classList.contains("nav-item-active");
+    btn.remove();
+    if (wasActive) {
+      _lastHomePanel = "panel-home-new";
+      setActiveNavItem(document.getElementById("nav-new-question"));
+      showPanel("panel-home-new");
+    }
+    closeDeleteModal();
+  } catch (err) {
+    // Surface the failure inline on the confirm button and let the user retry.
+    if (confirmBtn) {
+      confirmBtn.disabled = false;
+      confirmBtn.textContent = "Retry delete";
+    }
+    console.error("Delete failed:", err);
+  }
+}
+
+deleteModal?.addEventListener("click", (e) => {
+  if (e.target.closest("[data-delete-cancel]")) return closeDeleteModal();
+  if (e.target.closest("[data-delete-confirm]")) return confirmDelete();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && deleteModal && !deleteModal.hidden) closeDeleteModal();
 });
 
 // Tab button clicks

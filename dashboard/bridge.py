@@ -1435,6 +1435,21 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         self._not_found()
 
+    # ----- DELETE ---------------------------------------------------------
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        parsed = urllib.parse.urlparse(self.path)
+        path = parsed.path
+
+        # Deleting a saved output mutates the vault → require authorization.
+        if not self._authorize():
+            return self._deny()
+
+        if path.startswith("/outputs/") and len(path) > 9:
+            return self._delete_output_file(path[9:])
+
+        self._not_found()
+
     # ----- handlers -------------------------------------------------------
 
     def _handle_upload_pdf(self) -> None:
@@ -1731,6 +1746,26 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         if not resolved.is_file():
             return _json_response(self, 404, {"error": "not_found", "detail": f"no output: {filename}"})
         self._serve_text_file(resolved)
+
+    def _delete_output_file(self, filename: str) -> None:
+        # Delete a single saved output. Same containment checks as the GET
+        # path — refuse anything that isn't a plain filename directly inside
+        # outputs/ so a crafted path can never reach outside the vault.
+        if not _SAFE_FILENAME_RE.fullmatch(filename) or "/" in filename or "\\" in filename:
+            return _json_response(self, 404, {"error": "not_found"})
+        p = OUTPUTS_DIR / filename
+        try:
+            resolved = p.resolve()
+            resolved.relative_to(OUTPUTS_DIR.resolve())
+        except ValueError:
+            return _json_response(self, 404, {"error": "not_found"})
+        if not resolved.is_file():
+            return _json_response(self, 404, {"error": "not_found", "detail": f"no output: {filename}"})
+        try:
+            resolved.unlink()
+        except OSError as exc:
+            return _json_response(self, 500, {"error": "delete_failed", "detail": str(exc)})
+        return _json_response(self, 200, {"ok": True})
 
     def _serve_raw_file(self, subpath: str) -> None:
         # Serve a single markdown file from raw/ (read-only). Unlike wiki and
