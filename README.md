@@ -1,7 +1,7 @@
 
 ![Second Brain](dashboard/chrome-extension/icon-128.png)
 # Second Brain
-A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — through **Claude Code**, **OpenAI Codex** skills, or a **local web dashboard**.
+A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — through **Claude Code**, **OpenAI Codex** skills, or a **local web dashboard** (available as a downloadable [macOS app](https://github.com/PieroSierra/SecondBrain/releases/latest)).
 
 ---
 
@@ -111,7 +111,15 @@ The dashboard is a local web UI that surfaces the same six operations without op
 
 ![Dashboard screenshot|697](dashboard/dashboard_sample.png)
 
-### Start
+### macOS app (easiest on Mac)
+
+Prefer a real app to running a script? Download **SecondBrain.app** — a signed, notarized macOS app that runs the dashboard for you: it starts the bridge, shows the dashboard in its own window, lives in the Dock while running, lets you switch engine (Claude ↔ Codex) from a menu, and shuts the bridge down when you quit.
+
+**[⬇ Download SecondBrain.app](https://github.com/PieroSierra/SecondBrain/releases/latest)** — notarized, so it opens with a normal double-click (no right-click, no Gatekeeper prompt).
+
+It's a companion to this repo, not a standalone download: clone the repo and have an agent CLI (`claude` or `codex`) on your PATH, then point the app at your vault folder on first launch. Build it yourself or read more in [`macos-app/README.md`](macos-app/README.md).
+
+### Start from the terminal
 
 ```bash
 ./run.sh
@@ -231,6 +239,7 @@ SecondBrain/
 │   ├── lib/marked.min.js       Vendored Markdown renderer
 │   ├── lib/purify.min.js       Vendored DOMPurify (HTML sanitiser)
 │   └── chrome-extension/       Browser extension (load unpacked in Chrome)
+├── macos-app/                  Native macOS app that runs the dashboard (Swift source + build/release scripts)
 ├── run.sh                      Start the dashboard (idempotent port cleanup)
 ├── CLAUDE.md                   Vault schema + your declared interests (gitignored — personal)
 ├── CLAUDE.md.example           Template to copy when setting up a new vault
