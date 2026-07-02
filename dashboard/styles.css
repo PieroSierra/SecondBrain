@@ -955,7 +955,6 @@ body { overflow: hidden; }
   display: flex;
   flex-direction: column;
   background: var(--bg);
-  border-right: 1px solid var(--rule);
   overflow-y: auto;
   overflow-x: hidden;
   flex-shrink: 0;
@@ -1122,6 +1121,12 @@ body { overflow: hidden; }
   overflow-y: auto;
   height: 100vh;
   background: var(--bg-content);
+  /* Content reads as a raised sheet above the darker nav, casting a soft
+     shadow leftward onto it (replaces the old hairline seam). z-index lifts
+     the panel — and its shadow — above the sidebar in paint order. */
+  position: relative;
+  z-index: 1;
+  box-shadow: -6px 0 14px -6px rgba(42, 31, 26, 0.15);
 }
 
 /* Panels fill the main-panel; shown/hidden via the HTML `hidden` attr */
