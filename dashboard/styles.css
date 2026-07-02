@@ -1276,11 +1276,19 @@ body { overflow: hidden; }
 
 .lint-edit-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   margin-top: 8px;
 }
-.lint-edit-row .op-status {
+.lint-edit-row .import-submit {
+  flex-shrink: 0;
+}
+/* Keep the button on its own line; the timer and confirmation flow full-width
+   beneath it instead of crowding in beside it and forcing the button to wrap. */
+.lint-edit-row .op-status,
+.lint-edit-row .import-status {
+  flex-basis: 100%;
   margin-top: 0;
 }
 
