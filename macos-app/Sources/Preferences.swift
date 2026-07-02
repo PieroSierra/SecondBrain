@@ -8,6 +8,17 @@ enum Preferences {
     /// Fixed port the bridge binds on 127.0.0.1 (matches `run.sh` / bridge default).
     static let port = 4173
 
+    private static let pageZoomKey = "pageZoom"
+
+    /// Persisted dashboard zoom factor for the native web view (1.0 == 100%).
+    static var pageZoom: Double {
+        get {
+            let v = UserDefaults.standard.double(forKey: pageZoomKey)
+            return v > 0 ? v : 1.0   // default 100% when unset
+        }
+        set { UserDefaults.standard.set(newValue, forKey: pageZoomKey) }
+    }
+
     static var vaultURL: URL? {
         get {
             guard let p = UserDefaults.standard.string(forKey: vaultKey) else { return nil }

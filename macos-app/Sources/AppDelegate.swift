@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // Quit (Cmd-Q) → kill the bridge we started.
     func applicationWillTerminate(_ notification: Notification) {
+        DockActivity.shared.stopPolling()
         BridgeController.shared.stop()
     }
 
@@ -35,6 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 WebWindow.shared.load()
                 WebWindow.shared.show()
                 self?.updateEngineChecks()
+                DockActivity.shared.startPolling()
             },
             failed: { [weak self] message in
                 self?.handleStartFailure(message)
@@ -157,6 +159,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         editMenu.addItem(withTitle: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v")
         editMenu.addItem(withTitle: "Select All",
                          action: #selector(NSText.selectAll(_:)), keyEquivalent: "a")
+
+        // View menu (dashboard zoom, mirroring browser ⌘+/⌘-/⌘0).
+        let viewItem = NSMenuItem()
+        mainMenu.addItem(viewItem)
+        let viewMenu = NSMenu(title: "View")
+        viewItem.submenu = viewMenu
+        viewMenu.addItem(withTitle: "Zoom In",
+                         action: #selector(WebWindow.zoomIn), keyEquivalent: "=")
+            .target = WebWindow.shared
+        viewMenu.addItem(withTitle: "Zoom Out",
+                         action: #selector(WebWindow.zoomOut), keyEquivalent: "-")
+            .target = WebWindow.shared
+        viewMenu.addItem(withTitle: "Actual Size",
+                         action: #selector(WebWindow.resetZoom), keyEquivalent: "0")
+            .target = WebWindow.shared
 
         // Engine menu (claude | codex), radio-style checkmarks.
         let engineItem = NSMenuItem()
