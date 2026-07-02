@@ -1409,6 +1409,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return _json_response(self, 200, _outputs_list())
         if path.startswith("/outputs/") and len(path) > 9:
             return self._serve_output_file(path[9:])
+        if path.startswith("/raw/") and len(path) > 5:
+            return self._serve_raw_file(path[5:])
 
         self._not_found()
 
@@ -1728,6 +1730,27 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return _json_response(self, 404, {"error": "not_found"})
         if not resolved.is_file():
             return _json_response(self, 404, {"error": "not_found", "detail": f"no output: {filename}"})
+        self._serve_text_file(resolved)
+
+    def _serve_raw_file(self, subpath: str) -> None:
+        # Serve a single markdown file from raw/ (read-only). Unlike wiki and
+        # outputs, raw is nested (web/, pdf/, craft/, images/), so we validate
+        # each path segment and rely on the resolved-path containment check.
+        subpath = urllib.parse.unquote(subpath)
+        if not subpath or "\\" in subpath or not subpath.endswith(".md"):
+            return _json_response(self, 404, {"error": "not_found"})
+        segments = subpath.split("/")
+        for seg in segments:
+            if seg in ("", ".", "..") or seg.startswith(".") or not _SAFE_FILENAME_RE.fullmatch(seg):
+                return _json_response(self, 404, {"error": "not_found"})
+        p = RAW_DIR / subpath
+        try:
+            resolved = p.resolve()
+            resolved.relative_to(RAW_DIR.resolve())
+        except ValueError:
+            return _json_response(self, 404, {"error": "not_found"})
+        if not resolved.is_file():
+            return _json_response(self, 404, {"error": "not_found", "detail": f"no raw file: {subpath}"})
         self._serve_text_file(resolved)
 
     def _not_found(self) -> None:

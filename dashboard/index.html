@@ -384,6 +384,18 @@
     </div><!-- /main-panel -->
   </div><!-- /app-shell -->
 
+  <!-- Raw source-file viewer: a dismissable overlay, no nav/tab state. -->
+  <div id="raw-modal" class="raw-modal" hidden>
+    <div class="raw-modal-scrim" data-raw-close></div>
+    <div class="raw-modal-sheet" role="dialog" aria-modal="true" aria-label="Source file">
+      <header class="raw-modal-head">
+        <span class="raw-modal-path"></span>
+        <button type="button" class="raw-modal-close" data-raw-close aria-label="Close">×</button>
+      </header>
+      <div class="markdown-body raw-modal-body"></div>
+    </div>
+  </div>
+
   <script type="module" src="/static/app.js"></script>
 </body>
 </html>

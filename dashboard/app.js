@@ -79,7 +79,7 @@ function sanitizeHtml(html) {
 }
 
 // marked + DOMPurify are loaded globally via <script src="/static/lib/...">.
-function renderMarkdown(md, { clickableWikilinks = false } = {}) {
+function renderMarkdown(md) {
   if (!md) return "";
   if (typeof window.marked === "undefined") {
     // Fallback: plain text in a <pre>.
@@ -87,18 +87,15 @@ function renderMarkdown(md, { clickableWikilinks = false } = {}) {
     pre.textContent = md;
     return pre.outerHTML;
   }
-  // Highlight [[wikilink]] tokens. In the wiki viewer they become clickable
-  // <a> tags; elsewhere they're non-interactive <span> chips. The captured
-  // name is HTML-escaped so a crafted [[...]] can't inject markup.
-  const withWikilinks = clickableWikilinks
-    ? md.replace(
-        /\[\[([^\]\n]+)\]\]/g,
-        (_, name) => `<a class="wikilink" href="#" data-wiki-slug="${escapeHtml(name)}">${escapeHtml(name)}</a>`,
-      )
-    : md.replace(
-        /\[\[([^\]\n]+)\]\]/g,
-        (_, name) => `<span class="wikilink">${escapeHtml(name)}</span>`,
-      );
+  // Turn [[wikilink]] tokens into clickable <a> tags everywhere they appear
+  // (query answers, output/lint viewers, wiki articles). A single delegated
+  // handler routes the click by slug prefix: `raw/…` opens the raw file
+  // modal, `wiki/…`/bare open the wiki article. The captured name is
+  // HTML-escaped so a crafted [[...]] can't inject markup.
+  const withWikilinks = md.replace(
+    /\[\[([^\]\n]+)\]\]/g,
+    (_, name) => `<a class="wikilink" href="#" data-wiki-slug="${escapeHtml(name)}">${escapeHtml(name)}</a>`,
+  );
   const html = window.marked.parse(withWikilinks, { gfm: true, breaks: false });
   return sanitizeHtml(html);
 }
@@ -1425,7 +1422,7 @@ async function openWikiArticle(slug, displayTitle) {
     if (!res.ok) throw new Error(`Article not found: ${slug}`);
     const md = await res.text();
     if (bodyEl) {
-      bodyEl.innerHTML = renderMarkdown(md, { clickableWikilinks: true });
+      bodyEl.innerHTML = renderMarkdown(md);
       // Use the rendered H1 as the breadcrumb title if available
       const h1 = bodyEl.querySelector("h1");
       if (h1 && crumb) crumb.textContent = h1.textContent;
@@ -1436,19 +1433,86 @@ async function openWikiArticle(slug, displayTitle) {
   }
 }
 
-// Delegated click handler for [[wikilinks]] rendered inside the wiki viewer
-document.getElementById("panel-wiki-viewer")?.addEventListener("click", (e) => {
+// Open a wiki article from anywhere (query answer, output viewer, another
+// article), flipping the sidebar into the Wiki section. We set the section
+// chrome directly rather than calling switchSection() to avoid its "first
+// visit opens INDEX" async branch racing the target article load.
+function goToWikiArticle(slug) {
+  _currentSection = "wiki";
+  document.querySelectorAll(".nav-tab").forEach((btn) => {
+    const active = btn.dataset.navTab === "wiki";
+    btn.classList.toggle("nav-tab-active", active);
+    btn.setAttribute("aria-selected", String(active));
+  });
+  const homeList = document.getElementById("nav-list-home");
+  const wikiList = document.getElementById("nav-list-wiki");
+  if (homeList) homeList.hidden = true;
+  if (wikiList) wikiList.hidden = false;
+  openWikiArticle(slug);
+  // Highlight the matching nav item once the list is present.
+  loadWikiList().then(() => {
+    const navBtn = document.querySelector(
+      `.nav-item-wiki[data-wiki-slug="${CSS.escape(slug)}"]`,
+    );
+    if (navBtn) setActiveNavItem(navBtn);
+  });
+}
+
+// Delegated click handler for every [[wikilink]]-derived <a>, wherever it is
+// rendered. Routes by slug prefix: `raw/…` opens the raw-file modal, `wiki/…`
+// (query-answer sources) and bare slugs open the wiki article.
+document.addEventListener("click", (e) => {
   const link = e.target.closest("[data-wiki-slug]");
   if (!link || !link.dataset.wikiSlug) return;
   if (link.closest(".sidebar")) return; // nav buttons have their own handlers
   e.preventDefault();
   const slug = link.dataset.wikiSlug;
-  // Highlight the matching nav item if it exists
-  const navBtn = document.querySelector(
-    `.nav-item-wiki[data-wiki-slug="${CSS.escape(slug)}"]`,
-  );
-  if (navBtn) setActiveNavItem(navBtn);
-  openWikiArticle(slug);
+  if (slug.startsWith("raw/")) {
+    openRawFile(slug);
+    return;
+  }
+  const wikiSlug = slug.startsWith("wiki/") ? slug.slice(5) : slug;
+  goToWikiArticle(wikiSlug);
+});
+
+// ── Raw file modal ───────────────────────────────────────────────────────
+// A lightweight, dismissable viewer for a single raw source file. It has no
+// nav/tab state and no history: open, read, close back to where you were.
+
+const rawModal = document.getElementById("raw-modal");
+
+function closeRawModal() {
+  if (rawModal) rawModal.hidden = true;
+}
+
+// slug is the full `raw/…​.md` path from the link's data-wiki-slug.
+async function openRawFile(slug) {
+  if (!rawModal) return;
+  const pathEl = rawModal.querySelector(".raw-modal-path");
+  const bodyEl = rawModal.querySelector(".raw-modal-body");
+  if (pathEl) pathEl.textContent = slug;
+  if (bodyEl) bodyEl.innerHTML = '<p class="viewer-placeholder">Loading…</p>';
+  rawModal.hidden = false;
+  rawModal.querySelector(".raw-modal-sheet")?.scrollTo(0, 0);
+
+  const subpath = slug.replace(/^raw\//, "");
+  const encoded = subpath.split("/").map(encodeURIComponent).join("/");
+  try {
+    const res = await apiFetch(`/raw/${encoded}`);
+    if (!res.ok) throw new Error(`File not found: ${slug}`);
+    const md = await res.text();
+    if (bodyEl) bodyEl.innerHTML = renderMarkdown(md);
+  } catch (err) {
+    if (bodyEl) showLoadError(bodyEl, err.message);
+  }
+}
+
+// Dismiss on scrim/× click and on Escape while open.
+rawModal?.addEventListener("click", (e) => {
+  if (e.target.closest("[data-raw-close]")) closeRawModal();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && rawModal && !rawModal.hidden) closeRawModal();
 });
 
 // Tab button clicks

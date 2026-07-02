@@ -1240,3 +1240,65 @@ body { overflow: hidden; }
 .lint-edit-row .op-status {
   margin-top: 0;
 }
+
+/* ── Raw source-file modal ─────────────────────────────────────────────── */
+/* A dismissable overlay for viewing a single raw file, floating above the
+   content sheet (which sits at z-index:1). */
+.raw-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+}
+.raw-modal[hidden] { display: none; }
+.raw-modal-scrim {
+  position: absolute;
+  inset: 0;
+  background: rgba(42, 31, 26, 0.32);
+}
+.raw-modal-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 760px;
+  max-height: 85vh;
+  overflow: auto;
+  background: var(--bg-content);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 18px 48px -12px rgba(42, 31, 26, 0.45);
+}
+.raw-modal-head {
+  position: sticky;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 20px;
+  background: var(--bg-content);
+  border-bottom: 1px solid var(--rule);
+}
+.raw-modal-path {
+  font-family: var(--font-mono);
+  font-size: 0.82em;
+  color: var(--ink-muted);
+  word-break: break-all;
+}
+.raw-modal-close {
+  flex: none;
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--ink-faint);
+  padding: 0 4px;
+}
+.raw-modal-close:hover { color: var(--ink); }
+.raw-modal-body {
+  padding: 20px 24px 28px;
+}
