@@ -13,6 +13,8 @@ The app contains **no knowledge-base logic**. It only starts, displays, and stop
 bridge — the skills remain the sole system of record. It points at your on-disk repo,
 so `git pull` updates the dashboard with no rebuild.
 
+**[⬇ Download SecondBrain.app](https://github.com/PieroSierra/SecondBrain/releases/latest)** — notarized, so it opens with a normal double-click (no right-click, no Gatekeeper prompt). Or build it yourself below.
+
 ## Requirements
 
 - macOS 12+ with the Xcode command line tools (`xcode-select --install`) — provides `swiftc`.
