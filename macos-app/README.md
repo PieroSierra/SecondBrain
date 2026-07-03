@@ -1,4 +1,4 @@
-![Second Brain](dashboard/app_taskbar.png)
+![Second Brain](../dashboard/app_taskbar.png)
 # Second Brain — macOS app
 
 A native macOS wrapper around the Second Brain dashboard. It:
