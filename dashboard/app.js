@@ -1632,3 +1632,31 @@ loadOutputsList();
 
 ensureConfig();
 refreshStatus();
+
+// ---------------------------------------------------------------------------
+// Live activity: keep the status strip current when work is triggered outside
+// this page — e.g. an import fired from the browser extension, or another tab.
+// This page only calls refreshStatus() after its OWN operations, so without
+// this poll the "N ready to ingest" count would go stale until a manual nav /
+// reload. We poll the cheap public /busy endpoint and refresh when an op we
+// were watching finishes, or when the pending count moves under us.
+// ---------------------------------------------------------------------------
+
+let _lastActivity = { running: false, pending: null };
+
+async function pollActivity() {
+  try {
+    const res = await apiFetch("/busy");
+    if (!res.ok) return;
+    const { running, pending } = await res.json();
+    const finished = _lastActivity.running && !running;
+    const pendingMoved =
+      _lastActivity.pending !== null && pending !== _lastActivity.pending;
+    _lastActivity = { running, pending };
+    if (finished || pendingMoved) refreshStatus();
+  } catch {
+    /* best-effort — the strip just keeps its last values */
+  }
+}
+
+window.setInterval(pollActivity, 3000);

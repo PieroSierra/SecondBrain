@@ -109,8 +109,7 @@ You can also drop files directly into `raw/` — a `.md` note, a PDF, even an im
 
 The dashboard is a local web UI that surfaces the same six operations without opening a terminal.
 
-![Dashboard screenshot|697](dashboard/dashboard_sample.png)
-
+![Dashboard example](dashboard/dashboard_sample.png)
 ### macOS app (easiest on Mac)
 
 Prefer a real app to running a script? Download **SecondBrain.app** — a signed, notarized macOS app that runs the dashboard for you: it starts the bridge, shows the dashboard in its own window, lives in the Dock while running, lets you switch engine (Claude ↔ Codex) from a menu, and shuts the bridge down when you quit.

@@ -1,3 +1,4 @@
+![Second Brain](dashboard/app_taskbar.png)
 # Second Brain — macOS app
 
 A native macOS wrapper around the Second Brain dashboard. It:
@@ -5,6 +6,7 @@ A native macOS wrapper around the Second Brain dashboard. It:
 - launches the Python bridge (`dashboard/bridge.py`) as a child process,
 - shows the dashboard in an embedded window (a `WKWebView`, not a Safari tab),
 - appears in the Dock while running — click the Dock icon to bring the window back,
+- shows docs to ingest and live status during operations,
 - **kills the bridge when you quit** (Cmd-Q).
 
 The app contains **no knowledge-base logic**. It only starts, displays, and stops the
