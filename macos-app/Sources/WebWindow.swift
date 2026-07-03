@@ -22,6 +22,7 @@ final class WebWindow: NSObject, NSWindowDelegate {
         let wv = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
         wv.autoresizingMask = [.width, .height]
         if #available(macOS 11.0, *) { wv.pageZoom = Preferences.pageZoom }
+        wv.uiDelegate = self // so <input type="file"> can present an Open panel
         webView = wv
 
         let win = NSWindow(
@@ -85,5 +86,30 @@ final class WebWindow: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
         return false
+    }
+}
+
+// MARK: - File input (<input type="file">)
+
+extension WebWindow: WKUIDelegate {
+    /// WKWebView does nothing when the user clicks an `<input type="file">` unless the
+    /// host presents a picker. Show an NSOpenPanel (as a sheet on the window) and hand
+    /// the chosen URLs back — this is what makes "Choose file…" work inside the app.
+    func webView(_ webView: WKWebView,
+                 runOpenPanelWith parameters: WKOpenPanelParameters,
+                 initiatedByFrame frame: WKFrameInfo,
+                 completionHandler: @escaping ([URL]?) -> Void) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        let finish: (NSApplication.ModalResponse) -> Void = { resp in
+            completionHandler(resp == .OK ? panel.urls : nil)
+        }
+        if let win = window {
+            panel.beginSheetModal(for: win, completionHandler: finish)
+        } else {
+            finish(panel.runModal())
+        }
     }
 }
