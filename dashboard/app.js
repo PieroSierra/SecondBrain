@@ -1307,7 +1307,8 @@ async function loadOutputsList(force = false) {
       const btn = document.createElement("button");
       btn.className = "nav-item nav-item-output";
       btn.dataset.outputFilename = item.filename;
-      btn.appendChild(makeNavIcon("answer"));
+      // Lint reports get their own icon; query answers use the answer icon.
+      btn.appendChild(makeNavIcon(item.kind === "lint" ? "lint" : "answer"));
 
       // Wrap the title so the trash control can sit in a fixed right-hand
       // column: the label flexes, the trash slot is always reserved (even
@@ -1588,6 +1589,9 @@ async function confirmDelete() {
       showPanel("panel-home-new");
     }
     closeDeleteModal();
+    // Refresh the status strip so the answers count reflects the deletion
+    // (mirrors the query/import/ingest paths, which all refresh after mutating).
+    refreshStatus();
   } catch (err) {
     // Surface the failure inline on the confirm button and let the user retry.
     if (confirmBtn) {
