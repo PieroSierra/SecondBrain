@@ -987,15 +987,47 @@ body { overflow: hidden; }
 }
 
 /* ── Tab switcher ── */
+/* The tab pill and the round search button share one row. */
+.nav-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 20px 16px 0;
+  flex-shrink: 0;
+}
 .nav-tabs {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  margin: 20px 16px 0;
+  flex: 1;
+  min-width: 0;
   border: 1.5px solid var(--rule-strong);
   border-radius: 20px;
   overflow: hidden;
-  flex-shrink: 0;
 }
+.nav-search-btn {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 1.5px solid var(--rule-strong);
+  border-radius: 50%;
+  background: transparent;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.nav-search-btn img {
+  width: 22px;   /* match .nav-tab-icon so the glyph reads the same size */
+  height: 22px;
+  opacity: 0.5;
+  transition: opacity 0.12s ease;
+}
+.nav-search-btn:hover {
+  background: var(--bg-subtle);
+}
+.nav-search-btn:hover img { opacity: 0.8; }
 
 .nav-tab {
   display: flex;
@@ -1375,6 +1407,119 @@ body { overflow: hidden; }
 .raw-modal-close:hover { color: var(--ink); }
 .raw-modal-body {
   padding: 20px 24px 28px;
+}
+
+/* ── Search overlay ── */
+/* Top-anchored (spotlight feel) rather than vertically centred. */
+.search-modal { align-items: flex-start; padding-top: 12vh; }
+.search-modal-sheet {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 640px;
+  max-height: 70vh;
+  overflow: hidden;
+  background: var(--bg-content);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 18px 48px -12px rgba(42, 31, 26, 0.45);
+}
+.search-modal-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 22px 18px;
+}
+/* Match .nav-item-icon exactly (20px glyph in a 26px slot) so the magnifier and
+   the input line up with the result icons and their text column below. */
+.search-modal-icon {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  min-width: 26px;
+  object-fit: contain;
+  opacity: 0.5;
+}
+/* Match the standard import-input look rather than the global focus outline. */
+.search-modal-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.95rem;
+}
+.search-modal-input:focus {
+  border-color: var(--clay);
+  background: var(--bg-elev);
+  /* Keep the global input:focus-visible outline for the double-line look. */
+}
+.search-modal-input::placeholder { color: var(--ink-faint); }
+.search-results {
+  overflow-y: auto;
+}
+/* Only reserve space once there are results — keeps the empty state's input
+   vertically centred in the head whitespace. */
+.search-results:not(:empty) {
+  padding: 6px 0;
+}
+/* Each result: icon + (title over snippet). Reuses the nav-item feel. */
+.search-result {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 18px;
+  border: none;
+  background: none;
+  text-align: left;
+  cursor: pointer;
+}
+.search-result:hover,
+.search-result:focus { background: var(--bg-subtle); }
+/* Focus is shown by the row background; skip the heavy global outline here. */
+.search-result:focus-visible { outline: none; }
+.search-result .nav-item-icon { margin-top: 2px; opacity: 0.55; }
+.search-result-text { flex: 1; min-width: 0; }
+.search-result-title {
+  font-size: 0.9rem;
+  color: var(--ink);
+  font-weight: 500;
+}
+.search-result-meta { color: var(--ink-faint); font-weight: 400; }
+.search-snippet {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: var(--ink-muted);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.search-snippet mark {
+  background: var(--clay-soft);
+  color: var(--clay-deep);
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* Highlighted keyword hits inside an opened answer/wiki article (from search). */
+mark.search-hit {
+  background: #F6E4A0;
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+.search-empty {
+  padding: 18px;
+  margin: 0;
+  text-align: center;
+  font-size: 0.85rem;
+  color: var(--ink-faint);
 }
 
 /* ── Delete-answer confirmation ── */

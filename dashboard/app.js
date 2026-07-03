@@ -1357,7 +1357,7 @@ async function loadOutputsList(force = false) {
   }
 }
 
-async function openOutput(filename, title, date, kind) {
+async function openOutput(filename, title, date, kind, highlightTerm = "") {
   showPanel("panel-output-viewer");
   const panel       = document.getElementById("panel-output-viewer");
   const titleEl     = panel.querySelector(".viewer-title");
@@ -1384,6 +1384,7 @@ async function openOutput(filename, title, date, kind) {
     const md = await res.text();
     if (bodyEl)    bodyEl.innerHTML           = renderMarkdown(md);
     if (contentEl) contentEl.dataset.markdown = md;
+    if (bodyEl && highlightTerm) highlightMatches(bodyEl, highlightTerm);
   } catch (err) {
     showLoadError(bodyEl, err.message);
   }
@@ -1433,7 +1434,7 @@ async function loadWikiList() {
   }
 }
 
-async function openWikiArticle(slug, displayTitle) {
+async function openWikiArticle(slug, displayTitle, highlightTerm = "") {
   currentWikiSlug = slug;
   showPanel("panel-wiki-viewer");
   const panel  = document.getElementById("panel-wiki-viewer");
@@ -1455,6 +1456,7 @@ async function openWikiArticle(slug, displayTitle) {
       // Use the rendered H1 as the breadcrumb title if available
       const h1 = bodyEl.querySelector("h1");
       if (h1 && crumb) crumb.textContent = h1.textContent;
+      if (highlightTerm) highlightMatches(bodyEl, highlightTerm);
     }
     panel.dataset.markdown = md;
   } catch (err) {
@@ -1466,7 +1468,7 @@ async function openWikiArticle(slug, displayTitle) {
 // article), flipping the sidebar into the Wiki section. We set the section
 // chrome directly rather than calling switchSection() to avoid its "first
 // visit opens INDEX" async branch racing the target article load.
-function goToWikiArticle(slug) {
+function goToWikiArticle(slug, highlightTerm = "") {
   _currentSection = "wiki";
   document.querySelectorAll(".nav-tab").forEach((btn) => {
     const active = btn.dataset.navTab === "wiki";
@@ -1477,7 +1479,7 @@ function goToWikiArticle(slug) {
   const wikiList = document.getElementById("nav-list-wiki");
   if (homeList) homeList.hidden = true;
   if (wikiList) wikiList.hidden = false;
-  openWikiArticle(slug);
+  openWikiArticle(slug, undefined, highlightTerm);
   // Highlight the matching nav item once the list is present.
   loadWikiList().then(() => {
     const navBtn = document.querySelector(
@@ -1542,6 +1544,246 @@ rawModal?.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && rawModal && !rawModal.hidden) closeRawModal();
+});
+
+// ── Search overlay ─────────────────────────────────────────────────────────
+// Keyword search across saved answers (outputs/) and wiki articles. Opened by
+// the sidebar magnifier or ⌘K/Ctrl+K. Search-as-you-type (debounced); the
+// bridge returns plain-text snippets that we highlight safely in the DOM.
+
+const searchModal = document.getElementById("search-modal");
+const searchInput = document.getElementById("search-input");
+const searchResults = document.getElementById("search-results");
+const searchEmpty = searchModal?.querySelector(".search-empty");
+let _searchCtrl = null; // AbortController for the in-flight /search request
+
+function debounce(fn, ms) {
+  let t;
+  return (...args) => {
+    window.clearTimeout(t);
+    t = window.setTimeout(() => fn(...args), ms);
+  };
+}
+
+function openSearchModal() {
+  if (!searchModal) return;
+  searchModal.hidden = false;
+  // Keep the prior query but select it so typing replaces immediately.
+  searchInput?.focus();
+  searchInput?.select();
+}
+
+function closeSearchModal() {
+  if (searchModal) searchModal.hidden = true;
+  if (_searchCtrl) { _searchCtrl.abort(); _searchCtrl = null; }
+}
+
+// Append `text` to `container`, wrapping each case-insensitive occurrence of
+// `q` in <mark>. Built from text nodes so snippet content can never inject.
+function appendHighlighted(container, text, q) {
+  const needle = q.toLowerCase();
+  if (!needle) { container.appendChild(document.createTextNode(text)); return; }
+  const hay = text.toLowerCase();
+  let i = 0;
+  for (;;) {
+    const idx = hay.indexOf(needle, i);
+    if (idx < 0) { container.appendChild(document.createTextNode(text.slice(i))); break; }
+    if (idx > i) container.appendChild(document.createTextNode(text.slice(i, idx)));
+    const mark = document.createElement("mark");
+    mark.textContent = text.slice(idx, idx + needle.length);
+    container.appendChild(mark);
+    i = idx + needle.length;
+  }
+}
+
+function renderSearchResults(items, q) {
+  if (!searchResults) return;
+  searchResults.textContent = "";
+  for (const item of items) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "search-result";
+    const iconName = item.source === "wiki" ? "page" : (item.kind === "lint" ? "lint" : "answer");
+    btn.appendChild(makeNavIcon(iconName, 16));
+
+    const textWrap = document.createElement("div");
+    textWrap.className = "search-result-text";
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "search-result-title";
+    titleEl.textContent = item.title;
+    const meta = document.createElement("span");
+    meta.className = "search-result-meta";
+    const label = item.source === "wiki" ? "wiki" : (item.kind === "lint" ? "lint" : "answer");
+    meta.textContent = `  ·  ${label}${item.hits > 1 ? ` · ${item.hits} hits` : ""}`;
+    titleEl.appendChild(meta);
+    textWrap.appendChild(titleEl);
+
+    const snip = document.createElement("div");
+    snip.className = "search-snippet";
+    appendHighlighted(snip, item.snippet || "", q);
+    textWrap.appendChild(snip);
+
+    btn.appendChild(textWrap);
+    btn.addEventListener("click", () => selectSearchResult(item));
+    searchResults.appendChild(btn);
+  }
+  if (searchEmpty) searchEmpty.hidden = !(q.trim().length >= 2 && items.length === 0);
+}
+
+async function runSearch(q) {
+  q = q.trim();
+  if (q.length < 2) {
+    if (searchResults) searchResults.textContent = "";
+    if (searchEmpty) searchEmpty.hidden = true;
+    return;
+  }
+  if (_searchCtrl) _searchCtrl.abort();
+  _searchCtrl = new AbortController();
+  try {
+    const res = await apiFetch("/search?q=" + encodeURIComponent(q), { signal: _searchCtrl.signal });
+    if (!res.ok) return;
+    const data = await res.json();
+    renderSearchResults(data.results || [], q);
+  } catch (err) {
+    if (err?.name !== "AbortError") { /* best-effort — leave prior results */ }
+  }
+}
+
+// Navigate to a saved answer, flipping the sidebar into the Home section. Mirror
+// of goToWikiArticle() for outputs (set chrome directly to avoid switchSection's
+// async INDEX branch).
+function goToOutput(filename, title, date, kind, highlightTerm = "") {
+  _currentSection = "home";
+  document.querySelectorAll(".nav-tab").forEach((btn) => {
+    const active = btn.dataset.navTab === "home";
+    btn.classList.toggle("nav-tab-active", active);
+    btn.setAttribute("aria-selected", String(active));
+  });
+  const homeList = document.getElementById("nav-list-home");
+  const wikiList = document.getElementById("nav-list-wiki");
+  if (homeList) homeList.hidden = false;
+  if (wikiList) wikiList.hidden = true;
+  _lastHomePanel = "panel-output-viewer";
+  openOutput(filename, title, date, kind, highlightTerm);
+  loadOutputsList(true).then(() => {
+    const navBtn = document.querySelector(
+      `.nav-item-output[data-output-filename="${CSS.escape(filename)}"]`,
+    );
+    if (navBtn) setActiveNavItem(navBtn);
+  });
+}
+
+// Highlight every occurrence of `term` in an already-rendered doc body and
+// scroll the first into view. Matches are wrapped in <mark class="search-hit">
+// built from text nodes (safe). A match is only found when it sits within a
+// single text node — good enough for keyword hits; one straddling inline markup
+// (e.g. **bold**) is simply left un-highlighted.
+function highlightMatches(root, term) {
+  const needle = (term || "").toLowerCase();
+  if (!root || needle.length < 2) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode(n) {
+      if (!n.nodeValue || !n.nodeValue.toLowerCase().includes(needle)) return NodeFilter.FILTER_REJECT;
+      const tag = n.parentNode?.nodeName;
+      if (tag === "SCRIPT" || tag === "STYLE" || tag === "MARK") return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    const text = node.nodeValue;
+    const hay = text.toLowerCase();
+    const frag = document.createDocumentFragment();
+    let i = 0;
+    for (;;) {
+      const idx = hay.indexOf(needle, i);
+      if (idx < 0) { frag.appendChild(document.createTextNode(text.slice(i))); break; }
+      if (idx > i) frag.appendChild(document.createTextNode(text.slice(i, idx)));
+      const mark = document.createElement("mark");
+      mark.className = "search-hit";
+      mark.textContent = text.slice(idx, idx + needle.length);
+      frag.appendChild(mark);
+      i = idx + needle.length;
+    }
+    node.parentNode.replaceChild(frag, node);
+  }
+  const first = root.querySelector("mark.search-hit");
+  // Defer so it wins over showPanel()'s scroll-to-top after the panel switch.
+  if (first) window.requestAnimationFrame(() => first.scrollIntoView({ block: "center", behavior: "smooth" }));
+}
+
+function selectSearchResult(item) {
+  const term = (searchInput?.value || "").trim();
+  closeSearchModal();
+  if (item.source === "wiki") {
+    goToWikiArticle(item.id, term);
+  } else {
+    goToOutput(item.id, item.title, item.date_iso, item.kind, term);
+  }
+}
+
+function searchResultButtons() {
+  return searchResults ? [...searchResults.querySelectorAll(".search-result")] : [];
+}
+
+document.getElementById("nav-search-btn")?.addEventListener("click", openSearchModal);
+searchModal?.addEventListener("click", (e) => {
+  if (e.target.closest("[data-search-close]")) closeSearchModal();
+});
+searchInput?.addEventListener("input", debounce(() => runSearch(searchInput.value), 180));
+
+// From the input: Enter opens the first result (or forces a search); ↓ steps
+// focus into the results list.
+searchInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    const first = searchResultButtons()[0];
+    if (first) first.click();
+    else runSearch(searchInput.value);
+  } else if (e.key === "ArrowDown") {
+    e.preventDefault();
+    searchResultButtons()[0]?.focus();
+  }
+});
+
+// Within the results list: ↑/↓ move focus between results (↑ off the top returns
+// to the input); Enter/Space open the focused result natively.
+searchResults?.addEventListener("keydown", (e) => {
+  const cur = e.target.closest(".search-result");
+  if (!cur) return;
+  const items = searchResultButtons();
+  const idx = items.indexOf(cur);
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    (items[idx + 1] || items[0]).focus();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    if (idx <= 0) searchInput?.focus();
+    else items[idx - 1].focus();
+  }
+});
+
+// Trap Tab inside the dialog: it toggles between the search field and the
+// results list rather than silently leaking focus to the occluded page.
+searchModal?.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab") return;
+  e.preventDefault();
+  if (document.activeElement === searchInput) {
+    searchResultButtons()[0]?.focus(); // into results (no-op if none)
+  } else {
+    searchInput?.focus(); // back to the search field
+  }
+});
+
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+    e.preventDefault();
+    openSearchModal();
+  } else if (e.key === "Escape" && searchModal && !searchModal.hidden) {
+    closeSearchModal();
+  }
 });
 
 // ── Delete-answer modal ──────────────────────────────────────────────────

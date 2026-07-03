@@ -1215,6 +1215,72 @@ def _outputs_list() -> list:
     return result
 
 
+# Keyword search across the two synthesised corpora the user reads: saved
+# answers (outputs/) and wiki articles. Plain case-insensitive substring match
+# — NOT regex, so query characters are literal and there is no injection
+# surface. The vault is tiny (dozens of small markdown files), so scanning on
+# every request is instant; no index is warranted.
+_SEARCH_MIN_LEN = 2
+_SEARCH_MAX_QUERY = 200
+_SEARCH_MAX_RESULTS = 40
+_SEARCH_SNIPPET_RADIUS = 60  # chars of context on each side of the first hit
+
+
+def _make_snippet(text: str, lo: int, hi: int) -> str:
+    """A one-line window around text[lo:hi], whitespace-collapsed, with ellipses."""
+    start = max(0, lo - _SEARCH_SNIPPET_RADIUS)
+    end = min(len(text), hi + _SEARCH_SNIPPET_RADIUS)
+    window = " ".join(text[start:end].split())  # collapse newlines/runs of space
+    if start > 0:
+        window = "…" + window
+    if end < len(text):
+        window = window + "…"
+    return window
+
+
+def _search_vault(q: str) -> list[dict]:
+    """Return match records across wiki/ and outputs/ for query `q`.
+
+    Shape: {source: "wiki"|"output", id, title, kind, date_iso, snippet, hits}.
+    Never raises — unreadable files are skipped.
+    """
+    q = (q or "").strip()[:_SEARCH_MAX_QUERY]
+    if len(q) < _SEARCH_MIN_LEN:
+        return []
+    needle = q.lower()
+
+    # (path, source, id, title, kind, date_iso) tuples to scan.
+    targets: list[tuple[Path, str, str, str, str | None, str | None]] = []
+    for w in _wiki_list():
+        targets.append((WIKI_DIR / f"{w['slug']}.md", "wiki", w["slug"], w["title"], None, None))
+    for o in _outputs_list():
+        targets.append((OUTPUTS_DIR / o["filename"], "output", o["filename"], o["title"], o["kind"], o["date_iso"]))
+
+    results: list[dict] = []
+    for path, source, ident, title, kind, date_iso in targets:
+        try:
+            text = path.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        hay = text.lower()
+        first = hay.find(needle)
+        if first < 0:
+            continue
+        results.append({
+            "source": source,
+            "id": ident,
+            "title": title,
+            "kind": kind,
+            "date_iso": date_iso,
+            "snippet": _make_snippet(text, first, first + len(needle)),
+            "hits": hay.count(needle),
+        })
+
+    # Most hits first, then title; cap the list.
+    results.sort(key=lambda r: (-r["hits"], r["title"].lower()))
+    return results[:_SEARCH_MAX_RESULTS]
+
+
 # ---------------------------------------------------------------------------
 # Multipart upload parser (RFC 7578 subset)
 # ---------------------------------------------------------------------------
@@ -1448,6 +1514,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return _json_response(self, 200, _outputs_list())
         if path.startswith("/outputs/") and len(path) > 9:
             return self._serve_output_file(path[9:])
+        if path == "/search":
+            params = urllib.parse.parse_qs(parsed.query)
+            q = (params.get("q", [""])[0] or "").strip()
+            return _json_response(self, 200, {"query": q, "results": _search_vault(q)})
         if path.startswith("/raw/") and len(path) > 5:
             return self._serve_raw_file(path[5:])
 

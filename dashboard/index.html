@@ -25,14 +25,19 @@
     <!-- ══════════════════ SIDEBAR ══════════════════ -->
     <nav class="sidebar" aria-label="Navigation">
 
-      <div class="nav-tabs" role="tablist">
-        <button class="nav-tab nav-tab-active" role="tab" aria-selected="true" data-nav-tab="home">
-          <img class="nav-tab-icon" src="/static/icons/home.png" width="14" height="14" alt="" aria-hidden="true" />
-          Home
-        </button>
-        <button class="nav-tab" role="tab" aria-selected="false" data-nav-tab="wiki">
-          <img class="nav-tab-icon" src="/static/icons/wiki.png" width="14" height="14" alt="" aria-hidden="true" />
-          Wiki
+      <div class="nav-header">
+        <div class="nav-tabs" role="tablist">
+          <button class="nav-tab nav-tab-active" role="tab" aria-selected="true" data-nav-tab="home">
+            <img class="nav-tab-icon" src="/static/icons/home.png" width="14" height="14" alt="" aria-hidden="true" />
+            Home
+          </button>
+          <button class="nav-tab" role="tab" aria-selected="false" data-nav-tab="wiki">
+            <img class="nav-tab-icon" src="/static/icons/wiki.png" width="14" height="14" alt="" aria-hidden="true" />
+            Wiki
+          </button>
+        </div>
+        <button type="button" id="nav-search-btn" class="nav-search-btn" aria-label="Search (⌘K)" title="Search  ⌘K">
+          <img src="/static/icons/magnifyingglass.png" width="22" height="22" alt="" aria-hidden="true" />
         </button>
       </div>
 
@@ -402,6 +407,22 @@
         <button type="button" class="raw-modal-close" data-raw-close aria-label="Close">×</button>
       </header>
       <div class="markdown-body raw-modal-body"></div>
+    </div>
+  </div>
+
+  <!-- Search overlay: keyword search across answers + wiki. Reuses the
+       raw-modal scrim/positioning; opened by the sidebar magnifier or ⌘K. -->
+  <div id="search-modal" class="raw-modal search-modal" hidden>
+    <div class="raw-modal-scrim" data-search-close></div>
+    <div class="search-modal-sheet" role="dialog" aria-modal="true" aria-label="Search">
+      <div class="search-modal-head">
+        <img class="search-modal-icon" src="/static/icons/magnifyingglass.png" width="20" height="20" alt="" aria-hidden="true" />
+        <input id="search-input" class="search-modal-input" type="text"
+               placeholder="Search answers and wiki…" autocomplete="off" spellcheck="false"
+               aria-label="Search answers and wiki" />
+      </div>
+      <div id="search-results" class="search-results"></div>
+      <p class="search-empty" hidden>No matches.</p>
     </div>
   </div>
 
