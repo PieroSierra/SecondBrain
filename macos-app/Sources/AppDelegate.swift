@@ -93,30 +93,49 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         alert.messageText = "Install the browser extension"
         alert.informativeText = """
             The chrome-extension folder is now selected in Finder. In Chrome (or \
-            another Chromium browser):
+            another Chromium browser — Brave, Edge, Arc, Atlas…):
 
-            1. Open chrome://extensions
+            1. Open the Extensions page (chrome://extensions, brave://extensions, …).
+               The “Open Extensions Page” button below does this for your default browser.
             2. Turn on Developer mode (top-right)
             3. Click “Load unpacked” and choose the chrome-extension folder
 
             Then pin “Second Brain Importer” and click it to import any page.
             """
-        alert.addButton(withTitle: "Open chrome://extensions")
+        alert.addButton(withTitle: "Open Extensions Page")
         alert.addButton(withTitle: "Done")
         if alert.runModal() == .alertFirstButtonReturn {
             openExtensionsPage()
         }
     }
 
-    /// Best-effort: open Chrome's extensions page. `chrome://` isn't a routable URL
-    /// scheme, so it must be handed to Chrome specifically. If Chrome isn't present,
-    /// we quietly do nothing — the folder is already revealed and the steps are shown.
+    /// Best-effort: open the user's default browser at its extensions page. The
+    /// extensions URL is a custom scheme (`chrome://`, `brave://`, …) that
+    /// `NSWorkspace.open(urls:withApplicationAt:)` silently ignores, so we shell out
+    /// to `/usr/bin/open -b <bundleID>`, which hands the URL to that browser as an
+    /// open-URL event it acts on. Non-Chromium defaults (Safari/Firefox) and any
+    /// failure just no-op — the folder is already revealed and the steps are shown.
     private func openExtensionsPage() {
-        guard let chrome = NSWorkspace.shared
-                .urlForApplication(withBundleIdentifier: "com.google.Chrome"),
-              let page = URL(string: "chrome://extensions") else { return }
-        NSWorkspace.shared.open([page], withApplicationAt: chrome,
-                                configuration: NSWorkspace.OpenConfiguration())
+        guard let browser = NSWorkspace.shared
+                .urlForApplication(toOpen: URL(string: "https://example.com")!),
+              let bundleID = Bundle(url: browser)?.bundleIdentifier,
+              let page = extensionsURL(forBrowserBundleID: bundleID) else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        p.arguments = ["-b", bundleID, page]
+        try? p.run()
+    }
+
+    /// The Developer-mode extensions page for a given browser bundle id. `nil` for
+    /// browsers that can't load unpacked Chromium extensions. Unknown Chromium forks
+    /// (Arc, Atlas, plain Chromium, …) default to `chrome://extensions`.
+    private func extensionsURL(forBrowserBundleID id: String) -> String? {
+        if id.hasPrefix("com.brave.Browser") { return "brave://extensions" }
+        if id.hasPrefix("com.microsoft.edgemac") { return "edge://extensions" }
+        if id == "com.vivaldi.Vivaldi" { return "vivaldi://extensions" }
+        if id == "com.operasoftware.Opera" { return "opera://extensions" }
+        if id == "com.apple.Safari" || id == "org.mozilla.firefox" { return nil }
+        return "chrome://extensions"
     }
 
     /// One-time gentle nudge, shown the first time the dashboard comes up.
