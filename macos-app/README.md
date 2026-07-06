@@ -52,6 +52,12 @@ On first launch the app asks for your **vault folder** — pick the SecondBrain 
 (the folder containing `dashboard/bridge.py`). The choice is remembered. Change it later
 via the app menu → **Choose Vault…**.
 
+The first time the dashboard opens, the app offers to help you set up the companion
+**browser extension** (import any web page with one click). You can run this any time from
+the app menu → **Install Browser Extension…** — it reveals the `chrome-extension/` folder
+in Finder and opens `chrome://extensions` so you just flip on Developer mode and **Load
+unpacked**.
+
 ## Switching engine (Claude ↔ Codex)
 
 The **Engine** menu picks which agent CLI backs the skills. Choosing an engine restarts the

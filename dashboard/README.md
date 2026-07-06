@@ -66,7 +66,7 @@ A companion browser extension lets you import any page from Chrome without openi
 
 1. Open Chrome and go to `chrome://extensions`.
 2. Enable **Developer mode** (top-right toggle).
-3. Click **Load unpacked** and select the `dashboard/chrome-extension/` folder.
+3. Click **Load unpacked** and select the `chrome-extension/` folder at the repo root.
 
 The bridge must be running (`./run.sh`) for the extension to work. It sends the page's extracted content to the same `POST /run` endpoint as the dashboard's web import card.
 
@@ -84,11 +84,11 @@ SecondBrain/                     vault root
 │   ├── app.js                   front-end controller (vanilla ES module)
 │   ├── README.md                this file
 │   ├── .uploads/                transient PDF staging (gitignored)
-│   ├── chrome-extension/        browser extension (load unpacked in Chrome)
 │   └── lib/
 │       ├── marked.min.js        vendored Markdown renderer
 │       ├── purify.min.js        vendored DOMPurify (HTML sanitiser)
 │       └── PROVENANCE.md        SHA-pinned source of truth
+├── chrome-extension/            browser extension (load unpacked in Chrome)
 ├── .claude/skills/              the skills each dashboard action invokes
 │   ├── second-brain-query/      ← Ask a question
 │   ├── second-brain-ingest/     ← Run ingest

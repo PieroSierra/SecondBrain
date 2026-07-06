@@ -27,6 +27,17 @@ enum Preferences {
         set { UserDefaults.standard.set(newValue?.path, forKey: vaultKey) }
     }
 
+    /// The companion browser extension folder, at the vault root (`<vault>/chrome-extension`).
+    static var extensionURL: URL? { vaultURL?.appendingPathComponent("chrome-extension") }
+
+    private static let extPromptedKey = "extensionPrompted"
+
+    /// Whether we've shown the one-time "install the browser extension" nudge.
+    static var extensionPrompted: Bool {
+        get { UserDefaults.standard.bool(forKey: extPromptedKey) }
+        set { UserDefaults.standard.set(newValue, forKey: extPromptedKey) }
+    }
+
     /// A folder is a valid vault only if it contains `dashboard/bridge.py`.
     static func isValidVault(_ url: URL) -> Bool {
         FileManager.default.fileExists(

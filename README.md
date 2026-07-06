@@ -1,5 +1,5 @@
 
-![Second Brain](dashboard/chrome-extension/icon-128.png)
+![Second Brain](chrome-extension/icon-128.png)
 # Second Brain
 A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — through **Claude Code**, **OpenAI Codex** skills, or a **local web dashboard** (available as a downloadable [macOS app](https://github.com/PieroSierra/SecondBrain/releases/latest)).
 
@@ -195,9 +195,13 @@ A companion browser extension lets you import any page directly from Chrome with
 1. Open Chrome and navigate to `chrome://extensions`.
 2. Enable **Developer mode** (toggle in the top-right corner).
 3. Click **Load unpacked**.
-4. Select the `dashboard/chrome-extension/` folder inside this repo.
+4. Select the `chrome-extension/` folder at the root of this repo.
 
 The "Second Brain Importer" extension will appear in your toolbar (pin it for easy access).
+
+> On the Mac app, you can also use **App → Install Browser Extension…**, which
+> reveals the `chrome-extension/` folder in Finder and opens `chrome://extensions`
+> for you — then just do steps 2–4 above.
 
 **Usage:**
 
@@ -273,8 +277,8 @@ SecondBrain/
 │   ├── styles.css              Visual design
 │   ├── app.js                  Front-end controller
 │   ├── lib/marked.min.js       Vendored Markdown renderer
-│   ├── lib/purify.min.js       Vendored DOMPurify (HTML sanitiser)
-│   └── chrome-extension/       Browser extension (load unpacked in Chrome)
+│   └── lib/purify.min.js       Vendored DOMPurify (HTML sanitiser)
+├── chrome-extension/           Browser extension (load unpacked in Chrome)
 ├── macos-app/                  Native macOS app that runs the dashboard (Swift source + build/release scripts)
 ├── run.sh                      Start the dashboard (idempotent port cleanup)
 ├── CLAUDE.md                   Vault schema + your declared interests (gitignored — personal)

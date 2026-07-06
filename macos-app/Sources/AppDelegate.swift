@@ -37,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 WebWindow.shared.show()
                 self?.updateEngineChecks()
                 DockActivity.shared.startPolling()
+                self?.maybeNudgeExtension()
             },
             failed: { [weak self] message in
                 self?.handleStartFailure(message)
@@ -66,6 +67,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard Preferences.promptForVault() != nil else { return }
         BridgeController.shared.stop()
         launchBridge()
+    }
+
+    // MARK: - Browser extension install helper
+
+    /// Chrome (and other Chromium browsers) won't let an external app install an
+    /// unpacked extension, so the best we can do is hand-hold: reveal the folder in
+    /// Finder, show the steps, and open the browser's extensions page.
+    @objc private func installExtension(_ sender: Any?) {
+        guard let extURL = Preferences.extensionURL,
+              FileManager.default.fileExists(atPath: extURL.path) else {
+            let alert = NSAlert()
+            alert.messageText = "Couldn’t find the extension folder"
+            alert.informativeText =
+                "Expected a “chrome-extension” folder at the root of your vault. "
+                + "Choose your vault again (App → Choose Vault…) if it moved."
+            alert.runModal()
+            return
+        }
+
+        // Reveal it so the user can point Chrome's "Load unpacked" picker straight at it.
+        NSWorkspace.shared.activateFileViewerSelecting([extURL])
+
+        let alert = NSAlert()
+        alert.messageText = "Install the browser extension"
+        alert.informativeText = """
+            The chrome-extension folder is now selected in Finder. In Chrome (or \
+            another Chromium browser):
+
+            1. Open chrome://extensions
+            2. Turn on Developer mode (top-right)
+            3. Click “Load unpacked” and choose the chrome-extension folder
+
+            Then pin “Second Brain Importer” and click it to import any page.
+            """
+        alert.addButton(withTitle: "Open chrome://extensions")
+        alert.addButton(withTitle: "Done")
+        if alert.runModal() == .alertFirstButtonReturn {
+            openExtensionsPage()
+        }
+    }
+
+    /// Best-effort: open Chrome's extensions page. `chrome://` isn't a routable URL
+    /// scheme, so it must be handed to Chrome specifically. If Chrome isn't present,
+    /// we quietly do nothing — the folder is already revealed and the steps are shown.
+    private func openExtensionsPage() {
+        guard let chrome = NSWorkspace.shared
+                .urlForApplication(withBundleIdentifier: "com.google.Chrome"),
+              let page = URL(string: "chrome://extensions") else { return }
+        NSWorkspace.shared.open([page], withApplicationAt: chrome,
+                                configuration: NSWorkspace.OpenConfiguration())
+    }
+
+    /// One-time gentle nudge, shown the first time the dashboard comes up.
+    private func maybeNudgeExtension() {
+        guard !Preferences.extensionPrompted else { return }
+        Preferences.extensionPrompted = true
+
+        let alert = NSAlert()
+        alert.messageText = "Import pages straight from your browser?"
+        alert.informativeText =
+            "A companion browser extension lets you save any web page to your vault "
+            + "with one click. Want to set it up now? (You can always do it later from "
+            + "the App menu.)"
+        alert.addButton(withTitle: "Show Me How")
+        alert.addButton(withTitle: "Not Now")
+        if alert.runModal() == .alertFirstButtonReturn {
+            installExtension(nil)
+        }
     }
 
     // MARK: - Engine selection
@@ -130,6 +199,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Choose Vault…",
                         action: #selector(chooseVault(_:)), keyEquivalent: "")
+            .target = self
+        appMenu.addItem(withTitle: "Install Browser Extension…",
+                        action: #selector(installExtension(_:)), keyEquivalent: "")
             .target = self
         appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Hide Second Brain",
