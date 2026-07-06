@@ -9,6 +9,12 @@ user-invocable: true
 
 Initialize or update this personal knowledge base vault. This skill creates the folder structure, declares your interests, and configures your Craft import scope. It is idempotent — safe to run again to update an existing vault.
 
+> **Note on first run:** on a fresh clone this skill often runs before the agent
+> has registered its skills (skills load at startup, based on the folder the agent
+> opened in). That's fine — follow the steps below anyway. Because of this, the
+> completion message in Step 6 **must** tell the user to restart their agent
+> inside the vault folder; keep that instruction prominent and first.
+
 **Contract**: `specs/001-personal-knowledge-base/contracts/second-brain-setup.md`
 
 ## What this skill does
@@ -184,10 +190,27 @@ Declared interests:
 
 Craft import scope: [space-name | not configured]
 
-Next steps:
-  • Open the dashboard with ./run.sh (uses your chosen engine automatically), or
-  • Run a skill directly — /second-brain-ingest under Claude Code,
-    $second-brain-ingest under Codex
-  • Drop markdown files into raw/, then ingest to build the wiki
-  • Import Craft notes, a PDF, or a web page from the dashboard's Import cards
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+⚠️  ONE MORE STEP — restart to finish
+   Quit your agent and reopen it INSIDE this folder. Skills and config load
+   at startup, so the setup you just ran only takes full effect after a
+   restart. Until you do this, the /second-brain-* commands may not be loaded.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Then start using it — pick a path:
+
+  Easiest (no terminal):
+    • Download SecondBrain.app and point it at this folder:
+      https://github.com/PieroSierra/SecondBrain/releases/latest
+      The dashboard re-reads your config on every launch — no restarts to manage.
+    • Or run ./run.sh from this folder to open the same dashboard in a browser.
+
+  In your agent (after the restart above):
+    • /second-brain-import-md   → paste a note into raw/
+    • /second-brain-ingest      → build the wiki from raw/
+    • /second-brain-query "…"   → ask a sourced question
+    (Codex: swap the leading / for $.)
 ```
+
+If the chosen engine is Codex, show the `$`-prefixed skill names in the
+"In your agent" list instead of the `/` forms.
