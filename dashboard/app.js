@@ -1101,6 +1101,14 @@ ingestForm.addEventListener("submit", (e) => {
   runMaintenance(ingestForm, "ingest");
 });
 
+// The "ingest" pill in the status strip is a shortcut for the Run-ingest button.
+// Scroll the maintenance card into view so its progress/result is visible.
+$("#status-ingest-pill")?.addEventListener("click", () => {
+  if (busyKind) return;
+  document.getElementById("maintenance")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  runMaintenance(ingestForm, "ingest");
+});
+
 const lintForm = $("#lint-form");
 lintForm.addEventListener("submit", (e) => {
   e.preventDefault();

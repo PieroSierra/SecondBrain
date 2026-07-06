@@ -186,6 +186,23 @@ textarea:focus-visible {
 /* Pending ingests demand attention — deep brick red on both number and label. */
 .status-ready .status-num,
 .status-ready .status-label { color: var(--error-ink); }
+/* "ingest" is an actionable white-on-red pill that kicks off an ingest. */
+.status-pill {
+  align-self: center;
+  border: none;
+  background: var(--error-ink);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 0.78em;
+  font-weight: 500;
+  line-height: 1;
+  padding: 3px 8px;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.12s ease, opacity 0.12s ease;
+}
+.status-pill:hover { background: #6b2917; }
+.status-pill:disabled { opacity: 0.55; cursor: default; }
 
 @media (max-width: 720px) {
   .status-strip { gap: 4px 0; padding: 0 16px; }
@@ -204,7 +221,7 @@ textarea:focus-visible {
 /* ---------- Op-status (per-form: running / done / error) ---------- */
 .op-status {
   display: flex;
-  align-items: flex-start;        /* dot stays at top when text wraps */
+  align-items: baseline;          /* verb + elapsed share a baseline; dot pinned via align-self below */
   gap: 8px;
   margin-top: 12px;
   min-width: 0;                   /* allow shrink-to-fit inside narrow columns */
@@ -227,6 +244,7 @@ textarea:focus-visible {
   height: 7px;
   border-radius: 50%;
   flex: none;
+  align-self: flex-start;               /* keep the dot at the top even when text wraps */
   margin-top: calc((1.4em - 7px) / 2);  /* visually centred on first line */
 }
 .op-status-running {
