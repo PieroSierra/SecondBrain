@@ -749,6 +749,7 @@ async function runImport(form, kind, opts) {
   if (busyKind) return;
   const opNode = form.querySelector("[data-op-status]");
   clearImportStatus(form);
+  clearDupeWarning(form);
   setBusy(kind);
   opRunning(opNode, kind);
   try {
@@ -855,10 +856,14 @@ function syncFileFilename() {
     fileFilename.textContent = file.name;
     fileFilename.classList.remove("file-picker-name-empty");
     fileClear.hidden = false;
+    // Selecting or dropping a file is the moment to check for a prior import
+    // (drag-drop sets .files without firing "change", so we hook it here).
+    dedupeCheck(fileForm, "file", { filename: file.name });
   } else {
     fileFilename.textContent = FILE_FILENAME_EMPTY;
     fileFilename.classList.add("file-picker-name-empty");
     fileClear.hidden = true;
+    clearDupeWarning(fileForm);
   }
 }
 fileInput.addEventListener("change", syncFileFilename);
@@ -1092,6 +1097,139 @@ webForm.addEventListener("submit", (e) => {
     },
   });
 });
+
+// ---------------------------------------------------------------------------
+// Duplicate-import detection (fast, model-free)
+// ---------------------------------------------------------------------------
+//
+// Importing is slow (minutes), so before it runs we ask the bridge — via a
+// sub-100ms filesystem scan, no model call — whether this candidate (URL /
+// filename / Craft doc / pasted body) already looks imported. Medium-confidence
+// matches are purely advisory. A high-confidence match shows a warning above the
+// card's button and turns that button into an explicit red "Import Anyway", so a
+// genuine re-import still takes just one click. Each match links to the matched
+// raw file via the existing raw-file modal (data-wiki-slug → openRawFile).
+
+function clearDupeWarning(form) {
+  const slot = form.querySelector("[data-dupe-warning]");
+  if (slot) {
+    slot.hidden = true;
+    slot.innerHTML = "";
+    slot.className = "dupe-warning";
+  }
+  setImportAnyway(form, false);
+}
+
+// Turn the form's own submit button into a red "Import Anyway" (or restore it).
+// The button keeps its place below the warning block; only its label + style change.
+function setImportAnyway(form, on) {
+  const btn = form.querySelector(".import-submit");
+  if (!btn) return;
+  if (on) {
+    if (btn.dataset.defaultLabel === undefined) btn.dataset.defaultLabel = btn.textContent;
+    btn.textContent = `${btn.dataset.defaultLabel} Anyway`;
+    btn.classList.add("import-submit-anyway");
+  } else {
+    if (btn.dataset.defaultLabel !== undefined) {
+      btn.textContent = btn.dataset.defaultLabel;
+      delete btn.dataset.defaultLabel;
+    }
+    btn.classList.remove("import-submit-anyway");
+  }
+}
+
+function renderDupeWarning(form, matches) {
+  const slot = form.querySelector("[data-dupe-warning]");
+  if (!slot) return;
+  if (!matches || matches.length === 0) {
+    clearDupeWarning(form);
+    return;
+  }
+  const high = matches.some((m) => m.confidence === "high");
+
+  slot.innerHTML = "";
+  slot.className = `dupe-warning${high ? " dupe-warning-high" : ""}`;
+
+  const head = document.createElement("div");
+  head.className = "dupe-warning-head";
+  head.textContent = high ? "Looks already imported" : "Possibly already imported";
+  slot.appendChild(head);
+
+  const list = document.createElement("ul");
+  list.className = "dupe-warning-list";
+  for (const m of matches) {
+    const li = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = "#";
+    link.className = "dupe-warning-link";
+    // m.path already starts with "raw/"; the delegated click handler routes
+    // any data-wiki-slug beginning "raw/" straight into openRawFile().
+    link.dataset.wikiSlug = m.path;
+    link.textContent = m.title || m.path;
+    li.appendChild(link);
+
+    const meta = document.createElement("span");
+    meta.className = "dupe-warning-meta";
+    const bits = [m.subdir];
+    if (m.imported) bits.push(`imported ${m.imported}`);
+    bits.push(m.ingested ? "in wiki" : "pending ingest");
+    meta.textContent = ` — ${bits.join(" · ")}`;
+    li.appendChild(meta);
+    list.appendChild(li);
+  }
+  slot.appendChild(list);
+
+  slot.hidden = false;
+
+  // High-confidence: turn this card's own button into a red "Import Anyway".
+  // Medium is advisory only, so the button stays normal.
+  setImportAnyway(form, high);
+}
+
+async function dedupeCheck(form, kind, payload) {
+  try {
+    const { status, data } = await postJSON("/dedupe-check", { kind, ...payload });
+    if (status !== 200 || !data || !Array.isArray(data.matches)) {
+      clearDupeWarning(form);
+      return;
+    }
+    renderDupeWarning(form, data.matches);
+  } catch {
+    clearDupeWarning(form); // a check failure must never obstruct importing
+  }
+}
+
+// --- Live triggers: check at the natural "candidate is known" moment ---
+
+const runWebDupe = debounce(() => {
+  const url = webUrl.value.trim();
+  if (url) dedupeCheck(webForm, "web", { url });
+  else clearDupeWarning(webForm);
+}, 400);
+webUrl.addEventListener("input", runWebDupe);
+
+// File imports are checked inside syncFileFilename() (covers picker + drop).
+
+craftDocument.addEventListener("blur", () => {
+  const folder = craftFolder.value.trim();
+  const document_ = craftDocument.value.trim();
+  if (folder && document_) dedupeCheck(craftForm, "craft", { folder, document: document_ });
+  else clearDupeWarning(craftForm);
+});
+
+const runPasteDupe = debounce(() => {
+  const content = pasteBody.value;
+  if (content.trim().length >= 20) {
+    dedupeCheck(pasteForm, "md", { content, title: pasteTitle.value.trim() });
+  } else {
+    clearDupeWarning(pasteForm);
+  }
+}, 500);
+pasteBody.addEventListener("blur", runPasteDupe);
+
+// No submit guard is needed: a high-confidence match relabels the card's own
+// button to a red "Import Anyway" (see renderDupeWarning), so clicking it is
+// itself the acknowledgment and the import proceeds on the first click.
 
 // ---------------------------------------------------------------------------
 // User Story 4 — Maintenance (Ingest + Lint)

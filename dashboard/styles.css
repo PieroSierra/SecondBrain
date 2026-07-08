@@ -920,6 +920,18 @@ textarea:focus-visible {
   color: var(--ink);
   border-color: var(--rule);
 }
+/* High-confidence duplicate flagged: the button becomes an explicit red
+   "Import Anyway". The warning itself sits separately, above the button. */
+.import-submit-anyway {
+  background: var(--error-ink);
+  border-color: var(--error-ink);
+  color: #fff;
+}
+.import-submit-anyway:hover {
+  background: #6b2917;
+  border-color: #6b2917;
+  color: #fff;
+}
 
 /* ---------- Per-form status panels ---------- */
 .import-status {
@@ -958,6 +970,58 @@ textarea:focus-visible {
   color: var(--error-ink);
   border-left-color: var(--error-rule);
   white-space: pre-wrap;
+}
+
+/* ---------- Duplicate-import warning ---------- */
+/* Advisory amber, reusing the "busy" palette. A high-confidence match uses a
+   stronger clay left-rule to signal it will intercept the first Import click. */
+.dupe-warning {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  border-left: 2px solid var(--busy-rule);
+  background: var(--busy-bg);
+  color: var(--busy-ink);
+  min-width: 0;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+.dupe-warning-high {
+  border-left-color: var(--clay);
+}
+.dupe-warning-head {
+  font-weight: 500;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+.dupe-warning-head::before {
+  content: "⚠";
+  font-size: 0.9em;
+}
+.dupe-warning-list {
+  margin: 6px 0 0;
+  padding-left: 0;
+  list-style: none;
+}
+.dupe-warning-list li {
+  margin-top: 2px;
+  line-height: 1.35;
+}
+.dupe-warning-link {
+  color: var(--busy-ink);
+  font-weight: 500;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.dupe-warning-link:hover {
+  color: var(--clay-deep);
+}
+.dupe-warning-meta {
+  color: var(--busy-ink);
+  opacity: 0.75;
+  font-size: 0.78rem;
 }
 
 /* ---------- Maintenance grid (US4) ---------- */

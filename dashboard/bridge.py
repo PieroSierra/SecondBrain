@@ -22,6 +22,7 @@ Contract: specs/002-interactive-dashboard/contracts/bridge-http.md
 from __future__ import annotations
 
 import argparse
+import hashlib
 import http.server
 import json
 import mimetypes
@@ -1282,6 +1283,269 @@ def _search_vault(q: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
+# Duplicate-import detection (model-free)
+# ---------------------------------------------------------------------------
+#
+# Every raw file carries a `source:` frontmatter line (a URL, a filesystem path,
+# a Craft path, or "pasted"). Before the slow import runs, the dashboard asks
+# the bridge whether a candidate (URL / filename / Craft doc / pasted body)
+# already looks imported. This is a pure filesystem scan — no model, no cost —
+# memoized per (path, mtime) so repeat checks while the user types stay instant.
+
+_TRACKING_PARAMS = re.compile(r"^(?:utm_.*|fbclid|gclid|mc_eid|mc_cid|ref)$", re.I)
+_DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}_")
+_FM_LINE = re.compile(r"^([A-Za-z0-9_-]+):\s*(.*)$")
+# {rel_path: (mtime, static_entry)} — the static half of a raw index entry
+# (everything except the manifest-derived `ingested` flag, which is recomputed
+# each call because the manifest changes without the file's mtime changing).
+_raw_index_cache: dict[str, tuple[float, dict]] = {}
+
+
+def _slugify(text: str) -> str:
+    """Lowercase; collapse runs of non-alphanumerics to single hyphens; trim.
+
+    Mirrors the import skills' filename slugging closely enough that a candidate
+    identifier and an existing file's slug compare equal for the same source.
+    """
+    return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
+
+
+def _normalize_url(url: str) -> str:
+    """Canonical form for URL equality: lowercase scheme+host (drop leading
+    ``www.``), drop default port, fragment, tracking params, and a trailing
+    slash. Returns "" for values that are not http(s) URLs."""
+
+    url = (url or "").strip()
+    if "://" not in url:
+        return ""
+    try:
+        p = urllib.parse.urlsplit(url)
+    except ValueError:
+        return ""
+    if p.scheme.lower() not in ("http", "https") or not p.hostname:
+        return ""
+    scheme = p.scheme.lower()
+    host = p.hostname.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    port = ""
+    if p.port and not (
+        (scheme == "http" and p.port == 80) or (scheme == "https" and p.port == 443)
+    ):
+        port = f":{p.port}"
+    path = p.path.rstrip("/")
+    kept = [
+        (k, v)
+        for k, v in urllib.parse.parse_qsl(p.query)
+        if not _TRACKING_PARAMS.match(k)
+    ]
+    out = f"{scheme}://{host}{port}{path}"
+    if kept:
+        out += "?" + urllib.parse.urlencode(sorted(kept))
+    return out
+
+
+def _parse_frontmatter(text: str) -> tuple[dict, str]:
+    """Split a leading ``---`` … ``---`` block of simple ``key: value`` lines.
+
+    Returns (frontmatter, body). Absent/malformed frontmatter → ({}, text).
+    """
+    if not text.startswith("---"):
+        return {}, text
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return {}, text
+    fm: dict[str, str] = {}
+    end = None
+    for i in range(1, len(lines)):
+        if lines[i].strip() == "---":
+            end = i
+            break
+        m = _FM_LINE.match(lines[i])
+        if m:
+            fm[m.group(1).lower()] = m.group(2).strip()
+    if end is None:
+        return {}, text
+    return fm, "\n".join(lines[end + 1:])
+
+
+def _body_sha(body: str) -> str:
+    """Whitespace-collapsed, lowercased SHA-256 of a document body — a stable
+    fingerprint for exact-content matching that ignores incidental reflow."""
+    norm = " ".join((body or "").lower().split())
+    return hashlib.sha256(norm.encode("utf-8")).hexdigest()
+
+
+def _is_ingested(manifest: dict, manifest_ok: bool, rel: str) -> bool:
+    """Whether a raw file has been folded into the wiki and not edited since.
+
+    Mirrors the (inverse of the) staleness rule in _raw_pending_count()."""
+    if not manifest_ok:
+        return False
+    entry = manifest.get(rel)
+    if not isinstance(entry, dict):
+        return False
+    ingested_at_str = entry.get("ingested_at")
+    if not ingested_at_str:
+        return False
+    try:
+        ingested_at = datetime.fromisoformat(ingested_at_str.replace("Z", "+00:00"))
+    except ValueError:
+        return False
+    last_modified_str = entry.get("last_modified")
+    if not last_modified_str:
+        return True
+    try:
+        last_modified = datetime.fromisoformat(last_modified_str.replace("Z", "+00:00"))
+    except ValueError:
+        return True
+    return last_modified <= ingested_at + _MTIME_SLACK
+
+
+def _raw_index() -> list[dict]:
+    """Lightweight metadata for every raw .md file, memoized by (path, mtime)."""
+
+    manifest, manifest_ok = _load_ingest_manifest()
+    files = _raw_user_files()
+    out: list[dict] = []
+    for rel, p in files.items():
+        if not rel.endswith(".md"):
+            continue
+        try:
+            mtime = p.stat().st_mtime
+        except OSError:
+            continue
+        cached = _raw_index_cache.get(rel)
+        if cached and cached[0] == mtime:
+            entry = dict(cached[1])
+        else:
+            try:
+                text = p.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            fm, body = _parse_frontmatter(text)
+            parts = rel.split("/")
+            subdir = (
+                parts[1]
+                if len(parts) >= 3 and parts[1] in ("pdf", "web", "craft", "images")
+                else "paste"
+            )
+            slug = _DATE_PREFIX.sub("", parts[-1][:-3])  # drop date prefix + ".md"
+            source = fm.get("source", "")
+            is_path_source = bool(source) and "://" not in source and source != "pasted"
+            # Craft files carry no `title:`; use the document name (minus its
+            # trailing "[date]"/"(link)" decorations) rather than the raw slug.
+            craft_doc = re.sub(r"\s*[\[(].*$", "", fm.get("craft-document", "")).strip()
+            title = fm.get("title", "") or craft_doc or slug.replace("-", " ")
+            static = {
+                "path": rel,
+                "subdir": subdir,
+                "title": title,
+                "source": source,
+                "source_norm": _normalize_url(source),
+                "slug": slug,
+                "source_base_slug": _slugify(Path(source).stem) if is_path_source else "",
+                "craft_folder": fm.get("craft-folder", ""),
+                "craft_document": fm.get("craft-document", ""),
+                "imported": fm.get("imported", ""),
+                "body_sha": _body_sha(body),
+            }
+            _raw_index_cache[rel] = (mtime, static)
+            entry = dict(static)
+        entry["ingested"] = _is_ingested(manifest, manifest_ok, rel)
+        out.append(entry)
+    # Drop cache entries for files that no longer exist.
+    live = set(files)
+    for stale in [k for k in _raw_index_cache if k not in live]:
+        _raw_index_cache.pop(stale, None)
+    return out
+
+
+def _dedupe_match_public(entry: dict, match_type: str, confidence: str) -> dict:
+    """Project a raw-index entry to the fields the dashboard warning renders."""
+    return {
+        "path": entry["path"],
+        "subdir": entry["subdir"],
+        "title": entry["title"],
+        "source": entry["source"],
+        "imported": entry["imported"],
+        "ingested": entry["ingested"],
+        "match_type": match_type,
+        "confidence": confidence,
+    }
+
+
+def _dedupe_check(payload: dict) -> dict:
+    """Return up to 3 already-imported matches for an import candidate.
+
+    Exact-ish only (URL / content hash / Craft doc / filename slug ⇒ high;
+    partial filename or title-only ⇒ medium). No fuzzy/semantic matching.
+    """
+    t0 = time.monotonic()
+    kind = (payload.get("kind") or "").strip()
+    index = _raw_index()
+    matches: list[dict] = []
+
+    if kind == "web":
+        cand = _normalize_url(payload.get("url", ""))
+        if cand:
+            for e in index:
+                if e["source_norm"] and e["source_norm"] == cand:
+                    matches.append(_dedupe_match_public(e, "url", "high"))
+
+    elif kind == "file":
+        cand = _slugify(Path(payload.get("filename", "")).stem)
+        if cand:
+            for e in index:
+                if cand in (e["slug"], e["source_base_slug"]):
+                    matches.append(_dedupe_match_public(e, "filename", "high"))
+                elif (
+                    e["slug"]
+                    and min(len(cand), len(e["slug"])) >= 6
+                    and (cand in e["slug"] or e["slug"] in cand)
+                ):
+                    matches.append(_dedupe_match_public(e, "filename-partial", "medium"))
+
+    elif kind == "craft":
+        fslug = _slugify(payload.get("folder", ""))
+        dslug = _slugify(payload.get("document", ""))
+        for e in index:
+            if e["subdir"] != "craft" or not dslug:
+                continue
+            ed = _slugify(e["craft_document"])
+            ef = _slugify(e["craft_folder"])
+            if ed and (ed == dslug or dslug in ed or ed in dslug):
+                folder_ok = not fslug or not ef or fslug in ef or ef in fslug
+                matches.append(
+                    _dedupe_match_public(e, "craft-doc", "high" if folder_ok else "medium")
+                )
+            elif dslug in e["slug"]:
+                matches.append(_dedupe_match_public(e, "craft-doc", "medium"))
+
+    elif kind == "md":
+        cand_sha = _body_sha(payload["content"]) if payload.get("content", "").strip() else ""
+        tslug = _slugify(payload.get("title", ""))
+        for e in index:
+            if cand_sha and e["body_sha"] == cand_sha:
+                matches.append(_dedupe_match_public(e, "content", "high"))
+            elif tslug and _slugify(e["title"]) == tslug:
+                matches.append(_dedupe_match_public(e, "title", "medium"))
+
+    # High confidence first; de-dupe by path; cap at 3.
+    matches.sort(key=lambda m: 0 if m["confidence"] == "high" else 1)
+    result: list[dict] = []
+    seen: set[str] = set()
+    for m in matches:
+        if m["path"] in seen:
+            continue
+        seen.add(m["path"])
+        result.append(m)
+        if len(result) >= 3:
+            break
+    return {"matches": result, "checked_ms": int((time.monotonic() - t0) * 1000)}
+
+
+# ---------------------------------------------------------------------------
 # Multipart upload parser (RFC 7578 subset)
 # ---------------------------------------------------------------------------
 #
@@ -1529,9 +1793,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
 
-        # All POST endpoints trigger a skill → require authorization. The
-        # extension authenticates by its allowlisted Origin (no token).
-        if path in ("/run", "/upload-pdf", "/upload-file"):
+        # All POST endpoints trigger a skill (or a cheap read-only check) →
+        # require authorization. The extension authenticates by its allowlisted
+        # Origin (no token).
+        if path in ("/run", "/upload-pdf", "/upload-file", "/dedupe-check"):
             if not self._authorize(allow_extension=True):
                 return self._deny()
 
@@ -1541,6 +1806,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._handle_upload_pdf()
         if path == "/upload-file":
             return self._handle_upload_file()
+        if path == "/dedupe-check":
+            return self._handle_dedupe_check()
 
         self._not_found()
 
@@ -1684,6 +1951,20 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         envelope = self._run_kind(kind, prompt, cfg, args)
         status_code = envelope.pop("__status__", 200)
         _json_response(self, status_code, envelope)
+
+    def _handle_dedupe_check(self) -> None:
+        """Model-free: does this import candidate already look imported?
+
+        No long-op mutex, no skill exec — a pure filesystem scan of raw/.
+        """
+        body = self._read_json_body()
+        if body is None:
+            return  # response already sent
+        try:
+            result = _dedupe_check(body)
+        except Exception as exc:  # never let a bad candidate 500 the check
+            return _json_response(self, 200, {"matches": [], "error": str(exc)})
+        _json_response(self, 200, result)
 
     def _run_kind(self, kind: str, prompt: str, cfg: dict, args: dict | None = None) -> dict:
         """Acquire the mutex, run the skill, and return the response envelope.
