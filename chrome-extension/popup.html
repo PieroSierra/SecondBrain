@@ -148,6 +148,16 @@
       background: var(--bg-elev);
       color: var(--ink);
     }
+    /* "Import page anyway" — red/clay, matching the dashboard's override. */
+    #import-btn.import-btn-anyway {
+      border-color: var(--clay);
+      color: var(--clay-deep);
+    }
+    #import-btn.import-btn-anyway:hover:not(:disabled) {
+      background: var(--clay);
+      color: var(--bg-elev);
+      border-color: var(--clay);
+    }
 
     /* Op-status row — pulsing dot + animated verb sweep, matches dashboard */
     .op-status {
@@ -255,6 +265,46 @@
       color: var(--ink-faint);
       font-style: italic;
     }
+
+    /* Duplicate-import warning — red box above the button. Shown when this
+       page's URL already exists in raw/; the button then reads "Import page
+       anyway". The link hands off to the dashboard's raw-file preview. */
+    .dupe-warning {
+      display: none;
+      padding: 8px 10px;
+      border-radius: var(--radius);
+      font-size: 0.8rem;
+      line-height: 1.45;
+      background: var(--error-bg);
+      color: var(--error-ink);
+      border-left: 2px solid var(--error-rule);
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .dupe-warning.visible { display: block; }
+    .dupe-warning-head {
+      font-weight: 600;
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .dupe-warning-head::before { content: "⚠"; font-size: 0.9em; }
+    .dupe-warning-link {
+      display: inline-block;
+      margin-top: 3px;
+      color: var(--error-ink);
+      font-weight: 500;
+      text-decoration: underline;
+      text-underline-offset: 2px;
+      cursor: pointer;
+    }
+    .dupe-warning-link:hover { color: var(--clay-deep); }
+    .dupe-warning-meta {
+      margin-top: 2px;
+      font-size: 0.72rem;
+      opacity: 0.8;
+      font-family: var(--font-mono);
+    }
   </style>
 </head>
 <body>
@@ -268,6 +318,9 @@
 
     <textarea id="context-field" class="context-field" rows="2" maxlength="2000"
               placeholder="Optional context or notes…"></textarea>
+
+    <!-- Duplicate warning (shown only when this page was already imported) -->
+    <div class="dupe-warning" id="dupe-warning"></div>
 
     <button id="import-btn">Import this page</button>
 

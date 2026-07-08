@@ -2100,3 +2100,13 @@ async function pollActivity() {
 }
 
 window.setInterval(pollActivity, 3000);
+
+// ---------------------------------------------------------------------------
+// Deep-link: /?raw=raw/web/foo.md opens that raw file in the preview modal on
+// load. Used by the Chrome extension's "already imported" link, which has no
+// previewer of its own and hands off to the dashboard's raw-file modal.
+// ---------------------------------------------------------------------------
+(() => {
+  const raw = new URLSearchParams(window.location.search).get("raw");
+  if (raw && raw.startsWith("raw/")) openRawFile(raw);
+})();

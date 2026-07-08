@@ -1,5 +1,9 @@
 "use strict";
 
+// Bridge port — must match background.js. The extension always talks to the
+// local dashboard bridge on this port.
+const BRIDGE_PORT = 4173;
+
 // ---------------------------------------------------------------------------
 // DOM refs
 // ---------------------------------------------------------------------------
@@ -10,6 +14,7 @@ const opStatus   = document.getElementById("op-status");
 const opVerb     = document.getElementById("op-verb");
 const bgHint     = document.getElementById("bg-hint");
 const statusEl   = document.getElementById("import-status");
+const dupeEl     = document.getElementById("dupe-warning");
 
 // ---------------------------------------------------------------------------
 // UI state helpers
@@ -110,7 +115,14 @@ function applyState(state) {
       showRunningBackground();
       break;
     case "success":
-      showSuccess(state.filename ?? null);
+      // A finished import belongs to the page it was fired from. If the popup
+      // is now open on a different page, stay quiet rather than showing a green
+      // banner about some other page (imports are slow, so this is common).
+      if (state.url && activeTab?.url && state.url !== activeTab.url) {
+        showIdle();
+      } else {
+        showSuccess(state.filename ?? null);
+      }
       break;
     case "error":
       showError(state.result ?? "Import failed.");
@@ -125,6 +137,67 @@ chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local" || !changes.importState) return;
   applyState(changes.importState.newValue ?? null);
 });
+
+// ---------------------------------------------------------------------------
+// Duplicate detection — ask the bridge whether this page is already in raw/
+// ---------------------------------------------------------------------------
+//
+// A sub-100ms, model-free filesystem scan (the same /dedupe-check the dashboard
+// uses). If the current URL was already imported we show a red box above the
+// button and relabel it "Import page anyway" — a genuine re-import is still one
+// click. The link hands off to the dashboard's raw-file preview modal.
+
+async function checkDuplicate(url) {
+  try {
+    const resp = await fetch(`http://localhost:${BRIDGE_PORT}/dedupe-check`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ kind: "web", url }),
+    });
+    if (!resp.ok) return;
+    const data = await resp.json();
+    if (data && Array.isArray(data.matches) && data.matches.length > 0) {
+      showDuplicate(data.matches);
+    }
+  } catch {
+    /* Bridge down or offline — skip silently; importing still works. */
+  }
+}
+
+function showDuplicate(matches) {
+  const m = matches[0];
+  dupeEl.innerHTML = "";
+
+  const head = document.createElement("div");
+  head.className = "dupe-warning-head";
+  head.textContent = "Already imported";
+  dupeEl.appendChild(head);
+
+  // Link to the matched raw file. The dashboard has no auth-free file route,
+  // so we deep-link its own previewer: /?raw=<path> opens the raw modal.
+  const link = document.createElement("a");
+  link.className = "dupe-warning-link";
+  link.href = "#";
+  link.textContent = m.title || m.path;
+  link.addEventListener("click", (e) => {
+    e.preventDefault();
+    const target = `http://localhost:${BRIDGE_PORT}/?raw=${encodeURIComponent(m.path)}`;
+    chrome.tabs.create({ url: target });
+  });
+  dupeEl.appendChild(link);
+
+  const meta = document.createElement("div");
+  meta.className = "dupe-warning-meta";
+  const bits = [];
+  if (m.imported) bits.push(`imported ${m.imported}`);
+  bits.push(m.ingested ? "in wiki" : "pending ingest");
+  meta.textContent = bits.join(" · ");
+  dupeEl.appendChild(meta);
+
+  dupeEl.classList.add("visible");
+  btn.textContent = "Import page anyway"; // CSS uppercases it
+  btn.classList.add("import-btn-anyway"); // red/clay
+}
 
 // ---------------------------------------------------------------------------
 // Initialise: show tab URL + any persisted import state
@@ -143,6 +216,9 @@ async function init() {
     showError("Cannot import browser-internal pages.");
     return;
   }
+
+  // Warn early if this page is already in the vault (non-blocking).
+  checkDuplicate(tab.url);
 
   // Reflect any in-flight or completed import from the service worker.
   const { importState } = await chrome.storage.local.get("importState");
