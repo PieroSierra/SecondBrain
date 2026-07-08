@@ -205,7 +205,10 @@ textarea:focus-visible {
 .status-pill:disabled { opacity: 0.55; cursor: default; }
 /* Agent engine dropdown (app only): reads as the status text but carries a caret
    and hover affordance so it's discoverable as a control. */
-.status-seg-engine { align-items: center; }
+/* Baseline (not center): a center-aligned flex container exposes no text
+   baseline, so the baseline-aligned strip would float this tile's text up out of
+   line with its neighbours. Baseline keeps the select + "agent" on the row. */
+.status-seg-engine { align-items: baseline; gap: 4px; }
 .engine-select {
   -webkit-appearance: none;
   appearance: none;
@@ -222,13 +225,25 @@ textarea:focus-visible {
   background-size: 9px;
   border: 1px solid transparent;
   border-radius: 6px;
-  padding: 2px 17px 2px 6px;
+  padding: 2px 17px 2px 3px;
   cursor: pointer;
   transition: background-color 0.12s ease, border-color 0.12s ease;
 }
 .engine-select:hover { background-color: var(--bg-subtle); border-color: var(--bg-subtle); }
 .engine-select:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
 .engine-select:disabled { opacity: 0.55; cursor: default; }
+/* Small engine glyph beside the agent tile (dropdown in the app, static label in
+   the browser). The tile is a baseline-aligned flexbox with its own gap, so just
+   size the icon and center it on the row — no extra margin needed. */
+.engine-icon,
+.status-icon {
+  width: 16px;
+  height: 16px;
+  object-fit: contain;
+  align-self: center;
+  transform: translateY(0px); /* seat the glyph on the text x-height row */
+  flex: 0 0 auto;
+}
 
 @media (max-width: 720px) {
   .status-strip { gap: 4px 0; padding: 0 16px; }

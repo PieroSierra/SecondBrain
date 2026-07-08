@@ -315,6 +315,7 @@ async function ensureConfig() {
 }
 
 const ENGINE_LABELS = { claude: "Claude Code", codex: "Codex" };
+const ENGINE_ICONS = { claude: "/static/icons/claude_code.png", codex: "/static/icons/codex.png" };
 
 // The native macOS app exposes a "secondBrain" script-message channel; a plain
 // browser does not. Only the app can restart its bridge to switch engine, so the
@@ -327,7 +328,7 @@ const NATIVE_ENGINE_SWITCH = !!window.webkit?.messageHandlers?.secondBrain;
 function renderEngineTile(engine) {
   const label = ENGINE_LABELS[engine] || engine;
   if (!NATIVE_ENGINE_SWITCH) {
-    if (label) setTile("engine", label, null);
+    if (label) setTile("engine", label, null, null, ENGINE_ICONS[engine]);
     return;
   }
 
@@ -336,6 +337,21 @@ function renderEngineTile(engine) {
   tile.classList.remove("status-tile-empty");
   tile.classList.add("status-seg-engine");
   tile.replaceChildren();
+
+  // Warm the cache for both glyphs. Otherwise switching to the not-yet-loaded
+  // engine kicks off a fetch that the imminent page reload aborts, flashing a
+  // broken-image icon (only seen going to the heavier, uncached codex.png).
+  for (const src of Object.values(ENGINE_ICONS)) {
+    const pre = new Image();
+    pre.src = src;
+  }
+
+  // Icon reflecting the current engine; swapped on change so it stays in sync
+  // during the brief window before the bridge restarts and reloads the page.
+  const icon = document.createElement("img");
+  icon.className = "engine-icon";
+  icon.alt = "";
+  icon.src = ENGINE_ICONS[engine] || "";
 
   const select = document.createElement("select");
   select.className = "engine-select";
@@ -352,6 +368,7 @@ function renderEngineTile(engine) {
   // monospace, so 1 char == 1ch. (Re-rendered on reload after a switch.)
   select.style.width = `calc(${label.length}ch + 26px)`;
   select.addEventListener("change", () => {
+    icon.src = ENGINE_ICONS[select.value] || "";
     window.webkit.messageHandlers.secondBrain.postMessage({
       action: "switchEngine",
       engine: select.value,
@@ -364,7 +381,7 @@ function renderEngineTile(engine) {
   const labelEl = document.createElement("span");
   labelEl.className = "status-label";
   labelEl.textContent = "agent";
-  tile.append(select, labelEl);
+  tile.append(icon, select, labelEl);
 }
 
 function outputFileLink(relPath) {
@@ -420,13 +437,25 @@ function applyStatus(data) {
     .forEach((el) => { el.hidden = !showReady; });
 }
 
-function setTile(metric, value, sublabel, title) {
+function setTile(metric, value, sublabel, title, iconSrc) {
   const tile = document.querySelector(`#status-strip [data-metric="${metric}"]`);
   if (!tile) return;
   const numEl = tile.querySelector(".status-num");
   const labelEl = tile.querySelector(".status-label");
   const isMissing = value === null || value === undefined || value === "—";
   numEl.textContent = isMissing ? "—" : String(value);
+  // Optional leading icon (e.g. the agent-engine tile). Reuse a single <img> so
+  // repeated calls swap the src rather than stacking elements.
+  if (iconSrc) {
+    let iconEl = tile.querySelector(".status-icon");
+    if (!iconEl) {
+      iconEl = document.createElement("img");
+      iconEl.className = "status-icon";
+      iconEl.alt = "";
+      tile.insertBefore(iconEl, numEl);
+    }
+    iconEl.src = iconSrc;
+  }
   tile.classList.toggle("status-tile-empty", isMissing);
   if (sublabel && !isMissing) {
     labelEl.dataset.original = labelEl.dataset.original || labelEl.textContent;
