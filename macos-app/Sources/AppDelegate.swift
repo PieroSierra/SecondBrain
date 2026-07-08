@@ -161,6 +161,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     @objc private func selectClaude(_ sender: Any?) { selectEngine("claude") }
     @objc private func selectCodex(_ sender: Any?) { selectEngine("codex") }
 
+    /// Entry point for the dashboard's in-page engine dropdown (via the WebWindow
+    /// script bridge). Routes through the same path as the Engine menu.
+    func switchEngine(to engine: String) {
+        guard Preferences.isValidEngine(engine) else { return }
+        selectEngine(engine)
+    }
+
     private func engineLabel(_ engine: String) -> String {
         engine == "codex" ? "Codex" : "Claude Code"
     }

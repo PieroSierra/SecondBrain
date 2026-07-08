@@ -203,6 +203,32 @@ textarea:focus-visible {
 }
 .status-pill:hover { background: #6b2917; }
 .status-pill:disabled { opacity: 0.55; cursor: default; }
+/* Agent engine dropdown (app only): reads as the status text but carries a caret
+   and hover affordance so it's discoverable as a control. */
+.status-seg-engine { align-items: center; }
+.engine-select {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box; /* width (set in JS) counts padding + caret space */
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9' viewBox='0 0 9 9'%3E%3Cpath d='M1.5 3 L4.5 6 L7.5 3' fill='none' stroke='%23756B62' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  background-size: 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px 17px 2px 6px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.engine-select:hover { background-color: var(--bg-subtle); border-color: var(--bg-subtle); }
+.engine-select:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.engine-select:disabled { opacity: 0.55; cursor: default; }
 
 @media (max-width: 720px) {
   .status-strip { gap: 4px 0; padding: 0 16px; }

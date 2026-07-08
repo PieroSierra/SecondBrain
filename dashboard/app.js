@@ -307,12 +307,64 @@ async function ensureConfig() {
     }
     // Show which agent CLI backs the skills (claude | codex). Config-derived,
     // so set once here — refreshStatus only updates the metric tiles.
-    const engineLabel = { claude: "Claude Code", codex: "Codex" }[data.engine] || data.engine;
-    if (engineLabel) setTile("engine", engineLabel, null);
+    renderEngineTile(data.engine);
     _configLoaded = true;
   } catch {
     /* best-effort */
   }
+}
+
+const ENGINE_LABELS = { claude: "Claude Code", codex: "Codex" };
+
+// The native macOS app exposes a "secondBrain" script-message channel; a plain
+// browser does not. Only the app can restart its bridge to switch engine, so the
+// dropdown is interactive there and a static label everywhere else.
+const NATIVE_ENGINE_SWITCH = !!window.webkit?.messageHandlers?.secondBrain;
+
+// Render the "agent" status tile: a static label in the browser, or an inline
+// dropdown in the app that switches engine via the native bridge (which restarts
+// the bridge and reloads this page, so the tile then reflects the new engine).
+function renderEngineTile(engine) {
+  const label = ENGINE_LABELS[engine] || engine;
+  if (!NATIVE_ENGINE_SWITCH) {
+    if (label) setTile("engine", label, null);
+    return;
+  }
+
+  const tile = document.querySelector('#status-strip [data-metric="engine"]');
+  if (!tile) return;
+  tile.classList.remove("status-tile-empty");
+  tile.classList.add("status-seg-engine");
+  tile.replaceChildren();
+
+  const select = document.createElement("select");
+  select.className = "engine-select";
+  select.setAttribute("aria-label", "Agent engine — switch Claude ↔ Codex");
+  for (const [value, text] of Object.entries(ENGINE_LABELS)) {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = text;
+    if (value === engine) opt.selected = true;
+    select.append(opt);
+  }
+  // A native <select> auto-sizes to its widest option ("Claude Code"), leaving a
+  // gap after "Codex". Size it to the *current* label instead; the font is
+  // monospace, so 1 char == 1ch. (Re-rendered on reload after a switch.)
+  select.style.width = `calc(${label.length}ch + 26px)`;
+  select.addEventListener("change", () => {
+    window.webkit.messageHandlers.secondBrain.postMessage({
+      action: "switchEngine",
+      engine: select.value,
+    });
+    // The app restarts the bridge and reloads the page shortly; lock the control
+    // so it can't be re-triggered mid-switch.
+    select.disabled = true;
+  });
+
+  const labelEl = document.createElement("span");
+  labelEl.className = "status-label";
+  labelEl.textContent = "agent";
+  tile.append(select, labelEl);
 }
 
 function outputFileLink(relPath) {

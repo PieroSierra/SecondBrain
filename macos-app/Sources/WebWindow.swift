@@ -19,7 +19,15 @@ final class WebWindow: NSObject, NSWindowDelegate {
         guard window == nil else { return }
 
         let frame = NSRect(x: 0, y: 0, width: 1200, height: 820)
-        let wv = WKWebView(frame: frame, configuration: WKWebViewConfiguration())
+        // A "secondBrain" script-message channel lets the dashboard drive native
+        // actions (e.g. the in-page engine dropdown). Present only in the app, so
+        // the web page can feature-detect it and fall back to a static label in a
+        // plain browser.
+        let config = WKWebViewConfiguration()
+        let contentController = WKUserContentController()
+        contentController.add(WeakScriptMessageHandler(self), name: "secondBrain")
+        config.userContentController = contentController
+        let wv = WKWebView(frame: frame, configuration: config)
         wv.autoresizingMask = [.width, .height]
         if #available(macOS 11.0, *) { wv.pageZoom = Preferences.pageZoom }
         wv.uiDelegate = self // so <input type="file"> can present an Open panel
@@ -86,6 +94,39 @@ final class WebWindow: NSObject, NSWindowDelegate {
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         sender.orderOut(nil)
         return false
+    }
+}
+
+// MARK: - Script bridge (dashboard → native)
+
+extension WebWindow: WKScriptMessageHandler {
+    /// Handles messages posted to `window.webkit.messageHandlers.secondBrain`.
+    /// Delivered on the main thread, so it's safe to drive UI / the bridge here.
+    func userContentController(_ userContentController: WKUserContentController,
+                              didReceive message: WKScriptMessage) {
+        guard message.name == "secondBrain",
+              let body = message.body as? [String: Any],
+              let action = body["action"] as? String else { return }
+        switch action {
+        case "switchEngine":
+            if let engine = body["engine"] as? String {
+                (NSApp.delegate as? AppDelegate)?.switchEngine(to: engine)
+            }
+        default:
+            break
+        }
+    }
+}
+
+/// Holds the real script-message handler weakly. A `WKUserContentController`
+/// retains its handlers strongly, which would otherwise form a
+/// controller → handler → webView → configuration → controller retain cycle.
+final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
+    private weak var target: WKScriptMessageHandler?
+    init(_ target: WKScriptMessageHandler) { self.target = target }
+    func userContentController(_ controller: WKUserContentController,
+                              didReceive message: WKScriptMessage) {
+        target?.userContentController(controller, didReceive: message)
     }
 }
 
