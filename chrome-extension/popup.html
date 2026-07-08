@@ -230,8 +230,11 @@
       .op-status-running::before { animation: none; opacity: 0.7; }
     }
 
-    /* Status panels — matches .import-status */
-    .import-status {
+    /* Single status panel — the one red/green space above the button. Exactly
+       one variant is ever applied (success | warn | error); never two boxes at
+       once. `.status--warn` carries the duplicate-import content (head + link +
+       meta linking to the dashboard's raw-file preview). */
+    .status {
       display: none;
       padding: 8px 10px;
       border-radius: var(--radius);
@@ -241,13 +244,14 @@
       overflow-wrap: anywhere;
       word-break: break-word;
     }
-    .import-status.visible { display: block; }
-    .import-status-success {
+    .status.visible { display: block; }
+    .status--success {
       background: var(--success-bg);
       color: var(--success-ink);
       border-left-color: var(--success-rule);
     }
-    .import-status-error {
+    .status--warn,
+    .status--error {
       background: var(--error-bg);
       color: var(--error-ink);
       border-left-color: var(--error-rule);
@@ -259,29 +263,26 @@
       opacity: 0.8;
     }
 
-    /* Hint shown below status when import is running in background */
+    /* Hint shown below the (hidden) button while the import runs in background */
     .bg-hint {
+      display: none;
       font-size: 0.72rem;
       color: var(--ink-faint);
       font-style: italic;
     }
+    .bg-hint.visible { display: block; }
 
-    /* Duplicate-import warning — red box above the button. Shown when this
-       page's URL already exists in raw/; the button then reads "Import page
-       anyway". The link hands off to the dashboard's raw-file preview. */
-    .dupe-warning {
+    /* Muted note below the button — e.g. "another import is running" (state 5)
+       or the browser-internal-page message (state 6). Neither red nor green. */
+    .note {
       display: none;
-      padding: 8px 10px;
-      border-radius: var(--radius);
-      font-size: 0.8rem;
-      line-height: 1.45;
-      background: var(--error-bg);
-      color: var(--error-ink);
-      border-left: 2px solid var(--error-rule);
-      overflow-wrap: anywhere;
-      word-break: break-word;
+      font-size: 0.72rem;
+      color: var(--ink-muted);
+      font-style: italic;
     }
-    .dupe-warning.visible { display: block; }
+    .note.visible { display: block; }
+
+    /* Duplicate-import content, rendered inside `.status--warn`. */
     .dupe-warning-head {
       font-weight: 600;
       display: flex;
@@ -319,19 +320,20 @@
     <textarea id="context-field" class="context-field" rows="2" maxlength="2000"
               placeholder="Optional context or notes…"></textarea>
 
-    <!-- Duplicate warning (shown only when this page was already imported) -->
-    <div class="dupe-warning" id="dupe-warning"></div>
+    <!-- Single status space (red or green, never both): duplicate warning,
+         success, or error — whichever the current state calls for. -->
+    <div class="status" id="status"></div>
 
     <button id="import-btn">Import this page</button>
 
-    <!-- Pulsar + animated verb (shown while running) -->
+    <!-- Pulsar + animated verb (shown while this tab's import runs) -->
     <div class="op-status op-status-running" id="op-status">
       <span class="op-verb op-verb-anim" id="op-verb">Importing…</span>
     </div>
-    <div class="bg-hint" id="bg-hint" style="display:none">Running in background — you can close this.</div>
+    <div class="bg-hint" id="bg-hint">Running in background — you can close this.</div>
 
-    <!-- Result panel (shown on success or error) -->
-    <div class="import-status" id="import-status"></div>
+    <!-- Muted note: cross-tab-busy or browser-internal message -->
+    <div class="note" id="note"></div>
   </div>
 
   <script src="Readability.js"></script>
