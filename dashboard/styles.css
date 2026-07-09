@@ -112,6 +112,33 @@ textarea:focus-visible {
   height: clamp(40px, 7vw, 64px);
   flex: none;
 }
+/* Busy indicator: a pulsing period rendered as the wordmark's full stop
+   ("Second Brain.") while any operation runs — including imports fired from the
+   Chrome extension. Hidden until body.is-busy (set by setBusy/clearBusy for any
+   op, local or remote). Sized in em + currentColor so it reads as the title's
+   own period; sits on the text baseline. */
+.brand-busy-dot {
+  display: none;
+  width: 0.18em;
+  height: 0.18em;
+  margin-left: 0.11em;
+  border-radius: 50%;
+  background: currentColor; /* inherits the brand clay */
+  vertical-align: baseline;
+}
+body.is-busy .brand-busy-dot {
+  display: inline-block;
+  animation: brand-pulse 1.4s ease-in-out infinite;
+}
+/* Peaks at native size (scale 1) and dips down — the dot's largest state stays
+   crisp, unlike scaling a tiny circle up past 1×, which blurs its edge. */
+@keyframes brand-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.68); }
+  50%      { opacity: 1;   transform: scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  body.is-busy .brand-busy-dot { animation: none; opacity: 0.85; }
+}
 .brand {
   margin: 0;
   font-family: var(--font-display);

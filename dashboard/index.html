@@ -66,7 +66,10 @@
         <header class="site-header">
           <div class="brand-row">
             <img class="brand-logo" src="/static/logo.png" alt="" width="56" height="56" decoding="async" />
-            <h1 class="brand">Second Brain</h1>
+            <!-- The pulsing period becomes the wordmark's full stop ("Second
+                 Brain.") while any operation runs — including imports fired from
+                 the Chrome extension. Toggled by body.is-busy; hidden when idle. -->
+            <h1 class="brand">Second Brain<span class="brand-busy-dot" aria-hidden="true"></span></h1>
           </div>
           <p class="brand-sub">a personal knowledge base</p>
         </header>

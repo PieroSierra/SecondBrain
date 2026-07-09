@@ -267,6 +267,7 @@ let busyKind = null;
 
 function setBusy(kind) {
   busyKind = kind;
+  document.body.classList.add("is-busy"); // pulsing dot on the logo
   document
     .querySelectorAll("[data-long-op]")
     .forEach((el) => el.setAttribute("data-busy", "true"));
@@ -279,6 +280,7 @@ function setBusy(kind) {
 
 function clearBusy() {
   busyKind = null;
+  document.body.classList.remove("is-busy");
   document
     .querySelectorAll("[data-long-op]")
     .forEach((el) => el.removeAttribute("data-busy"));
