@@ -2113,22 +2113,70 @@ refreshStatus();
 
 let _lastActivity = { running: false, pending: null };
 
+// Reflect an op started OUTSIDE this page (the Chrome extension, or another
+// dashboard tab). Imports are single-process, so while one runs, this page must
+// disable its own commands — otherwise a click collides with the bridge's global
+// lock (409). We mirror the op onto the matching card the same way a local op is
+// shown. `remoteBusy` marks that WE set the busy state remotely, so only we clear
+// it (a genuinely local op holds `busyKind` for its lifetime and is never seen
+// here — the begin-branch is gated on `!busyKind`).
+let remoteBusy = false;
+let remoteKind = null;
+let remoteNode = null;
+
+// Map a /busy `kind` to the op-status node of its homepage card, or null when no
+// card matches (wiki-edit, or an unknown kind) — those still block commands.
+function nodeFor(kind) {
+  const k = kind === "pdf-import" ? "file-import" : kind; // PDFs light the file card
+  return document.querySelector(`[data-long-op="${k}"] [data-op-status]`);
+}
+
+function beginRemoteBusy(kind) {
+  remoteBusy = true;
+  remoteKind = kind;
+  setBusy(kind); // disables every command control + sets busyKind
+  remoteNode = nodeFor(kind);
+  if (remoteNode) opRunning(remoteNode, kind);
+}
+
+function endRemoteBusy() {
+  // /busy can't distinguish success from failure, so clear the indicator (like
+  // the macOS Dock: pulse, then stop) rather than claim "Fetched". The real
+  // result surfaces via the status-strip refresh below and the extension popup.
+  if (remoteNode) opClear(remoteNode);
+  clearBusy();
+  remoteBusy = false;
+  remoteKind = null;
+  remoteNode = null;
+}
+
 async function pollActivity() {
   try {
     const res = await apiFetch("/busy");
     if (!res.ok) return;
-    const { running, pending } = await res.json();
+    const { running, kind, pending } = await res.json();
     const finished = _lastActivity.running && !running;
     const pendingMoved =
       _lastActivity.pending !== null && pending !== _lastActivity.pending;
     _lastActivity = { running, pending };
+
+    // Reflect externally-started ops (independent of the refresh check below).
+    if (running && !busyKind && !remoteBusy) {
+      beginRemoteBusy(kind);
+    } else if (running && remoteBusy && kind !== remoteKind) {
+      endRemoteBusy();
+      beginRemoteBusy(kind);
+    } else if (!running && remoteBusy) {
+      endRemoteBusy();
+    }
+
     if (finished || pendingMoved) refreshStatus();
   } catch {
     /* best-effort — the strip just keeps its last values */
   }
 }
 
-window.setInterval(pollActivity, 3000);
+window.setInterval(pollActivity, 1500);
 
 // ---------------------------------------------------------------------------
 // Deep-link: /?raw=raw/web/foo.md opens that raw file in the preview modal on
