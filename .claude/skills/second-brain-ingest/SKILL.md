@@ -103,7 +103,7 @@ Recursively list all files in `raw/` (including subdirectories `raw/craft/`, `ra
 
 **PDF Auto-Extraction**: When a `.pdf` file is found anywhere in `raw/` (including subdirectories), treat it as an auto-extract source:
 1. Check the manifest: if the PDF is current (not new or stale), skip silently — it was already extracted on a prior run
-2. If new or stale: invoke the `/second-brain-import-pdf` extraction logic inline — read the PDF using the Read tool (paginating in ≤20-page batches), write the result to `raw/pdf/YYYY-MM-DD_<slug>.md` with the standard front-matter header
+2. If new or stale: invoke the `/second-brain-import-pdf` extraction logic inline — extract **incrementally**: write the `raw/pdf/YYYY-MM-DD_<slug>.md` scaffold (standard front-matter header, `# Title`, then a trailing `<!-- sb:incomplete -->` marker), then read the PDF in **≤10-page batches** and append each batch by replacing the marker (`<batch>\n\n<!-- sb:incomplete -->`). When all pages are done, remove the trailing marker. This overwrites any prior file at that path (a re-extract starts fresh, never appends).
 3. Add the resulting `.md` path to the processing queue for this run
 4. Track the PDF path itself in the manifest (so it is not re-extracted unless modified)
 5. If extraction fails (password-protected, unreadable, empty): log `[skip] <path> — PDF extraction failed: <reason>` and do not add to the manifest
@@ -112,6 +112,8 @@ Recursively list all files in `raw/` (including subdirectories `raw/craft/`, `ra
 - **New** — no manifest entry → add to the **processing queue** (bring along any associated images from the same directory)
 - **Stale** — manifest `last_modified` > manifest `ingested_at` → add to the processing queue
 - **Current** — `last_modified` ≤ `ingested_at` → skip silently (also skip associated images)
+
+**Incomplete PDF imports**: if a `raw/pdf/*.md` file's body still contains the `<!-- sb:incomplete -->` marker, it is a PDF import that was interrupted mid-extraction. Skip it with `[skip] <path> — incomplete PDF extraction; re-run the importer to finish`, and do **not** add a manifest entry — so it stays pending and is ingested once the import is completed. Never fold its partial content into the wiki.
 
 If the processing queue is empty: output "Nothing to ingest — all files are up to date." and stop.
 

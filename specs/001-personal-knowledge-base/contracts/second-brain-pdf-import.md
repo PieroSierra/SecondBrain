@@ -23,15 +23,13 @@
 ## Behaviour
 
 1. Verify the PDF file exists and is not empty
-2. Read PDF content using Claude's native Read tool (paginated in batches of ≤20 pages for large PDFs)
-3. Concatenate all page extracts into a single markdown document
-4. Determine output filename: `raw/pdf/YYYY-MM-DD_<title-slug>.md`
-5. Check whether a file with that name already exists:
-   - If yes and content differs: overwrite
-   - If yes and content is identical: skip with "already imported" message
-   - If no: create new file
-6. Write markdown output with a metadata header
-7. Report: source PDF, output file, pages extracted, any warnings
+2. Determine output filename: `raw/pdf/YYYY-MM-DD_<title-slug>.md`
+3. Extract **incrementally** to avoid stalling the model's response stream on large PDFs:
+   - Write the output file scaffold (metadata header, title, and a trailing `<!-- sb:incomplete -->` marker), **overwriting** any existing file at that path. A re-import therefore restarts from page 1 and never appends to a stale file.
+   - Read the PDF with Claude's native Read tool in **≤10-page batches** and append each batch to the file as it is transcribed (by replacing the marker), so partial progress persists to disk.
+   - When all pages are done, remove the marker. The completed file never contains `<!-- sb:incomplete -->`.
+4. If a file already existed at that path, the status is "updated"; otherwise "created". (The byte-exact "already imported" skip is not offered — incremental writing does not buffer the whole document to compare.)
+5. Report: source PDF, output file, pages extracted, any warnings
 
 ## Output File Format
 
@@ -62,7 +60,8 @@ Where `<title-slug>` is the custom title or PDF filename stem, lowercased, space
 ## Invariants
 
 - Source PDF is never modified
-- No partial files: either the full extraction is written or nothing
+- Only writes to `raw/pdf/`
+- Extraction is incremental and progressive: the output is written batch-by-batch. An interrupted run leaves the pages extracted so far plus a `<!-- sb:incomplete -->` marker; `/second-brain-ingest` skips any file bearing that marker (partial content never reaches the wiki), and re-running the import overwrites the file from scratch (never appends). A successful run always removes the marker.
 
 ## Error Conditions
 
