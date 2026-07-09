@@ -865,10 +865,11 @@ pasteForm.addEventListener("submit", (e) => {
 // --- File upload (PDF / image / text) -------------------------------------
 
 const ACCEPTED_FILE_EXTS = new Set([
-  ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".txt", ".md",
+  ".pdf", ".pptx", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".txt", ".md",
 ]);
 const ACCEPTED_MIME_TYPES = new Set([
   "application/pdf",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "image/png", "image/jpeg", "image/gif", "image/webp",
   "text/plain", "text/markdown",
 ]);
@@ -961,7 +962,7 @@ fileDropzone.addEventListener("drop", (e) => {
   if (!isAcceptedFile(file)) {
     opError(
       fileForm.querySelector("[data-op-status]"),
-      `${file.name || "That file"} is not a supported type (PDF, image, or plain text).`,
+      `${file.name || "That file"} is not a supported type (PDF, PowerPoint, image, or plain text).`,
     );
     return;
   }
