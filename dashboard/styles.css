@@ -210,6 +210,15 @@ body.is-busy .brand-busy-dot {
 .status-tile-empty .status-num,
 .status-tile-empty .status-label { color: var(--ink-faint); }
 .status-seg[title] { cursor: help; }
+.status-folder-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.status-folder-link:hover { text-decoration: underline; }
 /* Pending ingests demand attention — deep brick red on both number and label. */
 .status-ready .status-num,
 .status-ready .status-label { color: var(--error-ink); }

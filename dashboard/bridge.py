@@ -1800,7 +1800,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # All POST endpoints trigger a skill (or a cheap read-only check) →
         # require authorization. The extension authenticates by its allowlisted
         # Origin (no token).
-        if path in ("/run", "/upload-pdf", "/upload-file", "/dedupe-check"):
+        if path in ("/run", "/upload-pdf", "/upload-file", "/dedupe-check", "/open-folder"):
             if not self._authorize(allow_extension=True):
                 return self._deny()
 
@@ -1812,6 +1812,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._handle_upload_file()
         if path == "/dedupe-check":
             return self._handle_dedupe_check()
+        if path == "/open-folder":
+            return self._handle_open_folder()
 
         self._not_found()
 
@@ -2022,6 +2024,31 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         envelope = self._run_kind(kind, prompt, cfg, args)
         status_code = envelope.pop("__status__", 200)
         _json_response(self, status_code, envelope)
+
+    def _handle_open_folder(self) -> None:
+        """Shell-open raw/ or wiki/ in Finder (macOS only, no skill exec)."""
+        if sys.platform != "darwin":
+            return _json_response(self, 200, {"ok": False, "detail": "not macOS"})
+        body = self._read_json_body()
+        if body is None:
+            return
+        folder = str(body.get("folder", "")).strip()
+        allowed = {"raw": RAW_DIR, "wiki": WIKI_DIR}
+        target = allowed.get(folder)
+        if target is None:
+            return _json_response(
+                self, 400, {"error": "bad_request", "detail": "folder must be raw or wiki"}
+            )
+        try:
+            subprocess.Popen(
+                ["open", str(target)],
+                shell=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+        except OSError as exc:
+            return _json_response(self, 500, {"ok": False, "detail": str(exc)})
+        _json_response(self, 200, {"ok": True})
 
     def _handle_dedupe_check(self) -> None:
         """Model-free: does this import candidate already look imported?

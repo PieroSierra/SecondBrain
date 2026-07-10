@@ -1331,6 +1331,12 @@ $("#status-ingest-pill")?.addEventListener("click", () => {
   runMaintenance(ingestForm, "ingest");
 });
 
+document.querySelectorAll("[data-open-folder]").forEach((btn) => {
+  btn.addEventListener("click", () => {
+    apiFetch("/open-folder", { method: "POST", body: JSON.stringify({ folder: btn.dataset.openFolder }) });
+  });
+});
+
 const lintForm = $("#lint-form");
 lintForm.addEventListener("submit", (e) => {
   e.preventDefault();

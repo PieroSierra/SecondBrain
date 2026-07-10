@@ -80,7 +80,7 @@
         <section id="status-strip" class="status-strip" aria-label="Vault status">
           <span class="status-seg" data-metric="raw_total_count">
             <span class="status-num">—</span>
-            <span class="status-label">raw notes</span>
+            <button type="button" class="status-label status-folder-link" data-open-folder="raw" title="Open raw/ in Finder">raw notes</button>
           </span>
           <span class="status-sep status-sep-pipe" data-seg="ready" hidden>|</span>
           <span class="status-seg status-ready" data-metric="raw_pending_count" data-seg="ready" hidden>
@@ -91,7 +91,7 @@
           <span class="status-sep status-arrow" aria-hidden="true">→</span>
           <span class="status-seg" data-metric="wiki_article_count">
             <span class="status-num">—</span>
-            <span class="status-label">wiki articles</span>
+            <button type="button" class="status-label status-folder-link" data-open-folder="wiki" title="Open wiki/ in Finder">wiki articles</button>
           </span>
           <span class="status-sep status-arrow" aria-hidden="true">→</span>
           <span class="status-seg" data-metric="outputs_query_count">
