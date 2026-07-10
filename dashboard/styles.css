@@ -614,12 +614,14 @@ body.is-busy .brand-busy-dot {
   margin: 1.4em 0 0.4em;
   border-bottom: 1px solid var(--rule);
   padding-bottom: 0.25em;
+  scroll-margin-top: 64px;
 }
 .markdown-body h3 {
   font-size: 1.05rem;
   font-style: italic;
   color: var(--ink-muted);
   margin: 1.2em 0 0.3em;
+  scroll-margin-top: 64px;
 }
 .markdown-body p { margin: 0.8em 0; }
 .markdown-body ul, .markdown-body ol {
@@ -1374,6 +1376,71 @@ body { overflow: hidden; }
 /* Wiki topic items */
 .nav-item-wiki:not(.nav-item-wiki-index) {
   color: var(--ink-faint);
+}
+
+/* In-sidebar TOC — appears below the active article button.
+   The vertical rail + horizontal tick are drawn as pseudo-elements on each
+   entry so the entry button itself is full-width and gets the same hover
+   background as a regular nav item. */
+.wiki-toc {
+  margin: 0 0 4px 0;
+  overflow: hidden;
+  /* max-height is set by JS for the open/close animation */
+  transition: max-height 0.22s ease, opacity 0.18s ease;
+  opacity: 1;
+}
+/* Scrollable inner when the list is long (>15 items, capped by JS) */
+.wiki-toc-inner {
+  overflow-y: auto;
+}
+.wiki-toc-entry {
+  position: relative;
+  display: block;
+  width: 100%;
+  /* text aligns with nav item text: 20px left-pad + 26px icon slot + 10px gap */
+  padding: 5px 20px 5px 56px;
+  border: none;
+  background: none;
+  text-align: left;
+  font-family: var(--font-body);
+  font-size: 0.875rem;
+  line-height: 1.35;
+  color: var(--ink-faint);
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: color 0.12s ease, background 0.12s ease;
+}
+/* vertical rail — 1px line at icon centre (20px padding + 13px = 33px) */
+.wiki-toc-entry::before {
+  content: "";
+  position: absolute;
+  left: 33px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--ink-faint);
+  opacity: 0.35;
+}
+/* last entry: rail only runs down to the midpoint (L-shape, not continuing) */
+.wiki-toc-entry:last-child::before {
+  bottom: 50%;
+}
+/* horizontal tick from rail to text */
+.wiki-toc-entry::after {
+  content: "";
+  position: absolute;
+  left: 33px;
+  top: 50%;
+  width: 14px;
+  height: 1px;
+  background: var(--ink-faint);
+  opacity: 0.35;
+}
+.wiki-toc-entry:hover {
+  color: var(--ink-muted);
+  background: var(--bg-subtle);
 }
 
 /* ── Main panel ── */

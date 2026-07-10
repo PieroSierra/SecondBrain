@@ -1659,6 +1659,16 @@ async function loadWikiList() {
       btn.appendChild(makeNavIcon("page"));
       btn.appendChild(document.createTextNode(item.title));
       btn.addEventListener("click", () => {
+        // Already open: toggle the TOC instead of re-navigating.
+        if (item.slug === currentWikiSlug) {
+          const toc = btn.nextElementSibling;
+          if (toc?.classList.contains("wiki-toc")) {
+            const closing = toc.style.maxHeight !== "0px";
+            toc.style.maxHeight = closing ? "0" : `${toc.scrollHeight}px`;
+            toc.style.opacity   = closing ? "0" : "1";
+          }
+          return;
+        }
         setActiveNavItem(btn);
         openWikiArticle(item.slug, item.title);
       });
@@ -1695,9 +1705,68 @@ async function openWikiArticle(slug, displayTitle, highlightTerm = "") {
       if (highlightTerm) highlightMatches(bodyEl, highlightTerm);
     }
     panel.dataset.markdown = md;
+    buildWikiToc(slug, bodyEl);
   } catch (err) {
     showLoadError(bodyEl, err.message);
   }
+}
+
+const TOC_MAX_VISIBLE = 15;
+const TOC_ENTRY_H     = 29; // approximate px per entry for max-height calc
+
+function buildWikiToc(slug, bodyEl) {
+  // Animate-close any existing TOC, then remove it once the transition ends.
+  document.querySelectorAll(".wiki-toc").forEach((el) => {
+    el.style.maxHeight = "0";
+    el.style.opacity   = "0";
+    el.addEventListener("transitionend", () => el.remove(), { once: true });
+  });
+
+  if (!bodyEl) return;
+
+  const headings = Array.from(bodyEl.querySelectorAll("h2"));
+  if (headings.length === 0) return;
+
+  // Inject stable ids so scrollIntoView targets are stable.
+  headings.forEach((h, i) => {
+    if (!h.id) h.id = `toc-${i}-${h.textContent.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "")}`;
+  });
+
+  const navBtn = document.querySelector(`#nav-wiki-list [data-wiki-slug="${CSS.escape(slug)}"]`);
+  if (!navBtn) return;
+
+  const toc   = document.createElement("div");
+  toc.className = "wiki-toc";
+  toc.style.maxHeight = "0";
+  toc.style.opacity   = "0";
+
+  const inner = document.createElement("div");
+  inner.className = "wiki-toc-inner";
+  if (headings.length > TOC_MAX_VISIBLE) {
+    inner.style.maxHeight = `${TOC_MAX_VISIBLE * TOC_ENTRY_H}px`;
+    inner.style.overflowY = "auto";
+  }
+
+  headings.forEach((h) => {
+    const entry = document.createElement("button");
+    entry.type  = "button";
+    entry.className   = "wiki-toc-entry";
+    entry.textContent = h.textContent;
+    entry.title       = h.textContent;
+    entry.addEventListener("click", () => {
+      h.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    inner.appendChild(entry);
+  });
+
+  toc.appendChild(inner);
+  navBtn.after(toc);
+
+  // Open animation: drive max-height from 0 to full content height.
+  requestAnimationFrame(() => {
+    toc.style.maxHeight = `${headings.length * TOC_ENTRY_H}px`;
+    toc.style.opacity   = "1";
+  });
 }
 
 // Open a wiki article from anywhere (query answer, output viewer, another
