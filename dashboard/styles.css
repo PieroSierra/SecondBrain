@@ -112,6 +112,9 @@ textarea:focus-visible {
   height: clamp(40px, 7vw, 64px);
   flex: none;
 }
+.brand-logo-animated { display: none; }
+body.is-busy .brand-logo-static   { display: none; }
+body.is-busy .brand-logo-animated { display: block; }
 /* Busy indicator: a pulsing period rendered as the wordmark's full stop
    ("Second Brain.") while any operation runs — including imports fired from the
    Chrome extension. Hidden until body.is-busy (set by setBusy/clearBusy for any
