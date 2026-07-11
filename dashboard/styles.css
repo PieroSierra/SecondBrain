@@ -1576,6 +1576,75 @@ body { overflow: hidden; }
   margin-top: 0;
 }
 
+/* ── Delint inline action rows ─────────────────────────────────────────── */
+.delint-row {
+  margin: 6px 0 10px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--rule);
+  background: var(--bg-subtle);
+  font-size: 0.82rem;
+}
+.delint-instruction {
+  color: var(--ink-muted);
+  margin-bottom: 8px;
+  line-height: 1.45;
+}
+.delint-warn {
+  color: var(--error-ink);
+  font-size: 0.78rem;
+  margin-bottom: 6px;
+}
+.delint-comment {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin: 10px 0 0;
+  padding: 5px 8px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--bg);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  color: var(--ink);
+  resize: vertical;
+  min-height: 30px;
+}
+.delint-comment:focus { outline: none; border-color: var(--rule-strong); }
+.delint-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+.delint-actions .op-status {
+  margin-top: 0;
+}
+.delint-row--applied {
+  color: var(--ink-muted);
+  border-color: var(--rule);
+  background: none;
+  font-size: 0.82rem;
+  padding: 6px 14px;
+}
+.delint-row--skipped {
+  color: var(--ink-faint);
+  border-color: var(--rule);
+  background: none;
+  font-size: 0.82rem;
+  padding: 6px 14px;
+  text-decoration: line-through;
+}
+.delint-row--ack {
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+  font-style: italic;
+  border: none;
+  background: none;
+  padding: 2px 0 8px;
+}
+
 /* ── Raw source-file modal ─────────────────────────────────────────────── */
 /* A dismissable overlay for viewing a single raw file, floating above the
    content sheet (which sits at z-index:1). */

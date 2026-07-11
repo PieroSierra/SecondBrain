@@ -32,24 +32,50 @@ No arguments.
 ```markdown
 # Lint Report
 
+<!-- sb:delint total="T" open="T" applied="0" skipped="0" -->
+
 *Date: YYYY-MM-DD | Articles scanned: N | Raw sources: M*
 
 ## Contradictions
 
 - [[article-a]] and [[article-b]]: [description of conflict]
+<!-- sb:finding id="f1" type="edit-wiki" articles="article-a,article-b" status="open" -->
+<!-- sb:proposal id="f1" confidence="high"
+instruction="Natural-language fix instruction passed verbatim to /second-brain-edit-wiki"
+-->
 
 ## Unsupported Claims
 
 - [[article-name]]: "[quoted claim]" — no raw source found
+<!-- sb:finding id="f2" type="edit-wiki" articles="article-name" status="open" -->
+<!-- sb:proposal id="f2" confidence="high"
+instruction="..."
+-->
 
 ## Suggested Content Gaps
 
-- [Topic suggestion]: [rationale]
+- **[Topic name]**: [rationale]
+<!-- sb:finding id="f3" type="run-ingest" articles="" status="open" -->
+<!-- sb:proposal id="f3" confidence="high"
+instruction="raw/path/to/file.md"
+-->
 
 ## Summary
 
 N contradictions, M unsupported claims, P suggested gaps
 ```
+
+## Machine-readable tags
+
+Each finding is annotated with HTML comment tags (invisible in rendered markdown):
+
+| Tag | Purpose |
+|-----|---------|
+| `<!-- sb:delint total="T" open="O" applied="A" skipped="S" -->` | Summary counts, updated in place by `/second-brain-delint` |
+| `<!-- sb:finding id="fN" type="..." articles="..." status="open\|applied\|skipped" -->` | Per-finding metadata |
+| `<!-- sb:proposal id="fN" confidence="high\|low" instruction="..." -->` | Proposed fix; `instruction` passed verbatim to the appropriate skill |
+
+**Types:** `edit-wiki` · `run-ingest` · `acknowledge` (no proposal block needed for acknowledge)
 
 ## Outputs
 

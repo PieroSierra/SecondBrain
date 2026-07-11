@@ -1621,9 +1621,212 @@ async function openOutput(filename, title, date, kind, highlightTerm = "") {
     if (bodyEl)    bodyEl.innerHTML           = renderMarkdown(md);
     if (contentEl) contentEl.dataset.markdown = md;
     if (bodyEl && highlightTerm) highlightMatches(bodyEl, highlightTerm);
+    if (isLint && bodyEl) injectDelintRows(bodyEl, filename, md);
   } catch (err) {
     showLoadError(bodyEl, err.message);
   }
+}
+
+// Track in-flight delint operations: findingId → { status, comment }
+// so navigating away and back renders the in-progress / resolved state correctly.
+const _delintInFlight = new Map(); // id → "applying" | "skipping" | "applied" | "skipped"
+
+// Parse sb:finding / sb:proposal tags from the raw markdown source and inject
+// action rows into the rendered body.
+//
+// DOMPurify strips HTML comments, so we cannot rely on comment nodes surviving
+// in the rendered DOM. Instead we:
+//   1. Parse all findings + proposals from the raw markdown string.
+//   2. For each finding, extract the bullet/paragraph text that immediately
+//      PRECEDES the sb:finding tag in the markdown source.
+//   3. Find the rendered <li> or <p> whose text content starts with that bullet
+//      text (first ~60 chars is enough to be unique), and insert the action row
+//      immediately after it.
+function injectDelintRows(bodyEl, filename, rawMd) {
+  const findingRe  = /<!--\s*sb:finding\s+id="([^"]+)"\s+type="([^"]+)"\s+articles="([^"]*)"\s+status="([^"]+)"\s*-->/g;
+  const proposalRe = /<!--\s*sb:proposal\s+id="([^"]+)"\s+confidence="([^"]+)"\s*\ninstruction="([\s\S]*?)"\s*\n-->/g;
+
+  const findings  = {};
+  const proposals = {};
+  let m;
+  while ((m = findingRe.exec(rawMd))  !== null) {
+    findings[m[1]] = { id: m[1], type: m[2], articles: m[3], status: m[4], index: m.index };
+  }
+  while ((m = proposalRe.exec(rawMd)) !== null) {
+    proposals[m[1]] = { id: m[1], confidence: m[2], instruction: m[3] };
+  }
+
+  if (Object.keys(findings).length === 0) return;
+
+  // For each finding, extract the bullet text immediately before the tag.
+  // Look back up to 800 chars; take the last non-empty line before the tag.
+  const findingAnchors = Object.values(findings).map((f) => {
+    const before  = rawMd.slice(Math.max(0, f.index - 800), f.index);
+    const lines   = before.split("\n").map(l => l.trim()).filter(Boolean);
+    const anchor  = lines[lines.length - 1] || "";
+    // Strip markdown list prefix and wikilinks for matching.
+    const clean   = anchor.replace(/^[-*]\s+/, "").replace(/\[\[([^\]]+)\]\]/g, "$1").trim();
+    return { ...f, anchor: clean.slice(0, 80) };
+  });
+
+  // Build a flat list of candidate elements in document order.
+  const candidates = Array.from(bodyEl.querySelectorAll("li, p, h3, h4"));
+
+  for (const fa of findingAnchors) {
+    if (!fa.anchor) continue;
+    // Find the best matching element: text starts with or contains the anchor.
+    const anchorLower = fa.anchor.toLowerCase();
+    const target = candidates.find((el) => {
+      const t = el.textContent.replace(/\[\[([^\]]+)\]\]/g, "$1").trim().toLowerCase();
+      return t.startsWith(anchorLower.slice(0, 40)) || t.includes(anchorLower.slice(0, 40));
+    });
+    if (!target) continue;
+
+    const row = _buildDelintRow(fa, proposals[fa.id], filename);
+    target.after(row);
+  }
+}
+
+function _buildDelintRow(finding, proposal, filename) {
+  const row = document.createElement("div");
+  row.dataset.findingId = finding.id;
+
+  // Check in-flight registry first — overrides the file's status if an
+  // operation started in this session (handles navigate-away-and-back).
+  const inFlight = _delintInFlight.get(finding.id);
+  const effectiveStatus = inFlight ?? finding.status;
+
+  if (effectiveStatus === "applying" || effectiveStatus === "skipping") {
+    row.className = "delint-row";
+    const opNode = document.createElement("div");
+    opNode.className = "op-status";
+    opNode.setAttribute("data-op-status", "");
+    opNode.setAttribute("role", "status");
+    opNode.hidden = false;
+    row.appendChild(opNode);
+    opRunning(opNode, effectiveStatus === "applying" ? "wiki-edit" : "wiki-edit");
+    return row;
+  }
+  if (effectiveStatus !== "open") {
+    row.className = `delint-row delint-row--${effectiveStatus}`;
+    row.textContent = effectiveStatus === "applied" ? "✓ Applied" : "Skipped";
+    return row;
+  }
+  if (finding.type === "acknowledge") {
+    row.className = "delint-row delint-row--ack";
+    row.textContent = "No action needed";
+    return row;
+  }
+  if (!proposal) return row;
+
+  row.className = "delint-row";
+
+  if (proposal.confidence === "low") {
+    const warn = document.createElement("div");
+    warn.className = "delint-warn";
+    warn.textContent = "⚠ Not certain — please verify before applying.";
+    row.appendChild(warn);
+  }
+
+  const inst = document.createElement("div");
+  inst.className = "delint-instruction";
+  inst.textContent = proposal.instruction;
+  row.appendChild(inst);
+
+  const commentBox = document.createElement("textarea");
+  commentBox.className   = "delint-comment";
+  commentBox.rows        = 1;
+  commentBox.placeholder = "Optional context or correction (e.g. 'actually the number is 12')…";
+  row.appendChild(commentBox);
+
+  const actions  = document.createElement("div");
+  actions.className = "delint-actions";
+
+  const applyBtn = document.createElement("button");
+  applyBtn.type  = "button";
+  applyBtn.className   = "import-submit";
+  applyBtn.textContent = finding.type === "run-ingest" ? "RUN INGEST" : "APPLY";
+
+  const skipBtn = document.createElement("button");
+  skipBtn.type  = "button";
+  skipBtn.className   = "import-submit";
+  skipBtn.textContent = "SKIP";
+
+  const opNode = document.createElement("div");
+  opNode.className = "op-status";
+  opNode.setAttribute("data-op-status", "");
+  opNode.setAttribute("role", "status");
+  opNode.setAttribute("aria-live", "polite");
+  opNode.hidden = true;
+
+  actions.append(applyBtn, skipBtn, opNode);
+  row.appendChild(actions);
+
+  applyBtn.addEventListener("click", async () => {
+    const savedComment = commentBox.value.trim();
+    applyBtn.disabled = true;
+    skipBtn.disabled  = true;
+    _delintInFlight.set(finding.id, "applying");
+    setBusy("wiki-edit");
+    opRunning(opNode, finding.type === "run-ingest" ? "ingest" : "wiki-edit");
+    try {
+      if (finding.type === "run-ingest") {
+        const r = await apiFetch("/run", {
+          method: "POST",
+          body: JSON.stringify({ kind: "ingest", args: {} }),
+        });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      } else {
+        const instruction = savedComment
+          ? `${proposal.instruction}\n\nAdditional context from user: ${savedComment}`
+          : proposal.instruction;
+        await runWikiEditAsync(instruction);
+      }
+      await patchFinding(filename, finding.id, "applied");
+      _delintInFlight.set(finding.id, "applied");
+      clearBusy();
+      row.className = "delint-row delint-row--applied";
+      row.innerHTML = "✓ Applied";
+    } catch (err) {
+      _delintInFlight.delete(finding.id);
+      clearBusy();
+      applyBtn.disabled = false;
+      skipBtn.disabled  = false;
+      opError(opNode, err.message);
+    }
+  });
+
+  skipBtn.addEventListener("click", async () => {
+    const savedComment = commentBox.value.trim();
+    applyBtn.disabled = true;
+    skipBtn.disabled  = true;
+    _delintInFlight.set(finding.id, "skipped");
+    await patchFinding(filename, finding.id, "skipped");
+    row.className = "delint-row delint-row--skipped";
+    row.innerHTML = savedComment ? `Skipped — ${savedComment}` : "Skipped";
+  });
+
+  return row;
+}
+
+// Fire /patch-finding and return the updated counts.
+async function patchFinding(filename, findingId, status) {
+  const res = await apiFetch("/patch-finding", {
+    method: "POST",
+    body: JSON.stringify({ filename, finding_id: findingId, status }),
+  });
+  if (!res.ok) throw new Error(`patch-finding HTTP ${res.status}`);
+  return res.json();
+}
+
+// Thin wrapper: invoke wiki-edit via the bridge and throw on failure.
+async function runWikiEditAsync(instruction) {
+  const res = await apiFetch("/run", {
+    method: "POST",
+    body: JSON.stringify({ kind: "wiki-edit", args: { prompt: instruction } }),
+  });
+  const body = await res.json().catch(() => ({}));
+  if (!res.ok || body?.is_error) throw new Error(body?.result ?? body?.error ?? `HTTP ${res.status}`);
 }
 
 // ── Wiki list & viewer ───────────────────────────────────────────────────

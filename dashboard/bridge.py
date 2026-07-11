@@ -531,7 +531,7 @@ PROMPT_TEMPLATES: dict[str, dict] = {
     },
     "lint": {
         "build": _build_lint,
-        "timeout": 240,
+        "timeout": 600,
         "output_glob": "*lint*.md",
         "created_in": None,
         "args_required": [],
@@ -1800,7 +1800,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # All POST endpoints trigger a skill (or a cheap read-only check) →
         # require authorization. The extension authenticates by its allowlisted
         # Origin (no token).
-        if path in ("/run", "/upload-pdf", "/upload-file", "/dedupe-check", "/open-folder"):
+        if path in ("/run", "/upload-pdf", "/upload-file", "/dedupe-check", "/open-folder", "/patch-finding"):
             if not self._authorize(allow_extension=True):
                 return self._deny()
 
@@ -1814,6 +1814,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._handle_dedupe_check()
         if path == "/open-folder":
             return self._handle_open_folder()
+        if path == "/patch-finding":
+            return self._handle_patch_finding()
 
         self._not_found()
 
@@ -2049,6 +2051,72 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         except OSError as exc:
             return _json_response(self, 500, {"ok": False, "detail": str(exc)})
         _json_response(self, 200, {"ok": True})
+
+    def _handle_patch_finding(self) -> None:
+        """Model-free: update an sb:finding status in a lint report in place.
+
+        Body: { "filename": "YYYY-MM-DD_lint.md", "finding_id": "f1",
+                "status": "applied" | "skipped" }
+        """
+        body = self._read_json_body()
+        if body is None:
+            return
+        filename   = str(body.get("filename", "")).strip()
+        finding_id = str(body.get("finding_id", "")).strip()
+        new_status = str(body.get("status", "")).strip()
+
+        if not filename or not finding_id or new_status not in ("applied", "skipped"):
+            return _json_response(
+                self, 400,
+                {"error": "bad_request",
+                 "detail": "filename, finding_id, and status (applied|skipped) are required"},
+            )
+        # Safe path: only files directly in outputs/, no subdirectories.
+        if "/" in filename or "\\" in filename:
+            return _json_response(self, 400, {"error": "bad_request", "detail": "invalid filename"})
+        target = (OUTPUTS_DIR / filename).resolve()
+        try:
+            target.relative_to(OUTPUTS_DIR.resolve())
+        except ValueError:
+            return _json_response(self, 400, {"error": "bad_request", "detail": "invalid filename"})
+        if not target.is_file():
+            return _json_response(self, 404, {"error": "not_found"})
+
+        import re as _re
+        text = target.read_text(encoding="utf-8")
+
+        # Patch the specific sb:finding tag's status attribute.
+        old_tag = f'id="{finding_id}"'
+        if old_tag not in text:
+            return _json_response(self, 404, {"error": "not_found", "detail": f"finding {finding_id} not in report"})
+
+        def _patch_finding_status(m: "_re.Match[str]") -> str:
+            return m.group(0).replace('status="open"', f'status="{new_status}"')
+
+        pattern = rf'<!--\s*sb:finding\s[^>]*?id="{_re.escape(finding_id)}"[^>]*?-->'
+        text = _re.sub(pattern, _patch_finding_status, text)
+
+        # Recalculate sb:delint totals from the patched text.
+        open_count    = len(_re.findall(r'status="open"',    text))
+        applied_count = len(_re.findall(r'status="applied"', text))
+        skipped_count = len(_re.findall(r'status="skipped"', text))
+        total_count   = open_count + applied_count + skipped_count
+
+        def _patch_delint_totals(m: "_re.Match[str]") -> str:
+            s = m.group(0)
+            s = _re.sub(r'total="\d+"',   f'total="{total_count}"',   s)
+            s = _re.sub(r'open="\d+"',    f'open="{open_count}"',     s)
+            s = _re.sub(r'applied="\d+"', f'applied="{applied_count}"', s)
+            s = _re.sub(r'skipped="\d+"', f'skipped="{skipped_count}"', s)
+            return s
+
+        text = _re.sub(r'<!--\s*sb:delint\s[^>]*?-->', _patch_delint_totals, text)
+
+        target.write_text(text, encoding="utf-8")
+        _json_response(self, 200, {
+            "ok": True,
+            "open": open_count, "applied": applied_count, "skipped": skipped_count,
+        })
 
     def _handle_dedupe_check(self) -> None:
         """Model-free: does this import candidate already look imported?

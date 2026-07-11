@@ -93,23 +93,37 @@ Write the report with this exact format:
 ```markdown
 # Lint Report
 
+<!-- sb:delint total="T" open="T" applied="0" skipped="0" -->
+
 *Date: YYYY-MM-DD | Articles scanned: N | Raw sources: M*
 
 ## Contradictions
 
 - [[article-a]] and [[article-b]]: [description of conflict]
+<!-- sb:finding id="f1" type="edit-wiki" articles="article-a,article-b" status="open" -->
+<!-- sb:proposal id="f1" confidence="high"
+instruction="[Exact natural-language instruction to pass to /second-brain-edit-wiki to resolve this contradiction — e.g. 'Date-stamp the 26% figure in skyscanner-company as internal/undated and the 23% figure in ai-storytelling as Apple Barbican fireside Jun 2026']"
+-->
 
 *or: No contradictions detected.*
 
 ## Unsupported Claims
 
 - [[article-name]]: "[quoted claim]" — no raw source found
+<!-- sb:finding id="f2" type="edit-wiki" articles="article-name" status="open" -->
+<!-- sb:proposal id="f2" confidence="high"
+instruction="[Exact instruction to fix the sourcing issue — e.g. 'Add raw/images/2026-06-19_software-pulse-delivery-steering.md to the Sources footer of ai-caio-decisions']"
+-->
 
 *or: No unsupported claims detected.*
 
 ## Suggested Content Gaps
 
 - **[Topic name]**: [rationale — what raw content exists and why a wiki article would be valuable]
+<!-- sb:finding id="f3" type="run-ingest" articles="" status="open" -->
+<!-- sb:proposal id="f3" confidence="high"
+instruction="[The raw file path(s) to ingest — e.g. 'raw/web/2026-07-02_thin-layer-op-model.md']"
+-->
 
 *or: No content gaps detected.*
 
@@ -118,6 +132,21 @@ Write the report with this exact format:
 N contradictions, M unsupported claims, P suggested gaps.
 [One sentence overall assessment — e.g. "Knowledge base is in good shape." or "Several gaps worth addressing."]
 ```
+
+**Tag generation rules:**
+
+- Assign sequential ids `f1`, `f2`, … across all findings in document order
+- `type` values:
+  - `edit-wiki` — any finding that requires changing wiki article text (contradictions, unsupported claims, labelling fixes)
+  - `run-ingest` — a raw file exists but is not yet in the wiki (content gaps where a raw file can be cited)
+  - `acknowledge` — housekeeping notes with no required action (duplicate files, already-reconciled items)
+- `confidence` values:
+  - `high` — the fix is unambiguous and the LLM is confident (e.g. add a missing source footer entry, label a figure with its source)
+  - `low` — the fix requires human judgement or knowledge the LLM cannot verify (e.g. reconciling two figures that may reflect genuinely different data)
+- The `instruction` field must be a single line of plain text (no newlines inside the value) that can be passed verbatim to `/second-brain-edit-wiki` or used to identify which file to ingest
+- For `acknowledge` findings, omit the `sb:proposal` block entirely — they auto-resolve
+- The `sb:delint` summary comment at the top: `total` = total findings count, `open` = same count at write time, `applied` = 0, `skipped` = 0
+- Tags are HTML comments — invisible in rendered markdown, parseable by the delint skill and dashboard
 
 ### Step 8 — Display and confirm
 
