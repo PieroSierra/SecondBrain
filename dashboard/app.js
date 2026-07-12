@@ -586,13 +586,15 @@ async function writePlainClipboard(text) {
 }
 
 function flashCopyButton(btn, label) {
-  const original = btn.dataset.label || btn.textContent;
-  btn.dataset.label = original;
-  btn.textContent = label;
+  if (btn.dataset.flashing) return;
+  btn.dataset.flashing = "1";
+  const originalHTML = btn.innerHTML;
+  btn.innerHTML = label;
   btn.classList.add("copy-btn-flash");
   window.setTimeout(() => {
-    btn.textContent = original;
+    btn.innerHTML = originalHTML;
     btn.classList.remove("copy-btn-flash");
+    delete btn.dataset.flashing;
   }, 1500);
 }
 
@@ -609,10 +611,10 @@ document.addEventListener("click", async (e) => {
   try {
     if (btn.dataset.copy === "md") {
       await writePlainClipboard(markdown);
-      flashCopyButton(btn, "Copied!");
+      flashCopyButton(btn, "COPIED");
     } else {
       const rich = await writeRichClipboard(markdown);
-      flashCopyButton(btn, rich ? "Copied!" : "Copied (plain)");
+      flashCopyButton(btn, rich ? "COPIED" : "COPIED");
     }
   } catch (err) {
     flashCopyButton(btn, "Copy failed");
