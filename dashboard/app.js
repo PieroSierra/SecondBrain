@@ -2677,6 +2677,7 @@ window.requestAnimationFrame(() => threadReplyInput?.focus());
 ensureConfig();
 refreshStatus();
 
+
 // ---------------------------------------------------------------------------
 // Live activity: keep the status strip current when work is triggered outside
 // this page — e.g. an import fired from the browser extension, or another tab.

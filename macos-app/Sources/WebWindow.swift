@@ -30,7 +30,8 @@ final class WebWindow: NSObject, NSWindowDelegate {
         let wv = WKWebView(frame: frame, configuration: config)
         wv.autoresizingMask = [.width, .height]
         if #available(macOS 11.0, *) { wv.pageZoom = Preferences.pageZoom }
-        wv.uiDelegate = self // so <input type="file"> can present an Open panel
+        wv.uiDelegate = self       // so <input type="file"> can present an Open panel
+        wv.navigationDelegate = self // so external URLs open in the system browser
         webView = wv
 
         let win = NSWindow(
@@ -127,6 +128,38 @@ final class WeakScriptMessageHandler: NSObject, WKScriptMessageHandler {
     func userContentController(_ controller: WKUserContentController,
                               didReceive message: WKScriptMessage) {
         target?.userContentController(controller, didReceive: message)
+    }
+}
+
+// MARK: - External URL routing
+
+extension WebWindow: WKNavigationDelegate {
+    /// Any navigation to a non-localhost URL (e.g. a GitHub link in the footer) is
+    /// intercepted and handed to the system browser. Everything on localhost is allowed
+    /// through so the dashboard itself loads normally.
+    func webView(_ webView: WKWebView,
+                 decidePolicyFor navigationAction: WKNavigationAction,
+                 decisionHandler: @escaping (WKNavigationActionPolicy) -> Void) {
+        if let url = navigationAction.request.url,
+           let host = url.host,
+           host != "localhost" && host != "127.0.0.1" {
+            NSWorkspace.shared.open(url)
+            decisionHandler(.cancel)
+            return
+        }
+        decisionHandler(.allow)
+    }
+
+    /// `window.open()` calls also come here. Open in system browser; never create
+    /// a new in-app WebView window.
+    func webView(_ webView: WKWebView,
+                 createWebViewWith configuration: WKWebViewConfiguration,
+                 for navigationAction: WKNavigationAction,
+                 windowFeatures: WKWindowFeatures) -> WKWebView? {
+        if let url = navigationAction.request.url {
+            NSWorkspace.shared.open(url)
+        }
+        return nil
     }
 }
 

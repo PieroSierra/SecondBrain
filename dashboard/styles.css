@@ -846,7 +846,7 @@ body.is-busy .brand-busy-dot {
 }
 .import-textarea {
   resize: vertical;
-  min-height: 110px;
+  min-height: 170px;
   font-family: var(--font-mono);
   font-size: 0.83rem;
   line-height: 1.5;
@@ -1718,6 +1718,13 @@ body.bar-visible .panel {
   font-size: 0.74rem;
   text-align: center;
   letter-spacing: 0.04em;
+}
+.thread-reply-caption .caption-link {
+  color: inherit;
+  border-bottom-color: transparent;
+}
+.thread-reply-caption .caption-link:hover {
+  border-bottom-color: var(--ink-faint);
 }
 
 /* ── Thread status bar (in-view — logo / spinner / done) ─────────────────── */
