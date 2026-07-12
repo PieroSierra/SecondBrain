@@ -1817,9 +1817,7 @@ async function loadOutputsList(force = false) {
       btn.className = "nav-item nav-item-output";
       btn.dataset.outputFilename = item.filename;
       // Lint reports and threads get their own icons; query answers use the answer icon.
-      const navIconName = item.kind === "lint" ? "lint"
-                        : item.kind === "thread" ? "index"
-                        : "answer";
+      const navIconName = item.kind === "lint" ? "lint" : "answer";
       btn.appendChild(makeNavIcon(navIconName));
 
       // Wrap the title so the trash control can sit in a fixed right-hand
