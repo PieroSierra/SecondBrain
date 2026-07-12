@@ -124,6 +124,14 @@ const OP_VERBS = {
     "Pondering", "Cogitating", "Ruminating", "Mulling", "Rummaging",
     "Distilling", "Lucubrating", "Synthesising", "Excogitating", "Marinating",
   ],
+  "thread-start": [
+    "Pondering", "Cogitating", "Ruminating", "Mulling", "Rummaging",
+    "Distilling", "Lucubrating", "Synthesising", "Excogitating", "Marinating",
+  ],
+  "thread-reply": [
+    "Pondering", "Cogitating", "Ruminating", "Mulling", "Rummaging",
+    "Distilling", "Synthesising", "Excogitating", "Marinating", "Connecting",
+  ],
   "md-add": ["Filing", "Cataloguing", "Indexing", "Shelving", "Pinning"],
   "craft-import": ["Fetching", "Plucking", "Harvesting", "Retrieving", "Extracting"],
   "pdf-import": ["Decanting", "Liberating", "Transcribing", "Extracting", "Unfurling"],
@@ -138,6 +146,8 @@ const OP_VERBS = {
 
 const DONE_VERB = {
   query: "Thought",
+  "thread-start": "Thought",
+  "thread-reply": "Thought",
   "md-add": "Filed",
   "craft-import": "Imported",
   "pdf-import": "Decanted",
@@ -590,7 +600,7 @@ function flashCopyButton(btn, label) {
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest(".copy-btn");
   if (!btn) return;
-  const card = btn.closest(".result-card, .maint-result, .viewer-content, #panel-wiki-viewer");
+  const card = btn.closest(".result-card, .maint-result, .viewer-content, #panel-wiki-viewer, .thread-turn");
   const markdown = card?.dataset?.markdown;
   if (!markdown) {
     flashCopyButton(btn, "Nothing to copy");
@@ -611,103 +621,7 @@ document.addEventListener("click", async (e) => {
 });
 
 // ---------------------------------------------------------------------------
-// User Story 1 — Query
-// ---------------------------------------------------------------------------
-
-const queryForm = $("#query-form");
-const queryInput = $("#query-input");
-const queryField = queryInput.closest(".query-field");
-const queryOp = queryForm.querySelector("[data-op-status]");
-const queryResult = $("#query-result");
-const queryResultBody = queryResult.querySelector(".markdown-body");
-const queryResultFooter = queryResult.querySelector(".result-footer");
-const queryResultMeta = queryResultFooter.querySelector(".result-meta");
-
-queryInput.addEventListener("keydown", (e) => {
-  // Enter submits; Shift+Enter inserts a newline.
-  if (e.key === "Enter" && !e.shiftKey) {
-    e.preventDefault();
-    queryForm.requestSubmit();
-  }
-});
-
-// Auto-grow the query textarea as the question gets longer.
-function autoGrowQuery() {
-  // Hide the custom placeholder once there's any content (mirrors native placeholder).
-  queryField.classList.toggle("has-value", queryInput.value.length > 0);
-  // Reset to natural height so shrinking works when the user deletes.
-  queryInput.style.height = "auto";
-  const target = queryInput.scrollHeight;
-  queryInput.style.height = target + "px";
-  // If we hit the max-height ceiling, switch overflow back on so the user can scroll.
-  const maxH = parseFloat(getComputedStyle(queryInput).maxHeight) || Infinity;
-  queryInput.classList.toggle("query-input-overflow", target > maxH);
-}
-queryInput.addEventListener("input", autoGrowQuery);
-// Run once after layout settles in case the field starts with text (e.g. after reload).
-window.requestAnimationFrame(autoGrowQuery);
-
-queryForm.addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const question = queryInput.value.trim();
-  if (!question) return;
-  if (busyKind) return; // belt-and-braces; controls should already be disabled
-
-  // Clear previous result while running.
-  queryResult.hidden = true;
-  queryResultBody.innerHTML = "";
-  queryResultFooter
-    .querySelectorAll(".output-file")
-    .forEach((el) => el.remove());
-  queryResultMeta.hidden = true;
-  queryResultMeta.textContent = "";
-
-  setBusy("query");
-  opRunning(queryOp, "query");
-  try {
-    const { status, data } = await postJSON("/run", {
-      kind: "query",
-      args: { question },
-    });
-
-    const errMsg = envelopeError("query", status, data);
-    if (errMsg !== null) {
-      opError(queryOp, errMsg);
-      return;
-    }
-
-    const rawMd = data.result || "(no answer)";
-    queryResultBody.innerHTML = renderMarkdown(rawMd);
-    queryResult.dataset.markdown = rawMd;  // for the Copy buttons
-    queryResult.hidden = false;
-
-    if (data.output_file) {
-      queryResultFooter.prepend(outputFileLink(data.output_file));
-    }
-
-    const bits = [];
-    if (typeof data.cost_usd === "number" && data.cost_usd > 0) {
-      bits.push(`$${data.cost_usd.toFixed(4)}`);
-    }
-    if (typeof data.num_turns === "number") {
-      bits.push(`${data.num_turns} turns`);
-    }
-    if (bits.length > 0) {
-      queryResultMeta.textContent = bits.join(" · ");
-      queryResultMeta.hidden = false;
-    }
-
-    opDone(queryOp, "query", data.duration_ms);
-    refreshStatus();
-  } catch (err) {
-    opError(queryOp, `Network error: ${err?.message ?? err}`);
-  } finally {
-    clearBusy();
-  }
-});
-
-// ---------------------------------------------------------------------------
-// User Story 2 — Imports (paste Markdown, PDF, Craft)
+// User Story 1 — Imports (paste Markdown, PDF, Craft)
 // ---------------------------------------------------------------------------
 
 /** Format an envelope into a short user-facing error string. */
@@ -1423,6 +1337,361 @@ outputEditBtn?.addEventListener("click", () => {
   runWikiEdit(prompt, null, outputEditOpSt, outputEditImpSt, () => {});
 });
 
+// --- Thread reply bar ---
+const threadReplyBar    = document.getElementById("thread-reply-bar");
+const threadReplyInput  = document.getElementById("thread-reply-input");
+const threadReplyBtn    = document.getElementById("thread-reply-btn");
+const threadReplyOpSt   = document.getElementById("thread-reply-op-status");
+
+// Tracks which thread file the output viewer is currently showing.
+let _currentThreadFile = null;
+
+// Tracks the query bar's current mode: "home" (new thread) or "reply" (continue thread).
+let _barMode = "home";
+
+function setBarMode(mode, opts = {}) {
+  _barMode = mode;
+  if (!threadReplyBar || !threadReplyInput) return;
+  threadReplyBar.hidden = false;
+  document.body.classList.add("bar-visible");
+  if (mode === "home") {
+    threadReplyInput.placeholder = "Ask the knowledge base…";
+    _currentThreadFile = null;
+    document.getElementById("panel-output-viewer")?.classList.remove("has-thread-reply");
+  } else {
+    threadReplyInput.placeholder = "Ask a follow-up…";
+    if (opts.threadFile) _currentThreadFile = opts.threadFile;
+    document.getElementById("panel-output-viewer")?.classList.add("has-thread-reply");
+  }
+}
+
+function hideBar() {
+  if (!threadReplyBar) return;
+  threadReplyBar.hidden = true;
+  document.body.classList.remove("bar-visible");
+  document.getElementById("panel-output-viewer")?.classList.remove("has-thread-reply");
+}
+
+// Status bar at the bottom of the thread content (brain logo / spinner / done).
+let _threadStatusBar  = null;
+let _threadStatusTimer = null;
+
+function _threadStatusIdle() {
+  if (!_threadStatusBar) return;
+  if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
+  _threadStatusBar.className = "thread-status-bar";
+  _threadStatusBar.innerHTML = "";
+  const logo = document.createElement("img");
+  logo.src = "/static/logo.png";
+  logo.className = "thread-turn-logo";
+  logo.alt = "";
+  logo.setAttribute("aria-hidden", "true");
+  _threadStatusBar.appendChild(logo);
+}
+
+function _threadStatusThinking() {
+  if (!_threadStatusBar) return;
+  if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
+  // Use the shared op-status classes so we get the pulsing dot + verb sweep for free.
+  _threadStatusBar.className = "thread-status-bar op-status op-status-running";
+  _threadStatusBar.innerHTML = "";
+  const verbs = OP_VERBS["thread-reply"];
+  let verb = verbs[Math.floor(Math.random() * verbs.length)];
+  const startedAt = Date.now();
+  const verbEl = document.createElement("span");
+  verbEl.className = "op-status-verb op-status-verb-anim";
+  const elapsedEl = document.createElement("span");
+  elapsedEl.className = "op-status-elapsed";
+  _threadStatusBar.appendChild(verbEl);
+  _threadStatusBar.appendChild(document.createTextNode(" "));
+  _threadStatusBar.appendChild(elapsedEl);
+  const tick = () => {
+    verbEl.textContent = verb + "…";
+    elapsedEl.textContent = fmtElapsed(Date.now() - startedAt);
+  };
+  tick();
+  _threadStatusTimer = setInterval(() => { tick(); }, 1000);
+}
+
+function _threadStatusDone(durationMs) {
+  if (!_threadStatusBar) return;
+  if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
+  _threadStatusBar.className = "thread-status-bar thread-status-bar--done";
+  _threadStatusBar.innerHTML = "";
+  const logo = document.createElement("img");
+  logo.src = "/static/logo.png";
+  logo.className = "thread-turn-logo";
+  logo.alt = "";
+  logo.setAttribute("aria-hidden", "true");
+  _threadStatusBar.appendChild(logo);
+  const s = Math.round((durationMs || 0) / 1000);
+  if (s > 0) {
+    const text = document.createElement("span");
+    text.className = "thread-status-text";
+    text.textContent = `Thought for ${s}s`;
+    _threadStatusBar.appendChild(text);
+  }
+}
+
+function _threadStatusError(msg) {
+  if (!_threadStatusBar) return;
+  if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
+  _threadStatusBar.className = "thread-status-bar thread-status-bar--error";
+  _threadStatusBar.innerHTML = "";
+  const errEl = document.createElement("span");
+  errEl.className = "thread-status-error-text";
+  errEl.textContent = msg;
+  _threadStatusBar.appendChild(errEl);
+  // Restore logo after 6 s.
+  _threadStatusTimer = setTimeout(_threadStatusIdle, 6000);
+}
+
+/** Derive { date, title } from a thread/query/lint filename. */
+function _filenameToNavMeta(filename) {
+  const m = filename.match(/^(\d{4}-\d{2}-\d{2})_(?:query|thread|lint)-?(.*)\.md$/);
+  if (!m) return { date: "", title: filename };
+  const date = m[1];
+  const slug = m[2].replace(/-/g, " ");
+  const title = slug ? (slug.charAt(0).toUpperCase() + slug.slice(1)) : "Thread";
+  return { date, title };
+}
+
+/**
+ * Parse a thread markdown file and render it as chat bubbles.
+ * User turns → right-aligned plain-text pill.
+ * Assistant turns → left-aligned full-markdown block.
+ */
+function renderThreadView(container, md) {
+  // Clean up any running status timer before replacing the DOM.
+  if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
+
+  container.innerHTML = "";
+  const TURN_RE = /<!--\s*sb:turn\s+([^>]+?)-->/g;
+  const parts = md.split(TURN_RE);
+  // parts[0] = thread header (before first turn); skip it.
+  // parts[1,3,5,...] = turn attribute strings; parts[2,4,6,...] = turn content.
+  for (let i = 1; i < parts.length; i += 2) {
+    const attrs   = parts[i] || "";
+    const content = parts[i + 1] || "";
+
+    const roleM = attrs.match(/role="([^"]+)"/);
+    const tsM   = attrs.match(/ts="([^"]+)"/);
+    const role  = roleM ? roleM[1] : "assistant";
+    const ts    = tsM ? tsM[1] : "";
+
+    // Strip the leading H2 heading ("## You" / "## Second Brain") only.
+    // No --- stripping needed — the skills no longer emit dividers.
+    const body = content.replace(/^\s*##\s+[^\n]*\n/, "").trim();
+
+    if (role === "user") {
+      const bubble = document.createElement("div");
+      bubble.className = "thread-bubble thread-bubble--user";
+      if (ts) bubble.title = ts;
+      bubble.textContent = body;
+      container.appendChild(bubble);
+    } else {
+      // Wrap assistant turn: bubble + copy row, all in .thread-turn.
+      // dataset.markdown holds only this turn's body for the per-turn copy buttons.
+      const turn = document.createElement("div");
+      turn.className = "thread-turn";
+      turn.dataset.markdown = body;
+      if (ts) turn.title = ts;
+
+      const bubble = document.createElement("div");
+      bubble.className = "thread-bubble thread-bubble--assistant";
+      bubble.innerHTML = renderMarkdown(body);
+      turn.appendChild(bubble);
+
+      // Per-response copy buttons — icon-only for plain copy, icon + " MD" for markdown.
+      const copyRow = document.createElement("div");
+      copyRow.className = "thread-copy-row";
+      ["rich", "md"].forEach((mode) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "copy-btn thread-copy-btn";
+        btn.dataset.copy = mode;
+        btn.title = mode === "rich" ? "Copy formatted" : "Copy as Markdown";
+        const icon = document.createElement("img");
+        icon.src = "/static/icons/copy.png";
+        icon.width = 16;
+        icon.height = 16;
+        icon.alt = "";
+        icon.setAttribute("aria-hidden", "true");
+        btn.appendChild(icon);
+        if (mode === "md") {
+          btn.appendChild(document.createTextNode(" MD"));
+        }
+        copyRow.appendChild(btn);
+      });
+      turn.appendChild(copyRow);
+
+      container.appendChild(turn);
+    }
+  }
+
+  // Status bar at the very bottom of the conversation — logo / spinner / done.
+  const statusBar = document.createElement("div");
+  statusBar.className = "thread-status-bar";
+  container.appendChild(statusBar);
+  _threadStatusBar = statusBar;
+  _threadStatusIdle(); // default: show the logo
+
+  // Scroll to the latest message.
+  const mainPanel = document.querySelector(".main-panel");
+  if (mainPanel) mainPanel.scrollTo({ top: mainPanel.scrollHeight, behavior: "smooth" });
+}
+
+// Unified bar submit — delegates to home (new thread) or reply path.
+async function handleBarSubmit() {
+  if (!threadReplyInput) return;
+  const question = threadReplyInput.value.trim();
+  if (!question) return;
+  if (busyKind) return;
+  if (_barMode === "home") {
+    await _optimisticThreadStart(question);
+  } else {
+    await _threadReply(question);
+  }
+}
+
+// Home mode: navigate immediately, show user bubble + spinner, fill in real content on return.
+async function _optimisticThreadStart(question) {
+  setBusy("thread-start");
+  if (threadReplyBtn)   threadReplyBtn.disabled   = true;
+  if (threadReplyInput) threadReplyInput.disabled = true;
+
+  const panel    = document.getElementById("panel-output-viewer");
+  const titleEl  = panel?.querySelector(".viewer-title");
+  const metaEl   = panel?.querySelector(".viewer-meta");
+  const bodyEl   = panel?.querySelector(".viewer-body");
+  const contentEl = panel?.querySelector(".viewer-content");
+
+  // Navigate immediately and show optimistic user bubble.
+  showPanel("panel-output-viewer");
+  _lastHomePanel = "panel-output-viewer";
+  if (titleEl)   titleEl.textContent   = "…";
+  if (metaEl)    metaEl.textContent    = "";
+  if (contentEl) contentEl.dataset.markdown = "";
+
+  if (bodyEl) {
+    bodyEl.innerHTML = "";
+    const bubble = document.createElement("div");
+    bubble.className = "thread-bubble thread-bubble--user";
+    bubble.textContent = question;
+    bodyEl.appendChild(bubble);
+    const statusBar = document.createElement("div");
+    statusBar.className = "thread-status-bar";
+    bodyEl.appendChild(statusBar);
+    _threadStatusBar = statusBar;
+    _threadStatusThinking();
+  }
+
+  if (threadReplyInput) {
+    threadReplyInput.value = "";
+    threadReplyInput.style.height = "auto";
+  }
+
+  try {
+    const { status, data } = await postJSON("/run", {
+      kind: "thread-start",
+      args: { question },
+    });
+
+    const errMsg = envelopeError("thread-start", status, data);
+    if (errMsg !== null) {
+      _threadStatusError(errMsg);
+      setTimeout(() => { showPanel("panel-home-new"); _lastHomePanel = "panel-home-new"; setBarMode("home"); }, 4000);
+      return;
+    }
+
+    refreshStatus();
+    if (data.output_file) {
+      const filename = data.output_file.replace(/^outputs\//, "");
+      const { date, title } = _filenameToNavMeta(filename);
+      if (titleEl) titleEl.textContent = title;
+      if (metaEl)  metaEl.textContent  = `${date} · thread`;
+      const res = await apiFetch(`/outputs/${encodeURIComponent(filename)}`);
+      if (res.ok) {
+        const md = await res.text();
+        if (bodyEl) {
+          renderThreadView(bodyEl, md);
+          _threadStatusDone(data.duration_ms);
+          if (contentEl) contentEl.dataset.markdown = md;
+        }
+      }
+      setBarMode("reply", { threadFile: data.output_file });
+      await loadOutputsList(true);
+      const newBtn = document.querySelector(`[data-output-filename="${CSS.escape(filename)}"]`);
+      if (newBtn) setActiveNavItem(newBtn);
+    }
+  } catch (err) {
+    _threadStatusError(`Network error: ${err?.message ?? err}`);
+    setTimeout(() => { showPanel("panel-home-new"); _lastHomePanel = "panel-home-new"; setBarMode("home"); }, 4000);
+  } finally {
+    clearBusy();
+    if (threadReplyBtn)   threadReplyBtn.disabled   = false;
+    if (threadReplyInput) threadReplyInput.disabled = false;
+  }
+}
+
+// Reply mode: append a follow-up turn to the current thread.
+async function _threadReply(question) {
+  if (!_currentThreadFile) return;
+  setBusy("thread-reply");
+  _threadStatusThinking();
+  if (threadReplyBtn)   threadReplyBtn.disabled   = true;
+  if (threadReplyInput) threadReplyInput.disabled = true;
+
+  try {
+    const { status, data } = await postJSON("/run", {
+      kind: "thread-reply",
+      args: { question, thread_file: _currentThreadFile },
+    });
+
+    const errMsg = envelopeError("thread-reply", status, data);
+    if (errMsg !== null) { _threadStatusError(errMsg); return; }
+
+    threadReplyInput.value = "";
+    threadReplyInput.style.height = "auto";
+
+    const filename = _currentThreadFile.replace(/^outputs\//, "");
+    const panel  = document.getElementById("panel-output-viewer");
+    const bodyEl = panel?.querySelector(".viewer-body");
+    if (bodyEl) {
+      const res = await apiFetch(`/outputs/${encodeURIComponent(filename)}`);
+      if (res.ok) {
+        const md = await res.text();
+        renderThreadView(bodyEl, md);
+        _threadStatusDone(data.duration_ms);
+        const contentEl = panel.querySelector(".viewer-content");
+        if (contentEl) contentEl.dataset.markdown = md;
+      }
+    }
+  } catch (err) {
+    _threadStatusError(`Network error: ${err?.message ?? err}`);
+  } finally {
+    clearBusy();
+    if (threadReplyBtn)   threadReplyBtn.disabled   = false;
+    if (threadReplyInput) threadReplyInput.disabled = false;
+  }
+}
+
+if (threadReplyBtn) {
+  threadReplyBtn.addEventListener("click", handleBarSubmit);
+}
+if (threadReplyInput) {
+  threadReplyInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleBarSubmit();
+    }
+  });
+  threadReplyInput.addEventListener("input", () => {
+    threadReplyInput.style.height = "auto";
+    threadReplyInput.style.height = threadReplyInput.scrollHeight + "px";
+  });
+}
+
 // --- Wiki article viewer edit bar ---
 let currentWikiSlug = null;
 
@@ -1471,7 +1740,8 @@ function switchSection(section) {
       _lastHomePanel = "panel-home-new";
       showPanel("panel-home-new");
       setActiveNavItem(document.getElementById("nav-new-question"));
-      document.getElementById("query-input")?.focus();
+      setBarMode("home");
+      threadReplyInput?.focus();
     }
     return;
   }
@@ -1489,6 +1759,7 @@ function switchSection(section) {
   if (wikiList) wikiList.hidden = section !== "wiki";
 
   if (section === "wiki") {
+    hideBar();
     showPanel("panel-wiki-viewer");
     loadWikiList().then(() => {
       if (currentWikiSlug) {
@@ -1507,6 +1778,8 @@ function switchSection(section) {
   } else {
     showPanel(_lastHomePanel);
     setActiveNavItem(document.getElementById("nav-new-question"));
+    // Restore bar: home panel gets new-thread mode, output viewer already set its own mode.
+    if (_lastHomePanel === "panel-home-new") setBarMode("home");
   }
 }
 
@@ -1543,8 +1816,11 @@ async function loadOutputsList(force = false) {
       const btn = document.createElement("button");
       btn.className = "nav-item nav-item-output";
       btn.dataset.outputFilename = item.filename;
-      // Lint reports get their own icon; query answers use the answer icon.
-      btn.appendChild(makeNavIcon(item.kind === "lint" ? "lint" : "answer"));
+      // Lint reports and threads get their own icons; query answers use the answer icon.
+      const navIconName = item.kind === "lint" ? "lint"
+                        : item.kind === "thread" ? "index"
+                        : "answer";
+      btn.appendChild(makeNavIcon(navIconName));
 
       // Wrap the title so the trash control can sit in a fixed right-hand
       // column: the label flexes, the trash slot is always reserved (even
@@ -1606,22 +1882,37 @@ async function openOutput(filename, title, date, kind, highlightTerm = "") {
   if (bodyEl)     bodyEl.innerHTML       = '<p class="viewer-placeholder">Loading…</p>';
   if (contentEl)  contentEl.dataset.markdown = ""; // clear while loading
 
-  // Show the edit bar only for lint reports; reset its state when switching outputs.
-  const isLint = /[_-]lint/i.test(filename);
+  const isThread = kind === "thread" || filename.startsWith("thread-");
+  const isLint   = /[_-]lint/i.test(filename);
+
+  // Show/hide the lint edit bar.
   if (outputEditBar) {
     outputEditBar.hidden = !isLint;
     if (outputEditInput) outputEditInput.value = "";
     if (outputEditImpSt) { outputEditImpSt.hidden = true; outputEditImpSt.className = "import-status"; }
   }
 
+  // Update the shared bar: thread → reply mode, anything else → hidden.
+  if (isThread) {
+    setBarMode("reply", { threadFile: `outputs/${filename}` });
+    if (threadReplyInput) threadReplyInput.value = "";
+    if (threadReplyOpSt) { threadReplyOpSt.hidden = true; threadReplyOpSt.className = "op-status"; }
+  } else {
+    hideBar();
+  }
+
   try {
     const res = await apiFetch(`/outputs/${encodeURIComponent(filename)}`);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const md = await res.text();
-    if (bodyEl)    bodyEl.innerHTML           = renderMarkdown(md);
     if (contentEl) contentEl.dataset.markdown = md;
-    if (bodyEl && highlightTerm) highlightMatches(bodyEl, highlightTerm);
-    if (isLint && bodyEl) injectDelintRows(bodyEl, filename, md);
+    if (isThread && bodyEl) {
+      renderThreadView(bodyEl, md);
+    } else {
+      if (bodyEl)    bodyEl.innerHTML = renderMarkdown(md);
+      if (bodyEl && highlightTerm) highlightMatches(bodyEl, highlightTerm);
+      if (isLint && bodyEl) injectDelintRows(bodyEl, filename, md);
+    }
   } catch (err) {
     showLoadError(bodyEl, err.message);
   }
@@ -2337,6 +2628,7 @@ async function confirmDelete() {
       _lastHomePanel = "panel-home-new";
       setActiveNavItem(document.getElementById("nav-new-question"));
       showPanel("panel-home-new");
+      setBarMode("home");
     }
     closeDeleteModal();
     // Refresh the status strip so the answers count reflects the deletion
@@ -2370,11 +2662,15 @@ document.getElementById("nav-new-question")?.addEventListener("click", () => {
   _lastHomePanel = "panel-home-new";
   setActiveNavItem(document.getElementById("nav-new-question"));
   showPanel("panel-home-new");
+  setBarMode("home");
+  threadReplyInput?.focus();
 });
 
-// Init: set initial nav state and pre-load the outputs list
+// Init: set initial nav state, pre-load outputs, and show bar in home mode.
 setActiveNavItem(document.getElementById("nav-new-question"));
 loadOutputsList();
+setBarMode("home");
+window.requestAnimationFrame(() => threadReplyInput?.focus());
 
 // ---------------------------------------------------------------------------
 // First-load: config + status

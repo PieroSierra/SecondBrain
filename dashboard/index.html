@@ -113,37 +113,6 @@
         </section>
 
         <main class="layout">
-          <!-- Hero: query -->
-          <section class="hero" aria-label="Ask your knowledge base">
-            <form id="query-form" class="query-form" data-long-op="query">
-              <label for="query-input" class="visually-hidden">Ask a question</label>
-              <div class="query-field">
-                <textarea
-                  id="query-input"
-                  name="question"
-                  class="query-input"
-                  rows="1"
-                  autofocus
-                  required
-                ></textarea>
-                <div class="query-placeholder" aria-hidden="true">What do you want to know?</div>
-              </div>
-              <button type="submit" class="query-submit">Ask ↵</button>
-              <div class="op-status" data-op-status hidden role="status" aria-live="polite"></div>
-            </form>
-            <section id="query-result" class="result-card" hidden>
-              <div class="result-actions">
-                <button type="button" class="copy-btn" data-copy="rich" title="Copy formatted result for pasting into Mail, Notion, Slack…">Copy</button>
-                <button type="button" class="copy-btn" data-copy="md" title="Copy the raw Markdown source">Copy as MD</button>
-              </div>
-              <div class="markdown-body"></div>
-              <footer class="result-footer">
-                <a class="output-file" href="#" hidden></a>
-                <span class="result-meta" hidden></span>
-              </footer>
-            </section>
-          </section>
-
           <!-- Imports -->
           <section id="imports" class="commands-section" aria-label="Add content">
             <header class="section-header">
@@ -347,10 +316,6 @@
           </section>
         </main>
 
-        <footer class="site-footer">
-          <span>localhost dashboard · single user · token-gated</span>
-        </footer>
-
       </div><!-- /panel-home-new -->
 
       <!-- Panel: Output viewer -->
@@ -401,6 +366,22 @@
               <div class="import-status" id="wiki-edit-import-status" hidden></div>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Unified query bar — shared by homepage (new thread) and thread viewer (reply).
+           position:fixed so it floats above all panels; JS hides it on wiki/lint views. -->
+      <div id="thread-reply-bar" class="thread-reply-bar">
+        <div class="thread-reply-inner">
+          <div class="thread-reply-input-wrap">
+            <textarea id="thread-reply-input" class="thread-reply-textarea"
+              rows="1" placeholder="Ask the knowledge base…" aria-label="Ask a question"></textarea>
+            <button type="button" id="thread-reply-btn" class="thread-reply-submit" title="Ask">
+              <img src="/static/icons/up.png" alt="Ask" width="16" height="16" aria-hidden="true">
+            </button>
+          </div>
+          <div class="op-status" id="thread-reply-op-status" hidden role="status" aria-live="polite"></div>
+          <p class="thread-reply-caption">localhost dashboard · single user · token-gated</p>
         </div>
       </div>
 

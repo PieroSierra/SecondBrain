@@ -386,6 +386,17 @@ def _build_web_import(args: dict) -> str:
     return cmd
 
 
+def _build_thread_reply(args: dict) -> str:
+    thread_file = str(args["thread_file"]).strip()
+    tf_path = Path(thread_file)
+    if ".." in tf_path.parts or not thread_file.startswith("outputs/"):
+        raise ValueError(f"invalid thread_file: {thread_file!r}")
+    return (
+        f'/second-brain-follow-up --thread "{_shell_quote(thread_file)}" '
+        f'"{_shell_quote(args["question"])}"'
+    )
+
+
 def _build_ingest(_args: dict) -> str:
     return "/second-brain-ingest"
 
@@ -452,6 +463,32 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         # Last-resort lookup when the skill short-circuits without echoing
         # the file path (same question previously answered today).
         "fallback_finder": lambda args: _find_query_file_by_slug(args["question"]),
+    },
+    # thread-start: same skill as query but writes thread-format output.
+    # The frontend navigates to the output viewer after success; skip reading
+    # the file back into `result` since the viewer fetches it directly.
+    "thread-start": {
+        "build": _build_query,
+        "timeout": 180,
+        "output_glob": "*thread*.md",
+        "created_in": None,
+        "args_required": ["question"],
+        "allowed_tools": _TOOLS_READ_REPORT,
+        "disallowed_tools": _DENY_DEFAULT,
+        "skip_file_read": True,
+    },
+    # thread-reply: appends a follow-up turn to an existing thread file.
+    # The thread_file path is known from the request args; no glob discovery.
+    "thread-reply": {
+        "build": _build_thread_reply,
+        "timeout": 180,
+        "output_glob": None,
+        "created_in": None,
+        "args_required": ["question", "thread_file"],
+        "allowed_tools": _TOOLS_READ_REPORT,
+        "disallowed_tools": _DENY_DEFAULT,
+        "skip_file_read": True,
+        "fallback_finder": lambda args: args.get("thread_file"),
     },
     "md-add": {
         "build": _build_md_add,
@@ -963,6 +1000,8 @@ def _format_prompt(kind: str, args: dict) -> tuple[str | None, dict | None]:
         prompt = cfg["build"](args)
     except KeyError as exc:
         return None, {"error": "bad_request", "detail": f"missing arg: {exc}"}
+    except ValueError as exc:
+        return None, {"error": "bad_request", "detail": str(exc)}
     return prompt, None
 
 
@@ -1191,7 +1230,7 @@ def _outputs_list() -> list:
 
     if not OUTPUTS_DIR.exists():
         return []
-    _PAT = re.compile(r"^(\d{4}-\d{2}-\d{2})_(query|lint)(?:-(.+))?\.md$")
+    _PAT = re.compile(r"^(\d{4}-\d{2}-\d{2})_(query|lint|thread)(?:-(.+))?\.md$")
     result = []
     for p in OUTPUTS_DIR.glob("*.md"):
         if not p.is_file():
@@ -1206,7 +1245,8 @@ def _outputs_list() -> list:
             title = "Lint report"
         else:
             raw = slug.replace("-", " ")
-            title = raw[:1].upper() + raw[1:] if raw else "Query"
+            fallback = "Thread" if kind == "thread" else "Query"
+            title = raw[:1].upper() + raw[1:] if raw else fallback
         result.append({
             "filename": p.name,
             "date_iso": date_str,
@@ -2191,7 +2231,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # length-based heuristic guessed wrong on terse answers. Just always
         # prefer the file body when one resolves. The bridge is reading what
         # the skill already wrote; no synthesis.
-        if output_file:
+        #
+        # Thread kinds (thread-start, thread-reply) skip this: the frontend
+        # fetches the file directly via GET /outputs/<filename> to render the
+        # full chat view, so overwriting result with the raw file content is
+        # wasteful and returns the entire thread instead of the new answer.
+        if output_file and not cfg.get("skip_file_read"):
             file_body = _read_saved_output(output_file)
             if file_body:
                 result = {**result, "result": file_body}

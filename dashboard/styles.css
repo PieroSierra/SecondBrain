@@ -52,6 +52,9 @@
 }
 
 * { box-sizing: border-box; }
+/* Ensure the HTML `hidden` attribute always wins over any display: value from
+   author classes (UA stylesheet has lower priority and would otherwise lose). */
+[hidden] { display: none !important; }
 
 html, body {
   margin: 0;
@@ -1542,6 +1545,224 @@ body { overflow: hidden; }
 
 .markdown-body a.wikilink:hover {
   opacity: 0.75;
+}
+
+/* ── Thread chat view ──────────────────────────────────────────────────────── */
+
+/* Bottom padding when the reply bar is visible so content isn't hidden behind it. */
+#panel-output-viewer.has-thread-reply .viewer-content {
+  padding-bottom: 140px;
+}
+
+.thread-bubble {
+  line-height: 1.6;
+}
+
+/* User turn: right-aligned rounded pill */
+.thread-bubble--user {
+  margin-left: auto;
+  margin-bottom: 20px;
+  max-width: 72%;
+  background: var(--bg-subtle);
+  border: 1px solid var(--rule);
+  border-radius: 18px 18px 4px 18px;
+  padding: 10px 16px;
+  font-size: 0.95rem;
+  color: var(--ink);
+  text-align: right;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Assistant turn wrapper — holds bubble + copy row + logo */
+.thread-turn {
+  margin-bottom: 28px;
+}
+
+/* Assistant turn: full-width markdown block — no bubble chrome */
+.thread-bubble--assistant {
+  max-width: 100%;
+}
+
+/* Per-response copy buttons — left-aligned, below each assistant bubble */
+.thread-copy-row {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.thread-copy-btn {
+  padding: 3px 6px;
+  font-size: 0.78rem;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.thread-copy-btn:hover img {
+  filter: brightness(0) invert(1);
+}
+
+/* Second Brain logo mark — appears after each assistant response */
+.thread-turn-logo {
+  display: block;
+  width: 22px;
+  height: 22px;
+  margin-top: 14px;
+  opacity: 0.35;
+  object-fit: contain;
+}
+
+/* ── Thread reply bar ───────────────────────────────────────────────────────── */
+
+/* Fixed to the viewport so it never bounces with macOS overscroll. */
+.thread-reply-bar {
+  position: fixed;
+  left: 308px; /* matches .app-shell grid sidebar column width */
+  right: 0;
+  bottom: 0;
+  z-index: 10;
+  background: var(--bg-content); /* same as the page — invisible seam */
+  padding: 0 0 16px;
+}
+
+/* All panels get bottom padding when the bar is visible so content isn't hidden. */
+body.bar-visible .panel {
+  padding-bottom: 120px;
+}
+
+/* Centred inner container — intentionally 10% wider than the content above
+   so the query box visually "over-extends" the conversation width. */
+.thread-reply-inner {
+  max-width: calc(var(--maxw) * 1.1);
+  margin: 0 auto;
+  padding: 0 40px;
+}
+
+/* Textarea + button wrapper — button sits inside at bottom-right */
+.thread-reply-input-wrap {
+  position: relative;
+}
+
+.thread-reply-textarea {
+  display: block;
+  width: 100%;
+  padding: 12px 54px 12px 16px; /* right pad leaves room for the Ask button */
+  border: 1px solid var(--rule-strong);
+  border-radius: 12px;
+  background: var(--bg-elev);
+  color: var(--ink);
+  font-family: var(--font-display); /* serif, matching homepage query box */
+  font-size: 1.0rem;
+  line-height: 1.55;
+  resize: none;
+  min-height: 48px;
+  max-height: 180px;
+  overflow-y: auto;
+  transition: border-color 0.15s ease;
+}
+
+.thread-reply-textarea:focus {
+  outline: none;
+  border-color: var(--clay);
+}
+
+.thread-reply-textarea:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Ask button — inside the textarea box at bottom-right */
+.thread-reply-submit {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: none;
+  border-radius: 8px;
+  background: var(--clay);
+  color: #fff;
+  font-family: var(--font-body);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+
+.thread-reply-submit:hover {
+  background: var(--clay-deep);
+}
+
+.thread-reply-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Footer op-status kept for fallback errors but hidden by default in thread mode. */
+.thread-reply-bar .op-status {
+  margin-top: 6px;
+  font-size: 0.82rem;
+}
+
+/* Caption line — mirrors the homepage .site-footer text */
+.thread-reply-caption {
+  margin: 5px 0 0;
+  color: var(--ink-faint);
+  font-size: 0.74rem;
+  text-align: center;
+  letter-spacing: 0.04em;
+}
+
+/* ── Thread status bar (in-view — logo / spinner / done) ─────────────────── */
+
+/* Default (idle / done): block container; children use inline-block + vertical-align:middle.
+   This is the most reliable cross-browser icon+text alignment pattern and is immune
+   to flex/line-height interactions with the surrounding .markdown-body context. */
+.thread-status-bar {
+  margin-top: 28px;
+  margin-bottom: 8px;
+}
+
+/* Thinking state: op-status classes override to flex so the pulsing dot
+   and verb sweep work exactly as they do elsewhere in the app. */
+.thread-status-bar.op-status {
+  display: flex;
+  margin-top: 28px;
+  align-items: baseline;
+}
+
+/* Logo mark — inline-block so vertical-align:middle applies */
+.thread-turn-logo {
+  display: inline-block;
+  vertical-align: middle;
+  width: 33px;
+  height: 33px;
+  opacity: 0.40;
+  object-fit: contain;
+}
+
+/* Done state text — inline-block beside the logo, midpoints aligned */
+.thread-status-text {
+  display: inline-block;
+  vertical-align: middle;
+  margin-left: 10px;
+  font-family: var(--font-body);
+  font-size: 0.88rem;
+  color: var(--ink-faint);
+  font-style: italic;
+  line-height: 1.3;
+}
+
+/* Error state */
+.thread-status-error-text {
+  font-size: 0.85rem;
+  color: var(--error-ink);
 }
 
 /* ── Wiki / lint edit suggestion bars ──────────────────────────────────────── */

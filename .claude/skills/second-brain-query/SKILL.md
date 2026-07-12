@@ -87,31 +87,41 @@ Generate the output slug from the first 5–6 words of the question:
 - Remove characters that are not alphanumeric or hyphens
 - Truncate to 40 characters maximum
 
-Output path: `outputs/YYYY-MM-DD_query-<slug>.md`
+Output path: `outputs/YYYY-MM-DD_thread-<slug>.md`
 
-Example: "What do I know about AI partnerships?" → `outputs/2026-06-16_query-what-do-i-know-about-ai.md`
+Example: "What do I know about AI partnerships?" → `outputs/2026-06-16_thread-what-do-i-know-about-ai.md`
 
 ### Step 7 — Write the output file
 
 Check that `outputs/` directory exists. If not, create it.
 
-Write the output file with this exact format:
+Write the output file in thread format. Use the current date (YYYY-MM-DD) for the timestamps:
 
 ```markdown
-# Query: [Original question]
+<!-- sb:thread id="YYYY-MM-DD_thread-<slug>" created="YYYY-MM-DD" -->
 
-*Date: YYYY-MM-DD*
+# [Original question]
+
+<!-- sb:turn role="user" ts="YYYY-MM-DD" -->
+## You
+
+[Original question]
+
+<!-- sb:turn role="assistant" ts="YYYY-MM-DD" -->
+## Second Brain
 
 [Synthesised answer]
 
----
 *Sources: [[wiki/topic-1]], [[wiki/topic-2]]*
 ```
 
 Where:
-- The original question is reproduced verbatim in the heading
-- The sources footer lists every wiki article that contributed to the answer (using `[[wiki/topic-name]]` syntax)
-- For gap responses, the answer section contains the gap acknowledgement and suggestions
+- The H1 heading reproduces the original question verbatim
+- The `<!-- sb:thread -->` comment carries the thread ID (matching the filename without the `.md`)
+- Each `<!-- sb:turn -->` comment carries the role (`user` or `assistant`) and date
+- The sources line lists every wiki article that contributed to the answer (using `[[wiki/topic-name]]` syntax)
+- **No `---` horizontal rules** between turns — the comment markers delineate turns without visible dividers
+- For gap responses, the assistant turn contains the gap acknowledgement and suggestions
 
 ### Step 8 — Display and confirm
 
@@ -119,7 +129,7 @@ Display the full answer to the user in the conversation.
 
 Then report:
 ```
-Answer saved to: outputs/YYYY-MM-DD_query-<slug>.md
+Thread started: outputs/YYYY-MM-DD_thread-<slug>.md
 Sources: [[wiki/topic-1]], [[wiki/topic-2]]
 ```
 
