@@ -90,7 +90,31 @@ Every wiki article in `wiki/` must follow this exact structure:
 
 ### Step 2 — Scan raw/ for files to process
 
-Recursively list all files in `raw/` (including subdirectories `raw/craft/`, `raw/pdf/`, etc.).
+Recursively enumerate ALL files in `raw/` (including subdirectories `raw/craft/`, `raw/pdf/`, etc.).
+
+> **Completeness is mandatory — file-listing tools truncate.** Listing tools cap
+> their output (Claude Code's Glob returns at most ~100 results per call, with a
+> "Showing N of M" notice; shell commands under other engines can truncate long
+> output too). A truncated listing silently drops files — and because results
+> are commonly ordered oldest-first, the dropped files are exactly the NEWEST
+> ones: the files most likely to need ingesting. Enumerate defensively,
+> whichever engine you run under:
+>
+> 1. **List in narrow chunks, never one giant recursive listing.** Discover the
+>    subdirectories of `raw/` first, then list each directory separately
+>    (top-level `raw/*`, then `raw/craft/*`, `raw/web/*`, …). If any single
+>    listing still reports truncation, split it further by filename prefix —
+>    files are named `YYYY-MM-DD_…`, so month chunks like `raw/2026-07*` work —
+>    until no listing is truncated.
+> 2. **Verify the count.** If a tool reports how many files matched in total
+>    (the "M" in "Showing N of M"), you must hold exactly M paths before
+>    proceeding. If you have shell access (e.g. under Codex), cross-check with
+>    `find raw -type f | wc -l`.
+> 3. **Cross-check against the manifest.** Any manifest path missing from your
+>    enumeration must be confirmed absent with a direct existence check on that
+>    exact path before you treat it as deleted.
+> 4. **Never conclude "Nothing to ingest" from a listing you have not verified
+>    complete.**
 
 **Supported file types**:
 - `.md`, `.txt` — primary text content, always processed
@@ -145,7 +169,7 @@ For each markdown file in the processing queue:
 
 ### Step 4 — Rebuild INDEX.md
 
-After all files in the queue are processed, read all files in `wiki/` (excluding `INDEX.md` itself). For each article, extract:
+After all files in the queue are processed, read all files in `wiki/` (excluding `INDEX.md` itself). Enumerate `wiki/` with the same truncation-proof procedure as Step 2 (chunked listings, verified counts) — a truncated listing here would silently drop articles from the index. For each article, extract:
 - The topic name from the `# Heading`
 - The summary (first paragraph after the heading)
 - Today's date as the "Last Updated" value

@@ -68,7 +68,14 @@ If no unsupported claims are found, record: *No unsupported claims detected.*
 
 Scan `raw/` for content that has not yet generated a wiki article:
 
-1. List all files in `raw/` (all subdirectories)
+1. List all files in `raw/` (all subdirectories). **File-listing tools truncate**
+   — Claude Code's Glob caps at ~100 results per call (with a "Showing N of M"
+   notice), and shell output under other engines can truncate too — so list each
+   subdirectory separately, split any truncated chunk further by filename prefix
+   (e.g. `raw/2026-07*`) until no listing reports truncation, and confirm you
+   hold as many paths as the tool says matched. If you have shell access (e.g.
+   under Codex), cross-check with `find raw -type f | wc -l`. Never run the gap
+   analysis on an unverified listing.
 2. For each raw file, check whether its content appears to be represented in any existing wiki article (by checking the article sources footers)
 3. Additionally, scan the topics and subject matter of all raw files — identify subjects mentioned in raw content that do not have a dedicated wiki article and are relevant to the user's declared interests in `CLAUDE.md`
 
