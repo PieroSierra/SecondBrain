@@ -90,6 +90,30 @@ if AGENT_ENGINE not in ("claude", "codex"):
 _CRAFT_ENABLED = os.environ.get("CRAFT_ENABLED", "").lower() in ("1", "true", "yes")
 
 # ---------------------------------------------------------------------------
+# Model tier selection
+# ---------------------------------------------------------------------------
+# Claude accepts tier aliases maintained by Anthropic — no model-ID bookkeeping
+# needed; when a new Sonnet ships, "--model sonnet" silently picks it up.
+# Update _CODEX_TIER_MAP when new Codex models are released.
+_CLAUDE_TIER_MAP: dict[str, str] = {
+    "fable":  "fable",
+    "opus":   "opus",
+    "sonnet": "sonnet",
+    "haiku":  "haiku",
+}
+_CODEX_TIER_MAP: dict[str, str] = {
+    "sol":   "gpt-5.6-sol",
+    "terra": "gpt-5.6-terra",
+    "luna":  "gpt-5.6-luna",
+}
+
+# Module-level live state — updated by POST /set-model without bridge restart.
+# "default" means: pass no --model flag, use the CLI's own default.
+# CPython GIL makes single-assignment atomic; no explicit lock needed here.
+_CLAUDE_MODEL_TIER: str = os.environ.get("CLAUDE_MODEL", "default").strip().lower()
+_CODEX_MODEL_TIER:  str = os.environ.get("CODEX_MODEL",  "default").strip().lower()
+
+# ---------------------------------------------------------------------------
 # Security: CSRF gate
 # ---------------------------------------------------------------------------
 #
@@ -652,6 +676,9 @@ def run_claude(
         "--settings",
         str(_LOCKDOWN_SETTINGS_PATH),
     ]
+    _t = _CLAUDE_MODEL_TIER
+    if _t and _t != "default" and _t in _CLAUDE_TIER_MAP:
+        argv += ["--model", _CLAUDE_TIER_MAP[_t]]
     if allowed_tools:
         argv += ["--allowedTools", ",".join(allowed_tools)]
     if disallowed_tools:
@@ -738,6 +765,9 @@ def run_codex(prompt: str, cfg: dict) -> tuple[int, dict]:
         if cfg.get("codex_network"):
             # web-import needs egress; workspace-write blocks it by default.
             argv += ["-c", "sandbox_workspace_write.network_access=true"]
+        _t = _CODEX_MODEL_TIER
+        if _t and _t != "default" and _t in _CODEX_TIER_MAP:
+            argv += ["--model", _CODEX_TIER_MAP[_t]]
 
         try:
             cp = subprocess.run(
@@ -1811,7 +1841,15 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._deny()
 
         if path == "/config":
-            return _json_response(self, 200, {"vault_root": str(VAULT_ROOT), "craft_enabled": _CRAFT_ENABLED, "engine": AGENT_ENGINE})
+            return _json_response(self, 200, {
+                "vault_root":        str(VAULT_ROOT),
+                "craft_enabled":     _CRAFT_ENABLED,
+                "engine":            AGENT_ENGINE,
+                "claude_model_tier": _CLAUDE_MODEL_TIER,
+                "codex_model_tier":  _CODEX_MODEL_TIER,
+                "claude_tier_map":   _CLAUDE_TIER_MAP,
+                "codex_tier_map":    _CODEX_TIER_MAP,
+            })
         if path == "/status":
             return _json_response(self, 200, _vault_status())
         if path == "/wiki":
@@ -1840,7 +1878,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # All POST endpoints trigger a skill (or a cheap read-only check) →
         # require authorization. The extension authenticates by its allowlisted
         # Origin (no token).
-        if path in ("/run", "/upload-pdf", "/upload-file", "/dedupe-check", "/open-folder", "/patch-finding"):
+        if path in ("/run", "/upload-pdf", "/upload-file", "/dedupe-check",
+                    "/open-folder", "/patch-finding", "/set-model"):
             if not self._authorize(allow_extension=True):
                 return self._deny()
 
@@ -1856,6 +1895,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._handle_open_folder()
         if path == "/patch-finding":
             return self._handle_patch_finding()
+        if path == "/set-model":
+            return self._handle_set_model()
 
         self._not_found()
 
@@ -2248,6 +2289,46 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             "output_file": output_file,
             "created_files": created_files,
         }
+
+    def _handle_set_model(self) -> None:
+        """Session-persistent model tier selection (no bridge restart needed).
+
+        Body: {"engine": "claude"|"codex", "tier": "sonnet"|"haiku"|…|"default"}
+        "default" clears any explicit --model flag for subsequent skill runs.
+        """
+        global _CLAUDE_MODEL_TIER, _CODEX_MODEL_TIER
+
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        engine = str(body.get("engine", AGENT_ENGINE)).strip().lower()
+        if engine not in ("claude", "codex"):
+            return _json_response(
+                self, 400,
+                {"error": "bad_request", "detail": "engine must be 'claude' or 'codex'"},
+            )
+
+        tier = str(body.get("tier", "default")).strip().lower()
+        tier_map = _CLAUDE_TIER_MAP if engine == "claude" else _CODEX_TIER_MAP
+        if tier != "default" and tier not in tier_map:
+            return _json_response(
+                self, 400,
+                {"error": "bad_request",
+                 "detail": f"unknown tier {tier!r}; valid: default, {', '.join(sorted(tier_map))}"},
+            )
+
+        if engine == "claude":
+            _CLAUDE_MODEL_TIER = tier
+        else:
+            _CODEX_MODEL_TIER = tier
+
+        _json_response(self, 200, {
+            "ok":       True,
+            "engine":   engine,
+            "tier":     tier,
+            "model_id": tier_map.get(tier),
+        })
 
     # ----- helpers --------------------------------------------------------
 

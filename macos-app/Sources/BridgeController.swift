@@ -74,13 +74,22 @@ final class BridgeController {
         ]
         p.currentDirectoryURL = vault
 
-        // Select the agent engine. Only inject when the user has made an explicit
-        // menu choice; otherwise leave it unset so the bridge honors the vault's
-        // .env / its own default. A real env var beats .env (the loader uses
-        // setdefault), so this override always wins when present.
-        if let engine = Preferences.engineChoice, Preferences.isValidEngine(engine) {
+        // Inject AGENT_ENGINE, CLAUDE_MODEL, and CODEX_MODEL when the user has
+        // made explicit menu choices. Only override what was set — "default"
+        // means omit the var so the bridge uses the vault .env / its own default.
+        // A real env var beats .env (setdefault), so injected vars always win.
+        let claudeTier = Preferences.claudeModelChoice
+        let codexTier  = Preferences.codexModelChoice
+        let needsEngine = Preferences.engineChoice != nil
+        let needsClaudeModel = claudeTier != "default"
+        let needsCodexModel  = codexTier  != "default"
+        if needsEngine || needsClaudeModel || needsCodexModel {
             var env = ProcessInfo.processInfo.environment
-            env["AGENT_ENGINE"] = engine
+            if let engine = Preferences.engineChoice, Preferences.isValidEngine(engine) {
+                env["AGENT_ENGINE"] = engine
+            }
+            if needsClaudeModel { env["CLAUDE_MODEL"] = claudeTier }
+            if needsCodexModel  { env["CODEX_MODEL"]  = codexTier  }
             p.environment = env
         }
 

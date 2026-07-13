@@ -61,6 +61,11 @@ final class WebWindow: NSObject, NSWindowDelegate {
         applyZoom(Preferences.pageZoom)
     }
 
+    /// Runs JavaScript in the dashboard page (best-effort; no-op if the view isn't ready).
+    func evaluateJavaScript(_ js: String) {
+        webView?.evaluateJavaScript(js, completionHandler: nil)
+    }
+
     @objc func reload() {
         webView?.reload()
         applyZoom(Preferences.pageZoom)
@@ -112,6 +117,11 @@ extension WebWindow: WKScriptMessageHandler {
         case "switchEngine":
             if let engine = body["engine"] as? String {
                 (NSApp.delegate as? AppDelegate)?.switchEngine(to: engine)
+            }
+        case "switchModel":
+            if let engine = body["engine"] as? String,
+               let tier   = body["tier"]   as? String {
+                (NSApp.delegate as? AppDelegate)?.switchModel(engine: engine, to: tier)
             }
         default:
             break

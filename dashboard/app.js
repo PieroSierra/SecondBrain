@@ -320,6 +320,21 @@ async function ensureConfig() {
     // Show which agent CLI backs the skills (claude | codex). Config-derived,
     // so set once here — refreshStatus only updates the metric tiles.
     renderEngineTile(data.engine);
+
+    // Build the model tier label map from the bridge's config so the dashboard
+    // never needs hardcoded model IDs and stays in sync automatically.
+    _currentEngine = data.engine || "claude";
+    const rawMap   = _currentEngine === "codex" ? (data.codex_tier_map || {}) : (data.claude_tier_map || {});
+    const labelMap = _currentEngine === "codex" ? CODEX_TIER_LABELS : CLAUDE_TIER_LABELS;
+    _currentTierLabels = { default: "Default" };
+    for (const tier of Object.keys(rawMap)) {
+      _currentTierLabels[tier] = labelMap[tier] || tier;
+    }
+    const currentTier = _currentEngine === "codex"
+      ? (data.codex_model_tier  || "default")
+      : (data.claude_model_tier || "default");
+    renderModelTile(_currentEngine, currentTier, _currentTierLabels);
+
     _configLoaded = true;
   } catch {
     /* best-effort */
@@ -333,6 +348,15 @@ const ENGINE_ICONS = { claude: "/static/icons/claude_code.png", codex: "/static/
 // browser does not. Only the app can restart its bridge to switch engine, so the
 // dropdown is interactive there and a static label everywhere else.
 const NATIVE_ENGINE_SWITCH = !!window.webkit?.messageHandlers?.secondBrain;
+
+// Tier labels for each engine. Keys match the bridge's tier-map keys.
+// These are display names only; the bridge owns the actual CLI alias/ID mapping.
+const CLAUDE_TIER_LABELS = { default: "Default", fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+const CODEX_TIER_LABELS  = { default: "Default", sol: "Sol", terra: "Terra", luna: "Luna" };
+
+// Module-level state set by ensureConfig; used by renderModelTile and _onNativeModelChange.
+let _currentEngine     = "claude";
+let _currentTierLabels = CLAUDE_TIER_LABELS;
 
 // Render the "agent" status tile: a static label in the browser, or an inline
 // dropdown in the app that switches engine via the native bridge (which restarts
@@ -390,11 +414,62 @@ function renderEngineTile(engine) {
     select.disabled = true;
   });
 
-  const labelEl = document.createElement("span");
-  labelEl.className = "status-label";
-  labelEl.textContent = "agent";
-  tile.append(icon, select, labelEl);
+  tile.append(icon, select);
 }
+
+// Model tier selector — always interactive in both browser and app.
+// Model change is a lightweight POST /set-model (no bridge restart), so it
+// works everywhere. In app mode we also notify the native side to sync
+// the menu checkmarks.
+function renderModelTile(engine, currentTier, tierLabels) {
+  const tile = document.querySelector('#status-strip [data-metric="model"]');
+  if (!tile) return;
+  tile.classList.remove("status-tile-empty");
+  tile.replaceChildren();
+
+  const label = tierLabels[currentTier] || currentTier || "Default";
+
+  const select = document.createElement("select");
+  select.className = "model-select";
+  select.setAttribute("aria-label", "Model tier — change the model used for skills");
+  for (const [tier, displayLabel] of Object.entries(tierLabels)) {
+    const opt = document.createElement("option");
+    opt.value = tier;
+    opt.textContent = displayLabel;
+    if (tier === currentTier) opt.selected = true;
+    select.append(opt);
+  }
+  select.style.width = `calc(${label.length}ch + 26px)`;
+  select.addEventListener("change", async () => {
+    const newTier = select.value;
+    select.disabled = true;
+    if (window.webkit?.messageHandlers?.secondBrain) {
+      window.webkit.messageHandlers.secondBrain.postMessage({
+        action: "switchModel",
+        engine,
+        tier: newTier,
+      });
+    }
+    try {
+      await postJSON("/set-model", { engine, tier: newTier });
+      const newLabel = tierLabels[newTier] || newTier;
+      select.style.width = `calc(${newLabel.length}ch + 26px)`;
+    } finally {
+      select.disabled = false;
+    }
+  });
+
+  tile.append(select);
+}
+
+// Called by the native app (via evaluateJavaScript) when the user changes the
+// model from the macOS menu. Updates the bridge and re-renders the dropdown.
+window._onNativeModelChange = async function({ engine, tier }) {
+  try {
+    await postJSON("/set-model", { engine, tier });
+  } catch { /* best-effort */ }
+  renderModelTile(engine, tier, _currentTierLabels);
+};
 
 function outputFileLink(relPath) {
   const a = document.createElement("a");

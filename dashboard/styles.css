@@ -274,6 +274,35 @@ body.is-busy .brand-busy-dot {
 .engine-select:hover { background-color: var(--bg-subtle); border-color: var(--bg-subtle); }
 .engine-select:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
 .engine-select:disabled { opacity: 0.55; cursor: default; }
+
+/* Model tier dropdown — same visual language as engine-select.
+   Always interactive; no engine-icon beside it (it sits flush after the
+   engine select). */
+.status-seg-model { align-items: baseline; gap: 0; }
+.model-select {
+  -webkit-appearance: none;
+  appearance: none;
+  box-sizing: border-box;
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  font-weight: 500;
+  color: var(--ink);
+  line-height: 1;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='9' viewBox='0 0 9 9'%3E%3Cpath d='M1.5 3 L4.5 6 L7.5 3' fill='none' stroke='%23756B62' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  background-size: 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 2px 17px 2px 3px;
+  cursor: pointer;
+  transition: background-color 0.12s ease, border-color 0.12s ease;
+}
+.model-select:hover { background-color: var(--bg-subtle); border-color: var(--bg-subtle); }
+.model-select:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
+.model-select:disabled { opacity: 0.55; cursor: default; }
+
 /* Small engine glyph beside the agent tile (dropdown in the app, static label in
    the browser). The tile is a baseline-aligned flexbox with its own gap, so just
    size the icon and center it on the row — no extra margin needed. */

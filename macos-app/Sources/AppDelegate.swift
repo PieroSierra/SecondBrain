@@ -4,6 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var claudeItem: NSMenuItem?
     private var codexItem: NSMenuItem?
+    private var modelMenuItems: [String: NSMenuItem] = [:]  // key: "claude:sonnet"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         buildMenu()
@@ -36,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 WebWindow.shared.load()
                 WebWindow.shared.show()
                 self?.updateEngineChecks()
+                self?.updateModelChecks()
                 DockActivity.shared.startPolling()
                 self?.maybeNudgeExtension()
             },
@@ -208,6 +210,43 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         codexItem?.state = (active == "codex") ? .on : .off
     }
 
+    // MARK: - Model selection
+
+    @objc private func selectModelTier(_ sender: NSMenuItem?) {
+        guard let tag = sender?.representedObject as? String else { return }
+        let parts = tag.split(separator: ":", maxSplits: 1).map(String.init)
+        guard parts.count == 2 else { return }
+        switchModel(engine: parts[0], to: parts[1])
+    }
+
+    /// Entry point for the dashboard's in-page model dropdown (via the WebWindow
+    /// script bridge) and the Model menu. Persists the choice and syncs the UI.
+    func switchModel(engine: String, to tier: String) {
+        if engine == "claude" { Preferences.claudeModelChoice = tier }
+        else { Preferences.codexModelChoice = tier }
+        updateModelChecks()
+        // Notify the dashboard JS so it can POST /set-model and update the dropdown.
+        // (The app can't call the bridge directly because it doesn't hold the token.)
+        notifyWebViewModelChange(engine: engine, tier: tier)
+    }
+
+    private func updateModelChecks() {
+        for (key, item) in modelMenuItems {
+            let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+            let active = Preferences.effectiveModelTier(for: parts[0])
+            item.state = (parts[1] == active) ? .on : .off
+        }
+    }
+
+    private func notifyWebViewModelChange(engine: String, tier: String) {
+        guard let json = try? JSONSerialization.data(withJSONObject: ["engine": engine, "tier": tier]),
+              let jsonStr = String(data: json, encoding: .utf8) else { return }
+        WebWindow.shared.evaluateJavaScript(
+            "if(typeof window._onNativeModelChange==='function'){window._onNativeModelChange(\(jsonStr));}"
+        )
+    }
+
     // MARK: - Menu
 
     /// A minimal programmatic main menu (no nib): App, File, Edit, Window.
@@ -287,6 +326,40 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         claudeItem = ci
         codexItem = xi
         updateEngineChecks()
+
+        // Model menu: tier selection per engine, radio-style checkmarks.
+        // Tiers are grouped by engine with a disabled header and separator.
+        let modelItem = NSMenuItem()
+        mainMenu.addItem(modelItem)
+        let modelMenu = NSMenu(title: "Model")
+        modelItem.submenu = modelMenu
+
+        let claudeHeader = NSMenuItem(title: "Claude Code", action: nil, keyEquivalent: "")
+        claudeHeader.isEnabled = false
+        modelMenu.addItem(claudeHeader)
+        for (tier, label) in [("default", "Default"), ("fable", "Fable"),
+                               ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")] {
+            let mi = modelMenu.addItem(withTitle: label,
+                                       action: #selector(selectModelTier(_:)),
+                                       keyEquivalent: "")
+            mi.target = self
+            mi.representedObject = "claude:\(tier)"
+            modelMenuItems["claude:\(tier)"] = mi
+        }
+        modelMenu.addItem(.separator())
+        let codexHeader = NSMenuItem(title: "Codex", action: nil, keyEquivalent: "")
+        codexHeader.isEnabled = false
+        modelMenu.addItem(codexHeader)
+        for (tier, label) in [("default", "Default"), ("sol", "Sol"),
+                               ("terra", "Terra"), ("luna", "Luna")] {
+            let mi = modelMenu.addItem(withTitle: label,
+                                       action: #selector(selectModelTier(_:)),
+                                       keyEquivalent: "")
+            mi.target = self
+            mi.representedObject = "codex:\(tier)"
+            modelMenuItems["codex:\(tier)"] = mi
+        }
+        updateModelChecks()
 
         // Window menu
         let windowItem = NSMenuItem()

@@ -132,4 +132,27 @@ enum Preferences {
         }
         return nil
     }
+
+    // MARK: - Model tier
+
+    private static let claudeModelKey = "claudeModel"
+    private static let codexModelKey  = "codexModel"
+
+    /// The user's explicit Claude model tier choice, stored in UserDefaults.
+    /// "default" means no `--model` flag — the CLI picks the model.
+    static var claudeModelChoice: String {
+        get { UserDefaults.standard.string(forKey: claudeModelKey) ?? "default" }
+        set { UserDefaults.standard.set(newValue, forKey: claudeModelKey) }
+    }
+
+    /// The user's explicit Codex model tier choice.
+    static var codexModelChoice: String {
+        get { UserDefaults.standard.string(forKey: codexModelKey) ?? "default" }
+        set { UserDefaults.standard.set(newValue, forKey: codexModelKey) }
+    }
+
+    /// The active model tier for `engine`, used to drive menu checkmarks.
+    static func effectiveModelTier(for engine: String) -> String {
+        engine == "codex" ? codexModelChoice : claudeModelChoice
+    }
 }
