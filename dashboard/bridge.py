@@ -357,9 +357,10 @@ def _build_file_import(args: dict) -> str:
 
 _IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 _TEXT_EXTS  = frozenset({".txt", ".md"})
-# .pptx is imported deterministically in-process (see _run_pptx_import), NOT via
-# a skill — but it must be accepted here so the upload is staged.
-ACCEPTED_FILE_EXTS = frozenset({".pdf", ".pptx"}) | _IMAGE_EXTS | _TEXT_EXTS
+# .pptx / .docx are imported deterministically in-process (see _run_pptx_import /
+# _run_docx_import), NOT via a skill — but they must be accepted here so the
+# upload is staged.
+ACCEPTED_FILE_EXTS = frozenset({".pdf", ".pptx", ".docx"}) | _IMAGE_EXTS | _TEXT_EXTS
 
 
 def _file_import_subdir(file_path: str) -> str:
@@ -369,6 +370,8 @@ def _file_import_subdir(file_path: str) -> str:
         return "pdf"
     if ext == ".pptx":
         return "pptx"
+    if ext == ".docx":
+        return "docx"
     if ext in _IMAGE_EXTS:
         return "images"
     return ""   # .txt / .md → raw/ root
@@ -1501,7 +1504,7 @@ def _raw_index() -> list[dict]:
             parts = rel.split("/")
             subdir = (
                 parts[1]
-                if len(parts) >= 3 and parts[1] in ("pdf", "web", "craft", "images", "pptx")
+                if len(parts) >= 3 and parts[1] in ("pdf", "web", "craft", "images", "pptx", "docx")
                 else "paste"
             )
             slug = _DATE_PREFIX.sub("", parts[-1][:-3])  # drop date prefix + ".md"
@@ -1985,9 +1988,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         try:
             context = (fields.get("context") or "").strip()[:2000]
-            if Path(filename).suffix.lower() == ".pptx":
+            ext = Path(filename).suffix.lower()
+            if ext == ".pptx":
                 # Deterministic, model-free path (see _run_pptx_import).
                 envelope = self._run_pptx_import(tempfile_path, context, filename)
+            elif ext == ".docx":
+                # Same deterministic path for Word (see _run_docx_import).
+                envelope = self._run_docx_import(tempfile_path, context, filename)
             else:
                 cfg = PROMPT_TEMPLATES["file-import"]
                 file_args = {
@@ -2059,6 +2066,67 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     "__status__": 200,
                     "result": f"✓ Imported {data['slides']} slides from {orig_filename}",
                     "kind": "pptx-import",
+                    "output_file": None,
+                    "created_files": [rel],
+                    "is_error": False,
+                    "duration_ms": int((time.time() - started) * 1000),
+                }
+        except Busy as busy:
+            return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
+
+    def _run_docx_import(self, staged_path, context: str, orig_filename: str) -> dict:
+        """Convert a .docx to markdown in-process and write raw/docx/<date>_<slug>.md.
+
+        The Word twin of _run_pptx_import: content is cached OOXML, so the bridge
+        extracts it with the pure-stdlib `docx_extract` module and writes the raw
+        file itself — no model call, near-instant. Same envelope shape as _run_kind.
+        """
+        # Lazy import so a problem in the module can't block bridge start-up.
+        import docx_extract  # dashboard/ is on sys.path (script dir)
+
+        try:
+            with long_op("docx-import"):
+                started = time.time()
+                try:
+                    data = docx_extract.docx_to_markdown(str(staged_path))
+                except docx_extract.DocxError as exc:
+                    return {"__status__": 422, "error": "bad_docx", "detail": str(exc)}
+
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                stem = Path(orig_filename).stem
+                slug = _slugify(stem)[:60].strip("-") or "document"
+                title = stem.strip() or slug
+                rel = f"raw/docx/{today}_{slug}.md"
+                target = VAULT_ROOT / rel
+
+                fm = [
+                    "---",
+                    f"source: {orig_filename}",
+                    f"imported: {today}",
+                    f"title: {title}",
+                    f"words: {data['words']}",
+                ]
+                if data.get("content_date"):
+                    fm.append(f"content_date: {data['content_date']}")
+                fm.append("---")
+
+                parts = ["\n".join(fm), ""]
+                if context:
+                    # Operator note — embedded as data for ingest, never as instructions.
+                    parts.append(f"> **Document Context** (provided at import): {context}")
+                    parts.append("")
+                parts += [f"# {title}", "", data["markdown"]]
+                out = "\n".join(parts).rstrip() + "\n"
+
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # Same-day re-import of the same document overwrites (idempotent);
+                # the file card's /dedupe-check warns the user before this point.
+                target.write_text(out, encoding="utf-8")
+
+                return {
+                    "__status__": 200,
+                    "result": f"✓ Imported {data['words']:,} words from {orig_filename}",
+                    "kind": "docx-import",
                     "output_file": None,
                     "created_files": [rel],
                     "is_error": False,

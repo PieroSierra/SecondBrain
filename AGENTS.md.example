@@ -18,6 +18,8 @@ This vault is a personal knowledge base managed by AI agent skills (Claude Code 
   - `raw/craft/` — Notes imported from Craft via the second-brain-import-craft skill
   - `raw/pdf/` — Text extracted from PDFs via the second-brain-import-pdf skill
   - `raw/images/` — Visual descriptions of images imported via the second-brain-import-file skill
+  - `raw/pptx/` — Markdown extracted from PowerPoint decks by the dashboard (no model call)
+  - `raw/docx/` — Markdown extracted from Word documents by the dashboard (no model call)
   - `raw/.ingest-manifest.json` — Machine-managed ingestion state. Do not edit.
 - `wiki/` — AI-organised knowledge. Written ONLY by the second-brain-ingest skill.
   - One markdown file per topic, cross-linked with [[wikilinks]]
