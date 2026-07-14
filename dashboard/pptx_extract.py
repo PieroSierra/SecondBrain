@@ -433,6 +433,10 @@ _MONTHS = {
     "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
 }
 _ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+_MONTH_DAY_YEAR_RE = re.compile(
+    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})[,\s]+(\d{4})\b",
+    re.IGNORECASE,
+)
 _MONTH_YEAR_RE = re.compile(
     r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{4})\b",
     re.IGNORECASE,
@@ -444,6 +448,11 @@ def _detect_date(text):
     m = _ISO_RE.search(text)
     if m:
         return m.group(0)
+    m = _MONTH_DAY_YEAR_RE.search(text)
+    if m:
+        mon = _MONTHS.get(m.group(1).lower()[:3])
+        if mon:
+            return "%s-%02d-%02d" % (m.group(3), mon, int(m.group(2)))
     m = _MONTH_YEAR_RE.search(text)
     if m:
         mon = _MONTHS.get(m.group(1).lower()[:3])

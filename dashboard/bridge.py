@@ -301,6 +301,23 @@ _ensure_skills_link()
 # ---------------------------------------------------------------------------
 
 
+def _detect_date_from_context(context: str) -> "str | None":
+    """Scan the operator-supplied Document Context string for a date signal.
+
+    Used as a fallback when the imported file itself has no detectable date —
+    e.g. the user types "created Jun 12 2026" in the context field.
+    Returns YYYY-MM-DD or None. Delegates to text_extract._detect_date so the
+    same regex set is used everywhere without duplication.
+    """
+    if not context:
+        return None
+    try:
+        import text_extract  # dashboard/ is on sys.path
+        return text_extract._detect_date(context)
+    except Exception:
+        return None
+
+
 def _shell_quote(s: str) -> str:
     """Quote a string for safe inclusion inside a double-quoted argv segment.
 
@@ -367,8 +384,10 @@ ACCEPTED_FILE_EXTS = (
 
 # Types imported in-process (no model call). These stream and enforce their own
 # size caps, so uploads may run far larger than the 64 MB that model-bound
-# types (pdf / images / text) are held to — a 100 MB workbook is routine.
-_DETERMINISTIC_EXTS = frozenset({".pptx", ".docx", ".xlsx", ".xlsm", ".csv"})
+# types (pdf / images) are held to — a 100 MB workbook is routine.
+# .txt / .md are now also in-process: content is stored verbatim; the LLM added
+# no semantic value over the pure-Python text_extract module.
+_DETERMINISTIC_EXTS = frozenset({".pptx", ".docx", ".xlsx", ".xlsm", ".csv", ".txt", ".md"})
 _MAX_UPLOAD_BYTES = 512 * 1024 * 1024           # request cap (deterministic types)
 _MAX_UPLOAD_AGENTIC_BYTES = 64 * 1024 * 1024    # cap for model-bound types
 
@@ -2024,6 +2043,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             elif ext in (".xlsx", ".xlsm", ".csv"):
                 # Same deterministic path for spreadsheets (see _run_xlsx_import).
                 envelope = self._run_xlsx_import(tempfile_path, context, filename)
+            elif ext in (".txt", ".md"):
+                # Same deterministic path for plain text / Markdown (see _run_text_import).
+                envelope = self._run_text_import(tempfile_path, context, filename)
             else:
                 cfg = PROMPT_TEMPLATES["file-import"]
                 file_args = {
@@ -2074,8 +2096,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     f"title: {title}",
                     f"slides: {data['slides']}",
                 ]
-                if data.get("content_date"):
-                    fm.append(f"content_date: {data['content_date']}")
+                content_date = data.get("content_date") or _detect_date_from_context(context)
+                if content_date:
+                    fm.append(f"content_date: {content_date}")
                 fm.append("---")
 
                 parts = ["\n".join(fm), ""]
@@ -2135,8 +2158,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     f"title: {title}",
                     f"words: {data['words']}",
                 ]
-                if data.get("content_date"):
-                    fm.append(f"content_date: {data['content_date']}")
+                content_date = data.get("content_date") or _detect_date_from_context(context)
+                if content_date:
+                    fm.append(f"content_date: {content_date}")
                 fm.append("---")
 
                 parts = ["\n".join(fm), ""]
@@ -2209,8 +2233,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     f"sheets: {data['sheets']}",
                     f"rows: {data['rows']}",
                 ]
-                if data.get("content_date"):
-                    fm.append(f"content_date: {data['content_date']}")
+                content_date = data.get("content_date") or _detect_date_from_context(context)
+                if content_date:
+                    fm.append(f"content_date: {content_date}")
                 fm.append("---")
 
                 parts = ["\n".join(fm), ""]
@@ -2246,6 +2271,131 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         except Busy as busy:
             return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
 
+    def _run_text_import(self, staged_path, context: str, orig_filename: str) -> dict:
+        """Convert a .txt or .md file to a vault raw file in-process.
+
+        The text twin of _run_pptx_import / _run_docx_import: content is stored
+        verbatim — the LLM adds no semantic value here — so the bridge writes
+        raw/<date>_<slug>.md itself via text_extract, with no model call.
+        """
+        import text_extract  # dashboard/ is on sys.path (script dir)
+
+        try:
+            with long_op("text-import"):
+                started = time.time()
+                try:
+                    data = text_extract.text_to_markdown(str(staged_path), context=context)
+                except text_extract.TextError as exc:
+                    return {"__status__": 422, "error": "bad_text", "detail": str(exc)}
+
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                stem = Path(orig_filename).stem
+                slug = _slugify(stem)[:60].strip("-") or "note"
+                title = (data.get("title") or "").strip() or stem.strip() or slug
+                rel = f"raw/{today}_{slug}.md"
+                target = VAULT_ROOT / rel
+
+                fm = [
+                    "---",
+                    f"source: {orig_filename}",
+                    f"imported: {today}",
+                    f"title: {title}",
+                    f"words: {data['words']}",
+                ]
+                content_date = data.get("content_date") or _detect_date_from_context(context)
+                if content_date:
+                    fm.append(f"content_date: {content_date}")
+                fm.append("---")
+
+                parts = ["\n".join(fm), ""]
+                if context:
+                    parts.append(f"> **Document Context** (provided at import): {context}")
+                    parts.append("")
+                parts += [f"# {title}", "", data["markdown"]]
+                out = "\n".join(parts).rstrip() + "\n"
+
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(out, encoding="utf-8")
+
+                return {
+                    "__status__": 200,
+                    "result": f"✓ Imported {data['words']:,} words from {orig_filename}",
+                    "kind": "text-import",
+                    "output_file": None,
+                    "created_files": [rel],
+                    "is_error": False,
+                    "duration_ms": int((time.time() - started) * 1000),
+                }
+        except Busy as busy:
+            return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
+
+    def _run_text_import_paste(self, args: dict) -> dict:
+        """Write pasted markdown text to raw/ in-process (fast-path for md-add).
+
+        Replaces the LLM skill call for the md-add kind: content is stored verbatim,
+        so text_extract.text_from_string does exactly what the skill would do.
+        """
+        import text_extract  # dashboard/ is on sys.path (script dir)
+
+        content = (args.get("markdown") or "").strip()
+        title_hint = (args.get("title_hint") or "").strip() or None
+        context = (args.get("context") or "").strip() or None
+
+        try:
+            with long_op("md-add"):
+                started = time.time()
+                try:
+                    data = text_extract.text_from_string(content, title_hint=title_hint, context=context)
+                except text_extract.TextError as exc:
+                    return {"__status__": 422, "error": "bad_text", "detail": str(exc)}
+
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                title = (data.get("title") or "").strip() or "note"
+                slug = _slugify(title)[:60].strip("-") or "note"
+                rel = f"raw/{today}_{slug}.md"
+                target = VAULT_ROOT / rel
+
+                # Avoid collision if same slug already exists today.
+                if target.exists():
+                    counter = 2
+                    while True:
+                        rel = f"raw/{today}_{slug}-{counter}.md"
+                        target = VAULT_ROOT / rel
+                        if not target.exists():
+                            break
+                        counter += 1
+
+                fm = [
+                    "---",
+                    "source: pasted",
+                    f"imported: {today}",
+                    f"title: {title}",
+                    f"words: {data['words']}",
+                ]
+                content_date = data.get("content_date") or _detect_date_from_context(context)
+                if content_date:
+                    fm.append(f"content_date: {content_date}")
+                fm.append("---")
+
+                parts = ["\n".join(fm), ""]
+                parts += [f"# {title}", "", data["markdown"]]
+                out = "\n".join(parts).rstrip() + "\n"
+
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(out, encoding="utf-8")
+
+                return {
+                    "__status__": 200,
+                    "result": f"✓ Markdown added\n\nTitle: {title}\nOutput: {rel}\nSize: ~{data['words']:,} words",
+                    "kind": "md-add",
+                    "output_file": None,
+                    "created_files": [rel],
+                    "is_error": False,
+                    "duration_ms": int((time.time() - started) * 1000),
+                }
+        except Busy as busy:
+            return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
+
     def _handle_run(self) -> None:
         body = self._read_json_body()
         if body is None:
@@ -2259,6 +2409,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 400,
                 {"error": "bad_request", "detail": f"unknown kind: {kind!r}"},
             )
+        if kind == "md-add":
+            # In-process fast path — no model call needed for verbatim text storage.
+            envelope = self._run_text_import_paste(args)
+            status_code = envelope.pop("__status__", 200)
+            return _json_response(self, status_code, envelope)
         if kind == "pdf-import":
             return _json_response(
                 self,
