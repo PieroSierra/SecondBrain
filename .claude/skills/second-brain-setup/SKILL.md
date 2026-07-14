@@ -78,21 +78,49 @@ Collect the user's response. If the user provides nothing and existing interests
 
 ### Step 3 — Configure Craft import scope
 
-Present this prompt:
+Present these prompts in sequence:
 
+**3a — Space name**
 ```
-What is the name of your Craft space or folder to import from?
-(This is the default scope for /second-brain-import-craft)
+What is the name of your Craft space?
+(e.g. "Piero" — the top-level space name shown in the Craft sidebar)
 ```
 
 If an existing value was found, show it as the default:
-
 ```
 Current Craft space: [existing-value]
 Press Enter to keep this, or type a new value:
 ```
 
-If the user provides nothing and no existing value exists, proceed with a blank value and note: "Craft space not configured. You can set it later by re-running /second-brain-setup."
+**3b — MCP URL**
+```
+What is your Craft MCP URL?
+Find it in Craft → Settings → Integrations → MCP Server, and copy the URL.
+It looks like: https://mcp.craft.do/links/<token>/mcp
+```
+
+If an existing value was found, show it as the default:
+```
+Current MCP URL: [existing-value]
+Press Enter to keep this, or type a new value:
+```
+
+This URL is required for /second-brain-import-craft to connect to Craft. Without it, imports will fail.
+
+**3c — Known folders (optional)**
+```
+Which folders exist in your Craft space? (optional, used for helpful error messages)
+Enter folder names separated by commas, e.g. "Todo, Board Meetings, AI Partnerships"
+Press Enter to skip:
+```
+
+If an existing value was found, show it as the default:
+```
+Current known folders: [existing-value]
+Press Enter to keep this, or type a new value:
+```
+
+If the user provides nothing for any of the above and no existing value exists: proceed with a blank value. Note after the space question: "Craft not configured. You can set it later by re-running /second-brain-setup."
 
 ### Step 4 — Create vault directories
 
@@ -145,7 +173,10 @@ This vault is a personal knowledge base managed by AI agent skills (Claude Code 
 ## Configuration
 
 ### [CRAFT]
-Space: <craft-space-value-from-step-3>
+Space: <craft-space-value-from-step-3a>
+MCP URL: <craft-mcp-url-from-step-3b>
+Known folders: <craft-known-folders-from-step-3c>
+Mode: targeted — always specify Folder/DocumentName at invocation (e.g. "AI Partnerships/Meeting with Anthropic")
 
 ### [INTERESTS]
 <interests-from-step-2-one-per-line-with-dash-prefix>
@@ -188,7 +219,9 @@ Declared interests:
   - [interest-2]
   ...
 
-Craft import scope: [space-name | not configured]
+Craft space:        [space-name | not configured]
+Craft MCP URL:      [url | not configured]
+Craft folders:      [folder list | not configured]
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ⚠️  ONE MORE STEP — restart to finish
