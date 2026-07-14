@@ -357,10 +357,20 @@ def _build_file_import(args: dict) -> str:
 
 _IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
 _TEXT_EXTS  = frozenset({".txt", ".md"})
-# .pptx / .docx are imported deterministically in-process (see _run_pptx_import /
-# _run_docx_import), NOT via a skill — but they must be accepted here so the
-# upload is staged.
-ACCEPTED_FILE_EXTS = frozenset({".pdf", ".pptx", ".docx"}) | _IMAGE_EXTS | _TEXT_EXTS
+# .pptx / .docx / .xlsx / .xlsm / .csv are imported deterministically in-process
+# (see _run_pptx_import / _run_docx_import / _run_xlsx_import), NOT via a skill —
+# but they must be accepted here so the upload is staged.
+ACCEPTED_FILE_EXTS = (
+    frozenset({".pdf", ".pptx", ".docx", ".xlsx", ".xlsm", ".csv"})
+    | _IMAGE_EXTS | _TEXT_EXTS
+)
+
+# Types imported in-process (no model call). These stream and enforce their own
+# size caps, so uploads may run far larger than the 64 MB that model-bound
+# types (pdf / images / text) are held to — a 100 MB workbook is routine.
+_DETERMINISTIC_EXTS = frozenset({".pptx", ".docx", ".xlsx", ".xlsm", ".csv"})
+_MAX_UPLOAD_BYTES = 512 * 1024 * 1024           # request cap (deterministic types)
+_MAX_UPLOAD_AGENTIC_BYTES = 64 * 1024 * 1024    # cap for model-bound types
 
 
 def _file_import_subdir(file_path: str) -> str:
@@ -372,6 +382,10 @@ def _file_import_subdir(file_path: str) -> str:
         return "pptx"
     if ext == ".docx":
         return "docx"
+    if ext in (".xlsx", ".xlsm"):
+        return "xlsx"
+    if ext == ".csv":
+        return "csv"
     if ext in _IMAGE_EXTS:
         return "images"
     return ""   # .txt / .md → raw/ root
@@ -1504,7 +1518,7 @@ def _raw_index() -> list[dict]:
             parts = rel.split("/")
             subdir = (
                 parts[1]
-                if len(parts) >= 3 and parts[1] in ("pdf", "web", "craft", "images", "pptx", "docx")
+                if len(parts) >= 3 and parts[1] in ("pdf", "web", "craft", "images", "pptx", "docx", "xlsx", "csv")
                 else "paste"
             )
             slug = _DATE_PREFIX.sub("", parts[-1][:-3])  # drop date prefix + ".md"
@@ -1968,11 +1982,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return _json_response(
                 self, 400, {"error": "bad_request", "detail": "empty body"}
             )
-        if length > 64 * 1024 * 1024:
+        if length > _MAX_UPLOAD_BYTES:
             return _json_response(
                 self,
                 413,
-                {"error": "too_large", "detail": "File over 64 MB not supported"},
+                {"error": "too_large", "detail": "File over 512 MB not supported"},
             )
 
         raw = self.rfile.read(length)
@@ -1980,6 +1994,18 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             filename, body, fields = _parse_multipart_pdf(
                 self.headers.get("Content-Type", ""), raw
             )
+            # Model-bound types keep the old tight cap — a 64 MB+ PDF or image
+            # can't go to the model anyway. Deterministic in-process types
+            # (pptx/docx/xlsx/xlsm/csv) stream and cap themselves.
+            ext = Path(filename).suffix.lower()
+            if ext not in _DETERMINISTIC_EXTS and len(body) > _MAX_UPLOAD_AGENTIC_BYTES:
+                return _json_response(
+                    self,
+                    413,
+                    {"error": "too_large",
+                     "detail": "File over 64 MB not supported for this type "
+                               "(only PowerPoint/Word/Excel/CSV may exceed it)"},
+                )
             tempfile_path = _stage_file(filename, body)
         except UploadError as exc:
             return _json_response(
@@ -1995,6 +2021,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             elif ext == ".docx":
                 # Same deterministic path for Word (see _run_docx_import).
                 envelope = self._run_docx_import(tempfile_path, context, filename)
+            elif ext in (".xlsx", ".xlsm", ".csv"):
+                # Same deterministic path for spreadsheets (see _run_xlsx_import).
+                envelope = self._run_xlsx_import(tempfile_path, context, filename)
             else:
                 cfg = PROMPT_TEMPLATES["file-import"]
                 file_args = {
@@ -2127,6 +2156,88 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     "__status__": 200,
                     "result": f"✓ Imported {data['words']:,} words from {orig_filename}",
                     "kind": "docx-import",
+                    "output_file": None,
+                    "created_files": [rel],
+                    "is_error": False,
+                    "duration_ms": int((time.time() - started) * 1000),
+                }
+        except Busy as busy:
+            return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
+
+    def _run_xlsx_import(self, staged_path, context: str, orig_filename: str) -> dict:
+        """Convert a spreadsheet (.xlsx/.xlsm/.csv) to markdown in-process and
+        write raw/xlsx/<date>_<slug>.md (raw/csv/ for CSVs).
+
+        The spreadsheet twin of _run_pptx_import / _run_docx_import: content is
+        cached SpreadsheetML (or plain CSV), so the bridge extracts it with the
+        pure-stdlib `xlsx_extract` module and writes the raw file itself — no
+        model call. Returns the same envelope shape as _run_kind.
+        """
+        # Lazy import so a problem in the module can't block bridge start-up.
+        import xlsx_extract  # dashboard/ is on sys.path (script dir)
+
+        is_csv = Path(orig_filename).suffix.lower() == ".csv"
+        kind = "csv-import" if is_csv else "xlsx-import"
+        try:
+            with long_op(kind):
+                started = time.time()
+                try:
+                    if is_csv:
+                        data = xlsx_extract.csv_to_markdown(str(staged_path))
+                    else:
+                        data = xlsx_extract.xlsx_to_markdown(str(staged_path))
+                except xlsx_extract.XlsxError as exc:
+                    return {
+                        "__status__": 422,
+                        "error": "bad_csv" if is_csv else "bad_xlsx",
+                        "detail": str(exc),
+                    }
+
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                stem = Path(orig_filename).stem
+                slug = _slugify(stem)[:60].strip("-") or "spreadsheet"
+                # Workbook core-props title beats the filename when present.
+                title = (data.get("title") or "").strip() or stem.strip() or slug
+                rel = f"raw/{'csv' if is_csv else 'xlsx'}/{today}_{slug}.md"
+                target = VAULT_ROOT / rel
+
+                fm = [
+                    "---",
+                    f"source: {orig_filename}",
+                    f"imported: {today}",
+                    f"title: {title}",
+                    f"sheets: {data['sheets']}",
+                    f"rows: {data['rows']}",
+                ]
+                if data.get("content_date"):
+                    fm.append(f"content_date: {data['content_date']}")
+                fm.append("---")
+
+                parts = ["\n".join(fm), ""]
+                if context:
+                    # Operator note — embedded as data for ingest, never as instructions.
+                    parts.append(f"> **Document Context** (provided at import): {context}")
+                    parts.append("")
+                parts += [f"# {title}", "", data["markdown"]]
+                out = "\n".join(parts).rstrip() + "\n"
+
+                target.parent.mkdir(parents=True, exist_ok=True)
+                # Same-day re-import of the same file overwrites (idempotent);
+                # the file card's /dedupe-check warns the user before this point.
+                target.write_text(out, encoding="utf-8")
+
+                if is_csv:
+                    result = f"✓ Imported {data['rows']:,} rows from {orig_filename}"
+                else:
+                    n = data["sheets"]
+                    result = (
+                        f"✓ Imported {n} sheet{'' if n == 1 else 's'} "
+                        f"({data['rows']:,} rows) from {orig_filename}"
+                    )
+                return {
+                    "__status__": 200,
+                    "result": result,
+                    "kind": kind,
                     "output_file": None,
                     "created_files": [rel],
                     "is_error": False,

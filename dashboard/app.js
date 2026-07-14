@@ -856,12 +856,17 @@ pasteForm.addEventListener("submit", (e) => {
 // --- File upload (PDF / Office / image / text) -----------------------------
 
 const ACCEPTED_FILE_EXTS = new Set([
-  ".pdf", ".pptx", ".docx", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".txt", ".md",
+  ".pdf", ".pptx", ".docx", ".xlsx", ".xlsm", ".csv",
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".txt", ".md",
 ]);
 const ACCEPTED_MIME_TYPES = new Set([
   "application/pdf",
   "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.ms-excel.sheet.macroEnabled.12",
+  "text/csv",
+  "application/vnd.ms-excel", // how some OSes label dragged CSVs (drag highlight only)
   "image/png", "image/jpeg", "image/gif", "image/webp",
   "text/plain", "text/markdown",
 ]);
@@ -954,7 +959,7 @@ fileDropzone.addEventListener("drop", (e) => {
   if (!isAcceptedFile(file)) {
     opError(
       fileForm.querySelector("[data-op-status]"),
-      `${file.name || "That file"} is not a supported type (PDF, PowerPoint, Word, image, or plain text).`,
+      `${file.name || "That file"} is not a supported type (PDF, PowerPoint, Word, Excel, CSV, image, or plain text).`,
     );
     return;
   }

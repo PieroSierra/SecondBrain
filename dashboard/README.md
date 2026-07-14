@@ -10,11 +10,11 @@ The bridge prints `http://127.0.0.1:4173/` and opens it in your browser. Stop wi
 
 ## What it does
 
-Every action is performed by shelling out to the configured agent CLI — `claude -p "..." --output-format json` (default) or `codex exec "$..." --sandbox workspace-write` when `AGENT_ENGINE=codex`. The bridge is a single Python stdlib script (~700 lines) that:
+Every model-backed action is performed by shelling out to the configured agent CLI — `claude -p "..." --output-format json` (default) or `codex exec "$..." --sandbox workspace-write` when `AGENT_ENGINE=codex`. The bridge is a single Python stdlib script that:
 
 - Serves the static page (`index.html`, `styles.css`, `app.js`, `lib/marked.min.js`).
 - Forwards `POST /run` requests to the corresponding skill (`/second-brain-query`, `-md-add`, `-craft-import`, `-pdf-import`, `-ingest`, `-lint`).
-- Accepts PDF uploads at `POST /upload-pdf`, stages them in `dashboard/.uploads/`, runs the import skill, and cleans up.
+- Accepts file uploads at `POST /upload-file` (and PDFs at the older `POST /upload-pdf`), staged in `dashboard/.uploads/` and cleaned up after. Office and CSV files (`.pptx`/`.docx`/`.xlsx`/`.xlsm`/`.csv`) are converted to Markdown **in-process** by the pure-stdlib extractors (`pptx_extract.py`, `docx_extract.py`, `xlsx_extract.py`) — no model call, near-instant, landing in `raw/pptx|docx|xlsx|csv/`; these may be up to 512 MB (they stream). Everything else (PDF, images, text) runs the import skill via the agent and is capped at 64 MB.
 - Reads `raw/.ingest-manifest.json` plus the filesystem for `GET /status` — never spawns `claude` for that.
 
 There is no framework, no `pip install`, no `node_modules`, no database, no remote exposure. Listens only on `127.0.0.1`.

@@ -177,7 +177,7 @@ python3 dashboard/bridge.py --port 4180 --no-open
 
 - **Hero query box** — ask a question and read the rendered answer directly in the page.
 - **Navigation bar** — browse past answers and wiki articles.
-- **Import controls** — paste Markdown, drop/select any file (PDF, PowerPoint, Word, image, plain text), import from a URL, or specify a Craft folder and document name. PowerPoint decks (`.pptx`) and Word documents (`.docx`) are converted to Markdown instantly, in-process — no model call — landing in `raw/pptx/` and `raw/docx/`.
+- **Import controls** — paste Markdown, drop/select any file (PDF, PowerPoint, Word, Excel, CSV, image, plain text), import from a URL, or specify a Craft folder and document name. PowerPoint decks (`.pptx`), Word documents (`.docx`), Excel workbooks (`.xlsx`/`.xlsm`), and CSVs are converted to Markdown instantly, in-process — no model call — landing in `raw/pptx/`, `raw/docx/`, `raw/xlsx/`, and `raw/csv/`.
 - **Ingest / Lint buttons** — trigger wiki maintenance and view the results inline.
 - **Wiki edit boxes** — after a lint report runs, or while viewing any wiki article, a suggestion box lets you describe an edit in plain English and apply it directly without touching files manually.
 - **Status strip** — wiki article count, pending raw items, and last ingest time, derived from the filesystem with no model call.
@@ -260,6 +260,8 @@ SecondBrain/
 │   ├── pdf/                    Text extracted from PDFs
 │   ├── pptx/                   Markdown extracted from PowerPoint decks
 │   ├── docx/                   Markdown extracted from Word documents
+│   ├── xlsx/                   Markdown tables extracted from Excel workbooks
+│   ├── csv/                    Markdown tables extracted from CSV files
 │   ├── images/                 Visual descriptions of imported images
 │   ├── web/                    Pages fetched by web-import
 │   └── .ingest-manifest.json   Machine-managed ingestion state
