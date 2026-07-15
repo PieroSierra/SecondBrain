@@ -78,18 +78,21 @@ final class BridgeController {
         // made explicit menu choices. Only override what was set — "default"
         // means omit the var so the bridge uses the vault .env / its own default.
         // A real env var beats .env (setdefault), so injected vars always win.
-        let claudeTier = Preferences.claudeModelChoice
-        let codexTier  = Preferences.codexModelChoice
-        let needsEngine = Preferences.engineChoice != nil
-        let needsClaudeModel = claudeTier != "default"
-        let needsCodexModel  = codexTier  != "default"
-        if needsEngine || needsClaudeModel || needsCodexModel {
+        let claudeTier   = Preferences.claudeModelChoice
+        let codexTier    = Preferences.codexModelChoice
+        let opencodeTier = Preferences.opencodeModelChoice
+        let needsEngine        = Preferences.engineChoice != nil
+        let needsClaudeModel   = claudeTier   != "default"
+        let needsCodexModel    = codexTier    != "default"
+        let needsOpencodeModel = opencodeTier != "default"
+        if needsEngine || needsClaudeModel || needsCodexModel || needsOpencodeModel {
             var env = ProcessInfo.processInfo.environment
             if let engine = Preferences.engineChoice, Preferences.isValidEngine(engine) {
                 env["AGENT_ENGINE"] = engine
             }
-            if needsClaudeModel { env["CLAUDE_MODEL"] = claudeTier }
-            if needsCodexModel  { env["CODEX_MODEL"]  = codexTier  }
+            if needsClaudeModel   { env["CLAUDE_MODEL"]   = claudeTier   }
+            if needsCodexModel    { env["CODEX_MODEL"]    = codexTier    }
+            if needsOpencodeModel { env["OPENCODE_MODEL"] = opencodeTier }
             p.environment = env
         }
 

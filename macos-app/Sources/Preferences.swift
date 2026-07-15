@@ -88,11 +88,13 @@ enum Preferences {
         }
     }
 
-    // MARK: - Engine (claude | codex)
+    // MARK: - Engine (claude | codex | opencode)
 
     private static let engineKey = "engine"
 
-    static func isValidEngine(_ s: String) -> Bool { s == "claude" || s == "codex" }
+    static func isValidEngine(_ s: String) -> Bool {
+        s == "claude" || s == "codex" || s == "opencode"
+    }
 
     /// The user's explicit engine choice from the app menu, or `nil` to defer to the
     /// vault's `.env` / the bridge default. Only a non-nil value is injected into the
@@ -135,8 +137,9 @@ enum Preferences {
 
     // MARK: - Model tier
 
-    private static let claudeModelKey = "claudeModel"
-    private static let codexModelKey  = "codexModel"
+    private static let claudeModelKey   = "claudeModel"
+    private static let codexModelKey    = "codexModel"
+    private static let opencodeModelKey = "opencodeModel"
 
     /// The user's explicit Claude model tier choice, stored in UserDefaults.
     /// "default" means no `--model` flag — the CLI picks the model.
@@ -151,8 +154,19 @@ enum Preferences {
         set { UserDefaults.standard.set(newValue, forKey: codexModelKey) }
     }
 
+    /// The user's explicit OpenCode model choice. May be a tier alias ("sonnet") or
+    /// a raw provider/model ID ("openai/gpt-5.6-sol").
+    static var opencodeModelChoice: String {
+        get { UserDefaults.standard.string(forKey: opencodeModelKey) ?? "default" }
+        set { UserDefaults.standard.set(newValue, forKey: opencodeModelKey) }
+    }
+
     /// The active model tier for `engine`, used to drive menu checkmarks.
     static func effectiveModelTier(for engine: String) -> String {
-        engine == "codex" ? codexModelChoice : claudeModelChoice
+        switch engine {
+        case "codex":    return codexModelChoice
+        case "opencode": return opencodeModelChoice
+        default:         return claudeModelChoice
+        }
     }
 }

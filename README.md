@@ -216,7 +216,7 @@ The extension extracts the page's main content, converts it to Markdown, and sav
 Create a `.env` file at the vault root to override defaults without editing any code:
 
 ```
-# Which agent CLI backs the skills: claude (default) or codex.
+# Which agent CLI backs the skills: claude (default), codex, or opencode.
 AGENT_ENGINE=claude
 
 # Use a different claude binary (e.g. a Max subscription account):
@@ -224,6 +224,9 @@ CLAUDE_BIN=claude-personal
 
 # Use a different codex binary (used when AGENT_ENGINE=codex):
 CODEX_BIN=codex
+
+# Use a different opencode binary (used when AGENT_ENGINE=opencode):
+OPENCODE_BIN=opencode
 
 # Show the Craft import card in the dashboard (Craft MCP must be configured for your engine):
 CRAFT_ENABLED=1

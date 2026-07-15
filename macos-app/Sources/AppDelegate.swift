@@ -4,6 +4,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var claudeItem: NSMenuItem?
     private var codexItem: NSMenuItem?
+    private var opencodeItem: NSMenuItem?
     private var modelMenuItems: [String: NSMenuItem] = [:]  // key: "claude:sonnet"
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -160,9 +161,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     // MARK: - Engine selection
 
-    @objc private func selectClaude(_ sender: Any?) { selectEngine("claude") }
-    @objc private func selectCodex(_ sender: Any?) { selectEngine("codex") }
-
     /// Entry point for the dashboard's in-page engine dropdown (via the WebWindow
     /// script bridge). Routes through the same path as the Engine menu.
     func switchEngine(to engine: String) {
@@ -171,7 +169,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func engineLabel(_ engine: String) -> String {
-        engine == "codex" ? "Codex" : "Claude Code"
+        switch engine {
+        case "codex":    return "Codex"
+        case "opencode": return "OpenCode"
+        default:         return "Claude Code"
+        }
     }
 
     /// Restart the bridge under `engine` and reload the dashboard. No-op if already
@@ -206,8 +208,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func updateEngineChecks() {
         let active = Preferences.effectiveEngine()
-        claudeItem?.state = (active == "claude") ? .on : .off
-        codexItem?.state = (active == "codex") ? .on : .off
+        claudeItem?.state   = (active == "claude")   ? .on : .off
+        codexItem?.state    = (active == "codex")    ? .on : .off
+        opencodeItem?.state = (active == "opencode") ? .on : .off
     }
 
     // MARK: - Model selection
@@ -216,14 +219,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         guard let tag = sender?.representedObject as? String else { return }
         let parts = tag.split(separator: ":", maxSplits: 1).map(String.init)
         guard parts.count == 2 else { return }
-        switchModel(engine: parts[0], to: parts[1])
+        let engine = parts[0], tier = parts[1]
+        // Save model choice first so the bridge picks it up via env var on restart.
+        switch engine {
+        case "claude":   Preferences.claudeModelChoice   = tier
+        case "opencode": Preferences.opencodeModelChoice = tier
+        default:         Preferences.codexModelChoice    = tier
+        }
+        if engine != Preferences.effectiveEngine() {
+            selectEngine(engine)   // restarts bridge; it reads the saved model from env
+        } else {
+            updateModelChecks()
+            notifyWebViewModelChange(engine: engine, tier: tier)
+        }
     }
 
     /// Entry point for the dashboard's in-page model dropdown (via the WebWindow
     /// script bridge) and the Model menu. Persists the choice and syncs the UI.
     func switchModel(engine: String, to tier: String) {
-        if engine == "claude" { Preferences.claudeModelChoice = tier }
-        else { Preferences.codexModelChoice = tier }
+        switch engine {
+        case "claude":   Preferences.claudeModelChoice   = tier
+        case "opencode": Preferences.opencodeModelChoice = tier
+        default:         Preferences.codexModelChoice    = tier
+        }
         updateModelChecks()
         // Notify the dashboard JS so it can POST /set-model and update the dropdown.
         // (The app can't call the bridge directly because it doesn't hold the token.)
@@ -312,53 +330,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                          action: #selector(WebWindow.resetZoom), keyEquivalent: "0")
             .target = WebWindow.shared
 
-        // Engine menu (claude | codex), radio-style checkmarks.
+        // Engine menu — each engine item has a model-tier submenu, so the
+        // standalone "Model" menu is not needed. Selecting a model tier also
+        // switches to that engine if it isn't already active.
         let engineItem = NSMenuItem()
         mainMenu.addItem(engineItem)
         let engineMenu = NSMenu(title: "Engine")
         engineItem.submenu = engineMenu
-        let ci = engineMenu.addItem(withTitle: "Claude Code",
-                                    action: #selector(selectClaude(_:)), keyEquivalent: "")
-        ci.target = self
-        let xi = engineMenu.addItem(withTitle: "Codex",
-                                    action: #selector(selectCodex(_:)), keyEquivalent: "")
-        xi.target = self
-        claudeItem = ci
-        codexItem = xi
+
+        func addEngineItem(title: String, engine: String,
+                           tiers: [(String, String)]) -> NSMenuItem {
+            let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+            let sub = NSMenu()
+            for (tier, label) in tiers {
+                let mi = sub.addItem(withTitle: label,
+                                     action: #selector(selectModelTier(_:)),
+                                     keyEquivalent: "")
+                mi.target = self
+                mi.representedObject = "\(engine):\(tier)"
+                modelMenuItems["\(engine):\(tier)"] = mi
+            }
+            parent.submenu = sub
+            engineMenu.addItem(parent)
+            return parent
+        }
+
+        claudeItem = addEngineItem(title: "Claude Code", engine: "claude", tiers: [
+            ("default", "Default"), ("fable", "Fable"), ("opus", "Opus"),
+            ("sonnet", "Sonnet"), ("haiku", "Haiku"),
+        ])
+        codexItem = addEngineItem(title: "Codex", engine: "codex", tiers: [
+            ("default", "Default"), ("sol", "Sol"), ("terra", "Terra"), ("luna", "Luna"),
+        ])
+        opencodeItem = addEngineItem(title: "OpenCode", engine: "opencode", tiers: [
+            ("default", "Default"),
+            // Anthropic
+            ("fable",  "Fable 5"), ("opus", "Opus 4.8"), ("sonnet", "Sonnet 5"), ("haiku", "Haiku 4.5"),
+            // OpenAI
+            ("openai/gpt-5.6-sol",       "GPT Sol"),
+            ("openai/gpt-5.6-sol-fast",  "GPT Sol Fast"),
+            ("openai/gpt-5.6-luna",      "GPT Luna"),
+            ("openai/gpt-5.6-luna-fast", "GPT Luna Fast"),
+            ("openai/gpt-5.6-terra",     "GPT Terra"),
+            ("openai/gpt-5.5",           "GPT-5.5"),
+            ("openai/gpt-5.5-fast",      "GPT-5.5 Fast"),
+            ("openai/gpt-5.4-mini",      "GPT-5.4 Mini"),
+            // OpenCode Zen (free)
+            ("opencode/hy3-free",               "Hy3 Free"),
+            ("opencode/deepseek-v4-flash-free", "DeepSeek Flash Free"),
+            ("opencode/nemotron-3-ultra-free",  "Nemotron Ultra Free"),
+        ])
+
         updateEngineChecks()
-
-        // Model menu: tier selection per engine, radio-style checkmarks.
-        // Tiers are grouped by engine with a disabled header and separator.
-        let modelItem = NSMenuItem()
-        mainMenu.addItem(modelItem)
-        let modelMenu = NSMenu(title: "Model")
-        modelItem.submenu = modelMenu
-
-        let claudeHeader = NSMenuItem(title: "Claude Code", action: nil, keyEquivalent: "")
-        claudeHeader.isEnabled = false
-        modelMenu.addItem(claudeHeader)
-        for (tier, label) in [("default", "Default"), ("fable", "Fable"),
-                               ("opus", "Opus"), ("sonnet", "Sonnet"), ("haiku", "Haiku")] {
-            let mi = modelMenu.addItem(withTitle: label,
-                                       action: #selector(selectModelTier(_:)),
-                                       keyEquivalent: "")
-            mi.target = self
-            mi.representedObject = "claude:\(tier)"
-            modelMenuItems["claude:\(tier)"] = mi
-        }
-        modelMenu.addItem(.separator())
-        let codexHeader = NSMenuItem(title: "Codex", action: nil, keyEquivalent: "")
-        codexHeader.isEnabled = false
-        modelMenu.addItem(codexHeader)
-        for (tier, label) in [("default", "Default"), ("sol", "Sol"),
-                               ("terra", "Terra"), ("luna", "Luna")] {
-            let mi = modelMenu.addItem(withTitle: label,
-                                       action: #selector(selectModelTier(_:)),
-                                       keyEquivalent: "")
-            mi.target = self
-            mi.representedObject = "codex:\(tier)"
-            modelMenuItems["codex:\(tier)"] = mi
-        }
         updateModelChecks()
 
         // Window menu

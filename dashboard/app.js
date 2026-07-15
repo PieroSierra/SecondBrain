@@ -324,15 +324,19 @@ async function ensureConfig() {
     // Build the model tier label map from the bridge's config so the dashboard
     // never needs hardcoded model IDs and stays in sync automatically.
     _currentEngine = data.engine || "claude";
-    const rawMap   = _currentEngine === "codex" ? (data.codex_tier_map || {}) : (data.claude_tier_map || {});
-    const labelMap = _currentEngine === "codex" ? CODEX_TIER_LABELS : CLAUDE_TIER_LABELS;
+    const rawMap   = _currentEngine === "codex"     ? (data.codex_tier_map     || {})
+                   : _currentEngine === "opencode"  ? (data.opencode_tier_map  || {})
+                   : (data.claude_tier_map || {});
+    const labelMap = _currentEngine === "codex"     ? CODEX_TIER_LABELS
+                   : _currentEngine === "opencode"  ? OPENCODE_TIER_LABELS
+                   : CLAUDE_TIER_LABELS;
     _currentTierLabels = { default: "Default" };
     for (const tier of Object.keys(rawMap)) {
       _currentTierLabels[tier] = labelMap[tier] || tier;
     }
-    const currentTier = _currentEngine === "codex"
-      ? (data.codex_model_tier  || "default")
-      : (data.claude_model_tier || "default");
+    const currentTier = _currentEngine === "codex"    ? (data.codex_model_tier     || "default")
+                      : _currentEngine === "opencode" ? (data.opencode_model_tier  || "default")
+                      : (data.claude_model_tier || "default");
     renderModelTile(_currentEngine, currentTier, _currentTierLabels);
 
     _configLoaded = true;
@@ -341,8 +345,8 @@ async function ensureConfig() {
   }
 }
 
-const ENGINE_LABELS = { claude: "Claude Code", codex: "Codex" };
-const ENGINE_ICONS = { claude: "/static/icons/claude_code.png", codex: "/static/icons/codex.png" };
+const ENGINE_LABELS = { claude: "Claude Code", codex: "Codex", opencode: "OpenCode" };
+const ENGINE_ICONS  = { claude: "/static/icons/claude_code.png", codex: "/static/icons/codex.png", opencode: "/static/icons/opencode.png" };
 
 // The native macOS app exposes a "secondBrain" script-message channel; a plain
 // browser does not. Only the app can restart its bridge to switch engine, so the
@@ -351,8 +355,26 @@ const NATIVE_ENGINE_SWITCH = !!window.webkit?.messageHandlers?.secondBrain;
 
 // Tier labels for each engine. Keys match the bridge's tier-map keys.
 // These are display names only; the bridge owns the actual CLI alias/ID mapping.
-const CLAUDE_TIER_LABELS = { default: "Default", fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
-const CODEX_TIER_LABELS  = { default: "Default", sol: "Sol", terra: "Terra", luna: "Luna" };
+const CLAUDE_TIER_LABELS    = { default: "Default", fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
+const CODEX_TIER_LABELS     = { default: "Default", sol: "Sol", terra: "Terra", luna: "Luna" };
+const OPENCODE_TIER_LABELS  = {
+  default: "Default",
+  // Anthropic
+  fable: "Fable 5", opus: "Opus 4.8", sonnet: "Sonnet 5", haiku: "Haiku 4.5",
+  // OpenAI
+  "openai/gpt-5.6-sol":       "GPT Sol",
+  "openai/gpt-5.6-sol-fast":  "GPT Sol Fast",
+  "openai/gpt-5.6-luna":      "GPT Luna",
+  "openai/gpt-5.6-luna-fast": "GPT Luna Fast",
+  "openai/gpt-5.6-terra":     "GPT Terra",
+  "openai/gpt-5.5":           "GPT-5.5",
+  "openai/gpt-5.5-fast":      "GPT-5.5 Fast",
+  "openai/gpt-5.4-mini":      "GPT-5.4 Mini",
+  // OpenCode Zen (free)
+  "opencode/hy3-free":               "Hy3 Free",
+  "opencode/deepseek-v4-flash-free": "DeepSeek Flash Free",
+  "opencode/nemotron-3-ultra-free":  "Nemotron Ultra Free",
+};
 
 // Module-level state set by ensureConfig; used by renderModelTile and _onNativeModelChange.
 let _currentEngine     = "claude";
@@ -1327,6 +1349,42 @@ $("#status-ingest-pill")?.addEventListener("click", () => {
   document.getElementById("maintenance")?.scrollIntoView({ behavior: "smooth", block: "start" });
   runMaintenance(ingestForm, "ingest");
 });
+
+// Engine test pill — fires a trivial ping at the active engine.
+const engineTestPill = document.getElementById("engine-test-pill");
+if (engineTestPill) {
+  engineTestPill.addEventListener("click", async () => {
+    if (engineTestPill.disabled) return;
+    engineTestPill.disabled = true;
+    engineTestPill.classList.remove("test-ok", "test-err");
+    engineTestPill.textContent = "…";
+    try {
+      const res = await apiFetch("/ping-engine");
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json();
+      if (data.ok) {
+        engineTestPill.textContent = "ok ✓";
+        engineTestPill.classList.add("test-ok");
+      } else {
+        engineTestPill.title = data.error || "engine error";
+        engineTestPill.textContent = "fail ✗";
+        engineTestPill.classList.add("test-err");
+      }
+    } catch (err) {
+      engineTestPill.title = String(err);
+      engineTestPill.textContent = "fail ✗";
+      engineTestPill.classList.add("test-err");
+    } finally {
+      engineTestPill.disabled = false;
+      // Reset label after 4 seconds so it reads as a button again.
+      setTimeout(() => {
+        engineTestPill.textContent = "test";
+        engineTestPill.classList.remove("test-ok", "test-err");
+        engineTestPill.title = "Ping the active engine with a trivial prompt";
+      }, 4000);
+    }
+  });
+}
 
 document.querySelectorAll("[data-open-folder]").forEach((btn) => {
   btn.addEventListener("click", () => {

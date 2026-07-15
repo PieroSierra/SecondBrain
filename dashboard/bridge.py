@@ -76,15 +76,16 @@ def _load_env_file() -> None:
 _load_env_file()
 
 # Override via CLAUDE_BIN env var or a .env file at the vault root.
-CLAUDE_BIN = os.environ.get("CLAUDE_BIN", "claude")
-CODEX_BIN = os.environ.get("CODEX_BIN", "codex")
+CLAUDE_BIN   = os.environ.get("CLAUDE_BIN",   "claude")
+CODEX_BIN    = os.environ.get("CODEX_BIN",    "codex")
+OPENCODE_BIN = os.environ.get("OPENCODE_BIN", "opencode")
 
-# Which agent CLI backs the skills: "claude" (default) or "codex". Both run the
-# SAME skills (one canonical .claude/skills/ tree, exposed to Codex via a
-# .agents/skills link — see _ensure_skills_link). Anything unrecognised falls
-# back to claude so a typo never silently changes the safety model.
+# Which agent CLI backs the skills: "claude" (default), "codex", or "opencode".
+# All three run the SAME skills from the canonical .claude/skills/ tree.
+# Anything unrecognised falls back to claude so a typo never silently changes
+# the safety model.
 AGENT_ENGINE = os.environ.get("AGENT_ENGINE", "claude").strip().lower()
-if AGENT_ENGINE not in ("claude", "codex"):
+if AGENT_ENGINE not in ("claude", "codex", "opencode"):
     AGENT_ENGINE = "claude"
 
 _CRAFT_ENABLED = os.environ.get("CRAFT_ENABLED", "").lower() in ("1", "true", "yes")
@@ -94,7 +95,7 @@ _CRAFT_ENABLED = os.environ.get("CRAFT_ENABLED", "").lower() in ("1", "true", "y
 # ---------------------------------------------------------------------------
 # Claude accepts tier aliases maintained by Anthropic — no model-ID bookkeeping
 # needed; when a new Sonnet ships, "--model sonnet" silently picks it up.
-# Update _CODEX_TIER_MAP when new Codex models are released.
+# Update _CODEX_TIER_MAP / _OPENCODE_TIER_MAP when new models are released.
 _CLAUDE_TIER_MAP: dict[str, str] = {
     "fable":  "fable",
     "opus":   "opus",
@@ -106,12 +107,37 @@ _CODEX_TIER_MAP: dict[str, str] = {
     "terra": "gpt-5.6-terra",
     "luna":  "gpt-5.6-luna",
 }
+# OpenCode uses fully-qualified provider/model IDs.
+# Short aliases (fable/opus/sonnet/haiku) map to Anthropic models.
+# Full provider/model IDs map to themselves (identity) so the dropdown can
+# select them by key and the bridge passes them straight through.
+_OPENCODE_TIER_MAP: dict[str, str] = {
+    # Anthropic tier aliases
+    "fable":  "anthropic/claude-fable-5",
+    "opus":   "anthropic/claude-opus-4-8",
+    "sonnet": "anthropic/claude-sonnet-5",
+    "haiku":  "anthropic/claude-haiku-4-5",
+    # OpenAI — full IDs used as keys so app.js can select them by value
+    "openai/gpt-5.6-sol":        "openai/gpt-5.6-sol",
+    "openai/gpt-5.6-sol-fast":   "openai/gpt-5.6-sol-fast",
+    "openai/gpt-5.6-luna":       "openai/gpt-5.6-luna",
+    "openai/gpt-5.6-luna-fast":  "openai/gpt-5.6-luna-fast",
+    "openai/gpt-5.6-terra":      "openai/gpt-5.6-terra",
+    "openai/gpt-5.5":            "openai/gpt-5.5",
+    "openai/gpt-5.5-fast":       "openai/gpt-5.5-fast",
+    "openai/gpt-5.4-mini":       "openai/gpt-5.4-mini",
+    # OpenCode Zen (free)
+    "opencode/hy3-free":               "opencode/hy3-free",
+    "opencode/deepseek-v4-flash-free": "opencode/deepseek-v4-flash-free",
+    "opencode/nemotron-3-ultra-free":  "opencode/nemotron-3-ultra-free",
+}
 
 # Module-level live state — updated by POST /set-model without bridge restart.
 # "default" means: pass no --model flag, use the CLI's own default.
 # CPython GIL makes single-assignment atomic; no explicit lock needed here.
-_CLAUDE_MODEL_TIER: str = os.environ.get("CLAUDE_MODEL", "default").strip().lower()
-_CODEX_MODEL_TIER:  str = os.environ.get("CODEX_MODEL",  "default").strip().lower()
+_CLAUDE_MODEL_TIER:    str = os.environ.get("CLAUDE_MODEL",    "default").strip().lower()
+_CODEX_MODEL_TIER:     str = os.environ.get("CODEX_MODEL",     "default").strip().lower()
+_OPENCODE_MODEL_TIER:  str = os.environ.get("OPENCODE_MODEL",  "default").strip().lower()
 
 # ---------------------------------------------------------------------------
 # Security: CSRF gate
@@ -839,10 +865,96 @@ def run_codex(prompt: str, cfg: dict) -> tuple[int, dict]:
     return 200, body
 
 
+def run_opencode(prompt: str, cfg: dict) -> tuple[int, dict]:
+    """Exec `opencode run <prompt> --format json --auto ...`.
+
+    Mirrors run_claude's contract: 200 on success (body has `result`/`is_error`),
+    504 on timeout, 502 on spawn failure.
+
+    OpenCode emits a JSONL event stream (one JSON object per line). The final
+    assistant text lives in `type:"text"` events where `part.type == "text"`.
+    Events tagged `phase:"final_answer"` in the OpenAI metadata are preferred;
+    if none carry that tag, all text parts are concatenated.
+
+    `--auto` approves permissions that are not explicitly denied — equivalent
+    to Codex's workspace-write sandbox in trust level. There is no per-tool
+    allow/deny equivalent to Claude's --allowedTools/--disallowedTools.
+    """
+    timeout = cfg.get("timeout", 180)
+    argv = [
+        OPENCODE_BIN,
+        "run",
+        prompt,
+        "--format", "json",
+        "--auto",
+        "--dir", str(VAULT_ROOT),
+    ]
+    _t = _OPENCODE_MODEL_TIER
+    if _t and _t != "default":
+        # Tier alias (e.g. "sonnet") → full ID; raw ID (e.g. "openai/gpt-5.6-sol") → as-is.
+        argv += ["-m", _OPENCODE_TIER_MAP.get(_t, _t)]
+
+    try:
+        cp = subprocess.run(
+            argv,
+            shell=False,
+            capture_output=True,
+            text=True,
+            cwd=str(VAULT_ROOT),
+            timeout=timeout,
+            check=False,
+        )
+    except FileNotFoundError as exc:
+        return 502, {"error": "spawn_failed", "detail": str(exc)}
+    except subprocess.TimeoutExpired:
+        return 504, {"error": "timeout", "after_seconds": timeout}
+
+    stdout = cp.stdout or ""
+    stderr = cp.stderr or ""
+
+    # Parse the JSONL event stream, collecting assistant text parts.
+    final_parts: list[str] = []
+    all_parts:   list[str] = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if obj.get("type") != "text":
+            continue
+        part = obj.get("part") or {}
+        if part.get("type") != "text":
+            continue
+        text = part.get("text", "")
+        if not text:
+            continue
+        all_parts.append(text)
+        # Prefer the final_answer phase when present (avoids surfacing internal
+        # commentary like "I'll run the query workflow…").
+        phase = (part.get("metadata") or {}).get("openai", {}).get("phase", "")
+        if phase == "final_answer":
+            final_parts.append(text)
+
+    result_text = "\n\n".join(final_parts) if final_parts else "\n\n".join(all_parts)
+    result_text = result_text.strip()
+
+    body: dict = {"result": result_text or stderr or "(no output)"}
+    if cp.returncode != 0:
+        body["is_error"] = True
+        if not result_text:
+            body["result"] = stderr or f"opencode exited with code {cp.returncode}"
+    return 200, body
+
+
 def run_skill(prompt: str, cfg: dict) -> tuple[int, dict]:
-    """Dispatch a built skill prompt to the configured engine (claude|codex)."""
+    """Dispatch a built skill prompt to the configured engine (claude|codex|opencode)."""
     if AGENT_ENGINE == "codex":
         return run_codex(prompt, cfg)
+    if AGENT_ENGINE == "opencode":
+        return run_opencode(prompt, cfg)
     return run_claude(
         prompt,
         timeout=cfg["timeout"],
@@ -1878,13 +1990,15 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/config":
             return _json_response(self, 200, {
-                "vault_root":        str(VAULT_ROOT),
-                "craft_enabled":     _CRAFT_ENABLED,
-                "engine":            AGENT_ENGINE,
-                "claude_model_tier": _CLAUDE_MODEL_TIER,
-                "codex_model_tier":  _CODEX_MODEL_TIER,
-                "claude_tier_map":   _CLAUDE_TIER_MAP,
-                "codex_tier_map":    _CODEX_TIER_MAP,
+                "vault_root":           str(VAULT_ROOT),
+                "craft_enabled":        _CRAFT_ENABLED,
+                "engine":               AGENT_ENGINE,
+                "claude_model_tier":    _CLAUDE_MODEL_TIER,
+                "codex_model_tier":     _CODEX_MODEL_TIER,
+                "opencode_model_tier":  _OPENCODE_MODEL_TIER,
+                "claude_tier_map":      _CLAUDE_TIER_MAP,
+                "codex_tier_map":       _CODEX_TIER_MAP,
+                "opencode_tier_map":    _OPENCODE_TIER_MAP,
             })
         if path == "/status":
             return _json_response(self, 200, _vault_status())
@@ -1902,6 +2016,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return _json_response(self, 200, {"query": q, "results": _search_vault(q)})
         if path.startswith("/raw/") and len(path) > 5:
             return self._serve_raw_file(path[5:])
+        if path == "/ping-engine":
+            return self._handle_ping_engine()
 
         self._not_found()
 
@@ -2624,36 +2740,87 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             "created_files": created_files,
         }
 
+    def _handle_ping_engine(self) -> None:
+        """GET /ping-engine — fire a trivial prompt at the active engine.
+
+        Returns 200 {"ok": True, "engine": …, "model_tier": …} on success,
+        or 200 {"ok": False, "engine": …, "error": …} on any failure.
+        Uses a 10 s timeout so the button gives quick feedback.
+        Gated by the CSRF token (same as all vault-data endpoints).
+        """
+        if not self._authorize():
+            return self._deny()
+
+        ping_prompt = 'Say the single word "ok" and nothing else.'
+        try:
+            if AGENT_ENGINE == "opencode":
+                status, body = run_opencode(ping_prompt, {"timeout": 10})
+            elif AGENT_ENGINE == "codex":
+                status, body = run_codex(ping_prompt, {"timeout": 10})
+            else:
+                status, body = run_claude(ping_prompt, timeout=10)
+        except Exception as exc:
+            return _json_response(self, 200, {
+                "ok": False, "engine": AGENT_ENGINE, "error": str(exc),
+            })
+
+        if status != 200 or body.get("is_error") or body.get("error"):
+            err = body.get("result") or body.get("detail") or body.get("error") or "unknown error"
+            return _json_response(self, 200, {
+                "ok": False, "engine": AGENT_ENGINE, "error": str(err),
+            })
+
+        model_tier = (
+            _OPENCODE_MODEL_TIER if AGENT_ENGINE == "opencode"
+            else _CODEX_MODEL_TIER if AGENT_ENGINE == "codex"
+            else _CLAUDE_MODEL_TIER
+        )
+        _json_response(self, 200, {
+            "ok": True, "engine": AGENT_ENGINE, "model_tier": model_tier,
+        })
+
     def _handle_set_model(self) -> None:
         """Session-persistent model tier selection (no bridge restart needed).
 
-        Body: {"engine": "claude"|"codex", "tier": "sonnet"|"haiku"|…|"default"}
+        Body: {"engine": "claude"|"codex"|"opencode", "tier": "sonnet"|…|"default"}
         "default" clears any explicit --model flag for subsequent skill runs.
         """
-        global _CLAUDE_MODEL_TIER, _CODEX_MODEL_TIER
+        global _CLAUDE_MODEL_TIER, _CODEX_MODEL_TIER, _OPENCODE_MODEL_TIER
 
         body = self._read_json_body()
         if body is None:
             return
 
         engine = str(body.get("engine", AGENT_ENGINE)).strip().lower()
-        if engine not in ("claude", "codex"):
-            return _json_response(
-                self, 400,
-                {"error": "bad_request", "detail": "engine must be 'claude' or 'codex'"},
-            )
-
-        tier = str(body.get("tier", "default")).strip().lower()
-        tier_map = _CLAUDE_TIER_MAP if engine == "claude" else _CODEX_TIER_MAP
-        if tier != "default" and tier not in tier_map:
+        if engine not in ("claude", "codex", "opencode"):
             return _json_response(
                 self, 400,
                 {"error": "bad_request",
-                 "detail": f"unknown tier {tier!r}; valid: default, {', '.join(sorted(tier_map))}"},
+                 "detail": "engine must be 'claude', 'codex', or 'opencode'"},
             )
+
+        tier_map = (
+            _CLAUDE_TIER_MAP if engine == "claude"
+            else _OPENCODE_TIER_MAP if engine == "opencode"
+            else _CODEX_TIER_MAP
+        )
+        tier = str(body.get("tier", "default")).strip()
+        # Claude and Codex validate against their tier maps; OpenCode accepts any
+        # string so users can pass raw provider/model IDs (e.g. "openai/gpt-5.6-sol").
+        if engine != "opencode":
+            tier_lower = tier.lower()
+            if tier_lower != "default" and tier_lower not in tier_map:
+                return _json_response(
+                    self, 400,
+                    {"error": "bad_request",
+                     "detail": f"unknown tier {tier!r}; valid: default, {', '.join(sorted(tier_map))}"},
+                )
+            tier = tier_lower
 
         if engine == "claude":
             _CLAUDE_MODEL_TIER = tier
+        elif engine == "opencode":
+            _OPENCODE_MODEL_TIER = tier
         else:
             _CODEX_MODEL_TIER = tier
 
@@ -2661,7 +2828,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             "ok":       True,
             "engine":   engine,
             "tier":     tier,
-            "model_id": tier_map.get(tier),
+            "model_id": tier_map.get(tier, tier if tier != "default" else None),
         })
 
     # ----- helpers --------------------------------------------------------

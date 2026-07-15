@@ -245,6 +245,20 @@ body.is-busy .brand-busy-dot {
 }
 .status-pill:hover { background: #6b2917; }
 .status-pill:disabled { opacity: 0.55; cursor: default; }
+/* Engine test pill: neutral tone (not red like the ingest pill).
+   Same size as .status-pill (the ingest pill). min-width prevents the button
+   from shrinking when the label changes from "test" → "…" → "ok ✓"/"fail ✗". */
+.engine-test-pill {
+  background: var(--ink-muted);
+  margin-left: 6px;
+  min-width: 3.8em;
+  text-align: center;
+}
+.engine-test-pill:hover:not(:disabled) { background: var(--ink); }
+.engine-test-pill.test-ok  { background: #2a7a2a; }
+.engine-test-pill.test-ok:hover  { background: #1e5c1e; }
+.engine-test-pill.test-err { background: var(--error-ink); }
+.engine-test-pill.test-err:hover { background: #6b2917; }
 /* Agent engine dropdown (app only): reads as the status text but carries a caret
    and hover affordance so it's discoverable as a control. */
 /* Baseline (not center): a center-aligned flex container exposes no text
