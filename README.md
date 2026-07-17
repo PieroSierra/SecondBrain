@@ -137,8 +137,15 @@ You can also drop files directly into `raw/` — a `.md` note, a PDF, even an im
 ### Notes
 
 - Ingest is **explicit** — new content in `raw/` does not appear in the wiki until you run `/second-brain-ingest`.
+- Ingest fingerprints source bytes with SHA-256. A changed filesystem timestamp
+  triggers a hash comparison, so genuine in-place edits are re-ingested while a
+  branch checkout or `touch` does not cause a full-vault rebuild. Existing
+  manifested files are silently fingerprinted when upgrading; unmanifested
+  files remain ready to ingest.
 - The wiki is **AI-managed** — never edit files in `wiki/` directly.
-- `raw/` is **append-only** — never delete or modify files there.
+- `raw/` is the **source of truth** — ingest never edits it. Users and importers
+  may update an existing source in place; its changed bytes will be detected on
+  the next ingest.
 
 ---
 
@@ -180,11 +187,11 @@ python3 dashboard/bridge.py --port 4180 --no-open
 - **Import controls** — paste Markdown, drop/select any file (PDF, PowerPoint, Word, Excel, CSV, image, plain text), import from a URL, or specify a Craft folder and document name. PowerPoint decks (`.pptx`), Word documents (`.docx`), Excel workbooks (`.xlsx`/`.xlsm`), and CSVs are converted to Markdown instantly, in-process — no model call — landing in `raw/pptx/`, `raw/docx/`, `raw/xlsx/`, and `raw/csv/`.
 - **Ingest / Lint buttons** — trigger wiki maintenance and view the results inline.
 - **Wiki edit boxes** — after a lint report runs, or while viewing any wiki article, a suggestion box lets you describe an edit in plain English and apply it directly without touching files manually.
-- **Status strip** — wiki article count, pending raw items, and last ingest time, derived from the filesystem with no model call.
+- **Status strip** — wiki article count, genuinely new or content-changed raw items, and last ingest time, derived from the filesystem with no model call.
 
 ### How it works
 
-The dashboard is a static HTML page. Every long operation fires a `POST /run` request to a tiny Python bridge (`dashboard/bridge.py`) which execs the configured agent — `claude -p "/second-brain-..." --output-format json`, or `codex exec "$second-brain-..." --sandbox workspace-write` when `AGENT_ENGINE=codex` — and streams the result back. The bridge has no knowledge-base logic of its own — the skills are the only system of record.
+The dashboard is a static HTML page. Every long operation fires a `POST /run` request to a tiny Python bridge (`dashboard/bridge.py`) which execs the configured agent — `claude -p "/second-brain-..." --output-format json`, or `codex exec "$second-brain-..." --sandbox workspace-write` when `AGENT_ENGINE=codex` — and streams the result back. Knowledge synthesis remains in the skills; deterministic ingestion state is shared by the bridge and direct CLI through `dashboard/ingest_state.py`.
 
 ### Chrome extension
 
@@ -258,7 +265,7 @@ Avoid "fixing" a permission denial by adding bare `Write`, `Edit`, or `Bash` to 
 
 ```
 SecondBrain/
-├── raw/                        Source content (append-only)
+├── raw/                        Source content (ingest-read-only; importers may update)
 │   ├── craft/                  Notes imported from Craft
 │   ├── pdf/                    Text extracted from PDFs
 │   ├── pptx/                   Markdown extracted from PowerPoint decks

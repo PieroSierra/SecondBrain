@@ -16,8 +16,9 @@ A file in `raw/` representing a single unit of captured content. The source of t
 | `path` | string | Relative path from vault root (e.g., `raw/craft/2026-06-16_leadership.md`) |
 | `source_type` | enum | `manual` \| `craft-import` \| `pdf-import` |
 | `created_at` | ISO 8601 | File creation date (from filesystem or import metadata) |
-| `last_modified` | ISO 8601 | Filesystem last-modified timestamp |
+| `last_modified` | ISO 8601 | Filesystem timestamp of the version last ingested |
 | `ingested_at` | ISO 8601 \| null | When last successfully ingested; null if never ingested |
+| `fingerprint` | object | Exact ingested-byte identity: `mtime_ns`, `size`, and SHA-256 |
 
 **Invariants**:
 - Files in `raw/` are never modified by the ingest or query skills — only by import skills or the user directly
@@ -27,7 +28,9 @@ A file in `raw/` representing a single unit of captured content. The source of t
 ```
 [file created in raw/] → uningested
 [ingest runs, file is new or changed] → ingested (manifest updated)
-[file modified after ingestion] → stale (last_modified > ingested_at)
+[file metadata changed] → hash current bytes
+[hash changed] → stale
+[hash unchanged] → current; refresh metadata without synthesis
 ```
 
 ---
@@ -40,17 +43,29 @@ Machine-managed state file at `raw/.ingest-manifest.json`. Never edited by the u
 {
   "raw/article.md": {
     "last_modified": "2026-06-15T10:22:00Z",
-    "ingested_at": "2026-06-16T09:00:00Z"
+    "ingested_at": "2026-06-16T09:00:00Z",
+    "fingerprint": {
+      "mtime_ns": 1781518920000000000,
+      "size": 12345,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
   },
   "raw/craft/2026-06-16_note.md": {
     "last_modified": "2026-06-16T08:00:00Z",
-    "ingested_at": "2026-06-16T09:00:00Z"
+    "ingested_at": "2026-06-16T09:00:00Z",
+    "fingerprint": {
+      "mtime_ns": 1781510400000000000,
+      "size": 6789,
+      "sha256": "abcdef0123456789abcdef0123456789abcdef0123456789abcdef0123456789"
+    }
   }
 }
 ```
 
 **Rules**:
 - Written atomically (full overwrite) after every successful ingest run
+- Existing valid entries without fingerprints are silently baselined at their current bytes; files absent from the manifest remain pending
+- Filesystem timestamp or size changes are confirmed by SHA-256 so metadata-only churn does not trigger synthesis
 - If a file is deleted from `raw/`, its entry remains in the manifest (tombstone pattern — no action required, ingest simply won't find the file)
 - The manifest does not store wiki article content or topics; it only tracks ingestion state of raw files
 

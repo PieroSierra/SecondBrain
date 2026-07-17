@@ -1,3 +1,9 @@
 {
-  "enableAllProjectMcpServers": true
+  "enableAllProjectMcpServers": true,
+  "permissions": {
+    "allow": [
+      "Bash(python3 dashboard/ingest_state.py prepare)",
+      "Bash(python3 dashboard/ingest_state.py finalize)"
+    ]
+  }
 }

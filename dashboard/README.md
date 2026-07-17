@@ -10,12 +10,12 @@ The bridge prints `http://127.0.0.1:4173/` and opens it in your browser. Stop wi
 
 ## What it does
 
-Every model-backed action is performed by shelling out to the configured agent CLI — `claude -p "..." --output-format json` (default) or `codex exec "$..." --sandbox workspace-write` when `AGENT_ENGINE=codex`. The bridge is a single Python stdlib script that:
+Every model-backed action is performed by shelling out to the configured agent CLI — `claude -p "..." --output-format json` (default) or `codex exec "$..." --sandbox workspace-write` when `AGENT_ENGINE=codex`. The bridge is Python-standard-library-only and:
 
 - Serves the static page (`index.html`, `styles.css`, `app.js`, `lib/marked.min.js`).
 - Forwards `POST /run` requests to the corresponding skill (`/second-brain-query`, `-md-add`, `-craft-import`, `-pdf-import`, `-ingest`, `-lint`).
 - Accepts file uploads at `POST /upload-file` (and PDFs at the older `POST /upload-pdf`), staged in `dashboard/.uploads/` and cleaned up after. Office and CSV files (`.pptx`/`.docx`/`.xlsx`/`.xlsm`/`.csv`) are converted to Markdown **in-process** by the pure-stdlib extractors (`pptx_extract.py`, `docx_extract.py`, `xlsx_extract.py`) — no model call, near-instant, landing in `raw/pptx|docx|xlsx|csv/`; these may be up to 512 MB (they stream). Everything else (PDF, images, text) runs the import skill via the agent and is capped at 64 MB.
-- Reads `raw/.ingest-manifest.json` plus the filesystem for `GET /status` — never spawns `claude` for that.
+- Reads `raw/.ingest-manifest.json` plus the filesystem for `GET /status` — never spawns an agent for that. `ingest_state.py` uses mtime/size as a fast signal and SHA-256 as content identity, shared by dashboard and direct CLI ingestion.
 
 There is no framework, no `pip install`, no `node_modules`, no database, no remote exposure. Listens only on `127.0.0.1`.
 
@@ -43,6 +43,11 @@ python3 dashboard/bridge.py --port 4180 --no-open
 ## Permissions
 
 The skills are **not** invoked with `bypassPermissions`. Each skill is run with an explicit `--allowedTools` list (the minimum it needs, with `Write`/`Edit` path-scoped to the vault) plus a `--disallowedTools` deny list (`Bash`, `WebFetch` except web-import, `Agent`, `Workflow`). The dashboard surfaces any denials as part of the model's reply.
+
+Direct interactive invocation of `/second-brain-ingest` has one narrow exception:
+project settings pre-authorise the exact `ingest_state.py prepare` and `finalize`
+commands. Bridge-managed ingest still denies Bash because the bridge performs
+those two state transitions outside the agent process.
 
 Do **not** add bare `Write`, `Edit`, or `Bash` to `permissions.allow` in `.claude/settings.local.json` to "fix" a denial — that re-opens the vault-escape hole the scoping closes. If a skill genuinely needs another capability, add the narrowest possible rule (path-scoped or command-scoped).
 
@@ -79,6 +84,7 @@ The dashboard is a thin front-end; every action it exposes runs one of the
 SecondBrain/                     vault root
 ├── dashboard/                   this web front-end
 │   ├── bridge.py                HTTP server + claude proxy
+│   ├── ingest_state.py          shared fingerprint scan + manifest finalizer
 │   ├── index.html               single-page UI
 │   ├── styles.css               visual design (cream paper, serif display)
 │   ├── app.js                   front-end controller (vanilla ES module)

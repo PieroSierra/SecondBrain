@@ -10,9 +10,9 @@ Responsibilities:
   - On GET /status (future story), read the filesystem.
 
 Non-responsibilities (deliberate):
-  - No KB logic. The bridge never parses the model's `result` text to make
-    decisions. The PROMPT_TEMPLATES dict is the only KB-aware code here.
-  - No persisted state. No DB, no cache, no log file beyond a single run.
+  - No knowledge synthesis. Skills decide wiki content; deterministic raw-file
+    change detection and manifest finalization live in ingest_state.py.
+  - No database or remote state.
   - No external binary other than `claude`. No shell=True.
 
 Spec: specs/002-interactive-dashboard/plan.md
@@ -37,8 +37,10 @@ import threading
 import time
 import urllib.parse
 from contextlib import contextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
+
+import ingest_state
 
 # ---------------------------------------------------------------------------
 # Paths & constants
@@ -1189,98 +1191,35 @@ def _format_prompt(kind: str, args: dict) -> tuple[str | None, dict | None]:
 # ---------------------------------------------------------------------------
 #
 # `GET /status` returns a snapshot of vault counts and last-ingest time.
-# Source of truth for "pending":
-#   - `raw/.ingest-manifest.json` has shape: { "<rel-path>": {last_modified, ingested_at}, ... }
-#   - A user-facing raw file is "pending" iff:
-#       (a) it is not in the manifest at all, OR
-#       (b) its current filesystem mtime > the manifest's ingested_at
-# "User-facing raw files" are: raw/*.md, raw/pdf/**/*.md, raw/craft/**/*.md.
-# We deliberately ignore *.assets/ contents and the manifest itself.
+# Source of truth for "pending" is dashboard/ingest_state.py. Filesystem mtime
+# and size are a cheap change signal; SHA-256 confirms whether bytes actually
+# changed so a git checkout does not make the whole vault look stale.
 
 WIKI_DIR = VAULT_ROOT / "wiki"
 INGEST_MANIFEST = RAW_DIR / ".ingest-manifest.json"
 
-# Tolerate small clock skew between filesystem mtime and manifest timestamps
-# (e.g. when the skill writes the manifest a fraction of a second before the
-# file is closed). Without this, files would always look "pending" by a few
-# hundred ms after every ingest.
-_MTIME_SLACK = timedelta(seconds=1)
-
 
 def _raw_user_files() -> dict[str, Path]:
     """Return {relative_path: Path} for every user-facing file in raw/."""
-
-    out: dict[str, Path] = {}
-    if not RAW_DIR.exists():
-        return out
-    for p in RAW_DIR.rglob("*"):
-        if not p.is_file():
-            continue
-        # Skip dotfiles (.DS_Store, .ingest-manifest.json, etc.) at any level.
-        if any(part.startswith(".") for part in p.relative_to(RAW_DIR).parts):
-            continue
-        rel = p.relative_to(VAULT_ROOT).as_posix()
-        # Skip image/asset attachments — the manifest tracks them but they
-        # are not user-facing "raw items".
-        if ".assets/" in rel or rel.endswith(".assets"):
-            continue
-        out[rel] = p
-    return out
+    return ingest_state.raw_user_files(VAULT_ROOT)
 
 
 def _load_ingest_manifest() -> tuple[dict, bool]:
     """Read raw/.ingest-manifest.json, degrading to ({}, False) on any error."""
-
-    if not INGEST_MANIFEST.exists():
-        return {}, False
-    try:
-        manifest = json.loads(INGEST_MANIFEST.read_text())
-    except (OSError, json.JSONDecodeError):
-        return {}, False
-    if not isinstance(manifest, dict):
-        return {}, False
-    return manifest, True
+    return ingest_state.load_manifest(VAULT_ROOT)
 
 
 def _raw_pending_count(manifest: dict, manifest_ok: bool,
                        raw_files: dict[str, Path]) -> int:
-    """Number of user-facing raw files awaiting (re)ingestion.
+    """Number of new or content-changed raw files awaiting ingestion."""
 
-    Staleness rule (matches the ingest skill's SKILL.md): a file is pending iff it
-    has no manifest entry, was never confirmed ingested, or its recorded
-    `last_modified` is later than its `ingested_at`. We compare the manifest's own
-    recorded timestamps — never the live filesystem mtime — so a git checkout /
-    branch switch (which rewrites mtimes without changing content) never inflates
-    the count. No manifest = everything is pending.
-    """
-
-    if not manifest_ok:
-        return len(raw_files)
-    pending = 0
-    for rel in raw_files:
-        entry = manifest.get(rel)
-        if not isinstance(entry, dict):
-            pending += 1  # no manifest entry → genuinely new
-            continue
-        ingested_at_str = entry.get("ingested_at")
-        if not ingested_at_str:
-            pending += 1  # never confirmed ingested
-            continue
-        try:
-            ingested_at = datetime.fromisoformat(ingested_at_str.replace("Z", "+00:00"))
-        except ValueError:
-            pending += 1
-            continue
-        last_modified_str = entry.get("last_modified")
-        if not last_modified_str:
-            continue  # recorded as ingested, no known later change → current
-        try:
-            last_modified = datetime.fromisoformat(last_modified_str.replace("Z", "+00:00"))
-        except ValueError:
-            continue
-        if last_modified > ingested_at + _MTIME_SLACK:
-            pending += 1  # edited after it was last ingested
-    return pending
+    scan = ingest_state.scan_vault(
+        VAULT_ROOT,
+        manifest=manifest,
+        manifest_ok=manifest_ok,
+        files=raw_files,
+    )
+    return scan["pending_count"]
 
 
 def _vault_status() -> dict:
@@ -1599,37 +1538,20 @@ def _body_sha(body: str) -> str:
     return hashlib.sha256(norm.encode("utf-8")).hexdigest()
 
 
-def _is_ingested(manifest: dict, manifest_ok: bool, rel: str) -> bool:
-    """Whether a raw file has been folded into the wiki and not edited since.
-
-    Mirrors the (inverse of the) staleness rule in _raw_pending_count()."""
-    if not manifest_ok:
-        return False
-    entry = manifest.get(rel)
-    if not isinstance(entry, dict):
-        return False
-    ingested_at_str = entry.get("ingested_at")
-    if not ingested_at_str:
-        return False
-    try:
-        ingested_at = datetime.fromisoformat(ingested_at_str.replace("Z", "+00:00"))
-    except ValueError:
-        return False
-    last_modified_str = entry.get("last_modified")
-    if not last_modified_str:
-        return True
-    try:
-        last_modified = datetime.fromisoformat(last_modified_str.replace("Z", "+00:00"))
-    except ValueError:
-        return True
-    return last_modified <= ingested_at + _MTIME_SLACK
-
-
 def _raw_index() -> list[dict]:
     """Lightweight metadata for every raw .md file, memoized by (path, mtime)."""
 
     manifest, manifest_ok = _load_ingest_manifest()
     files = _raw_user_files()
+    state_by_path = {
+        item["path"]: item
+        for item in ingest_state.scan_vault(
+            VAULT_ROOT,
+            manifest=manifest,
+            manifest_ok=manifest_ok,
+            files=files,
+        )["items"]
+    }
     out: list[dict] = []
     for rel, p in files.items():
         if not rel.endswith(".md"):
@@ -1675,7 +1597,8 @@ def _raw_index() -> list[dict]:
             }
             _raw_index_cache[rel] = (mtime, static)
             entry = dict(static)
-        entry["ingested"] = _is_ingested(manifest, manifest_ok, rel)
+        state = state_by_path.get(rel)
+        entry["ingested"] = bool(state and not state["pending"])
         out.append(entry)
     # Drop cache entries for files that no longer exist.
     live = set(files)
@@ -2563,6 +2486,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 },
             )
 
+        if kind == "ingest":
+            envelope = self._run_ingest(PROMPT_TEMPLATES[kind])
+            status_code = envelope.pop("__status__", 200)
+            return _json_response(self, status_code, envelope)
+
         prompt, err = _format_prompt(kind, args)
         if err is not None:
             return _json_response(self, 400, err)
@@ -2676,6 +2604,107 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         except Exception as exc:  # never let a bad candidate 500 the check
             return _json_response(self, 200, {"matches": [], "error": str(exc)})
         _json_response(self, 200, result)
+
+    def _run_ingest(self, cfg: dict) -> dict:
+        """Run ingest from a deterministic fingerprint scan plan.
+
+        The bridge owns manifest preparation and finalization. The agent reads
+        the plan and updates wiki content, but never decides which raw files are
+        stale and never marks them ingested itself.
+        """
+
+        started = time.time()
+        plan_path: Path | None = None
+        try:
+            with long_op("ingest"):
+                prepared = ingest_state.prepare_scan(VAULT_ROOT)
+                plan = prepared["plan"]
+                plan_path = prepared["plan_path"]
+                pending_items = plan["pending_items"]
+                process_paths = plan["process_paths"]
+
+                if not process_paths:
+                    skipped = [item for item in pending_items if not item["processable"]]
+                    ingest_state.discard_plan(plan_path)
+                    detail = "Nothing to ingest — all supported files are up to date."
+                    if skipped:
+                        detail += f"\n\nPending but skipped: {len(skipped)}"
+                        for item in skipped[:20]:
+                            detail += f"\n- {item['path']} ({item['state']})"
+                    return {
+                        "__status__": 200,
+                        "result": detail,
+                        "kind": "ingest",
+                        "output_file": None,
+                        "created_files": [],
+                        "is_error": False,
+                        "duration_ms": int((time.time() - started) * 1000),
+                    }
+
+                rel_plan = plan_path.relative_to(VAULT_ROOT).as_posix()
+                prompt = (
+                    f'/second-brain-ingest --scan-plan "{rel_plan}" '
+                    f'--managed-manifest --scan-id "{plan["scan_id"]}"'
+                )
+                status, result = run_skill(prompt, cfg)
+                if status != 200:
+                    ingest_state.discard_plan(plan_path)
+                    return {"__status__": status, **result, "kind": "ingest"}
+                if result.get("is_error"):
+                    ingest_state.discard_plan(plan_path)
+                    return {
+                        "__status__": 200,
+                        **result,
+                        "kind": "ingest",
+                        "output_file": None,
+                        "created_files": [],
+                    }
+
+                marker = f'<!-- sb:ingest-complete scan_id="{plan["scan_id"]}" -->'
+                result_text = str(result.get("result") or "")
+                if marker not in result_text:
+                    ingest_state.discard_plan(plan_path)
+                    return {
+                        "__status__": 200,
+                        **result,
+                        "is_error": True,
+                        "result": (
+                            result_text
+                            + "\n\nIngest did not confirm complete processing; "
+                              "the manifest was left unchanged for a safe retry."
+                        ).strip(),
+                        "kind": "ingest",
+                        "output_file": None,
+                        "created_files": [],
+                    }
+
+                finalized = ingest_state.finalize_plan(VAULT_ROOT, plan_path)
+                plan_path = None
+                if finalized["changed_during_ingest"]:
+                    result_text += (
+                        "\n\nThese sources changed during ingestion and remain pending:\n- "
+                        + "\n- ".join(finalized["changed_during_ingest"])
+                    )
+                result = {**result, "result": result_text}
+                return {
+                    "__status__": 200,
+                    **result,
+                    "kind": "ingest",
+                    "output_file": None,
+                    "created_files": [],
+                    "duration_ms": int((time.time() - started) * 1000),
+                }
+        except Busy as busy:
+            return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
+        except (OSError, ingest_state.IngestStateError) as exc:
+            if plan_path is not None:
+                ingest_state.discard_plan(plan_path)
+            return {
+                "__status__": 500,
+                "error": "ingest_state_failed",
+                "detail": str(exc),
+                "kind": "ingest",
+            }
 
     def _run_kind(self, kind: str, prompt: str, cfg: dict, args: dict | None = None) -> dict:
         """Acquire the mutex, run the skill, and return the response envelope.
@@ -3041,6 +3070,20 @@ def main(argv: list[str] | None = None) -> int:
     )
 
     _clean_uploads()
+
+    # Add fingerprints to legacy manifest entries and absorb metadata-only
+    # changes before the first status request. This is deterministic and never
+    # launches an agent; unmanifested files remain pending.
+    try:
+        migration = ingest_state.migrate_manifest(VAULT_ROOT)
+        if migration.get("updated"):
+            sys.stderr.write(
+                f"Ingest manifest fingerprinted/normalized: {migration['updated']} entries\n"
+            )
+    except (OSError, ingest_state.IngestStateError) as exc:
+        # A damaged or read-only manifest must not prevent the dashboard from
+        # starting. Status degrades to pending and ingest will retry safely.
+        sys.stderr.write(f"Warning: ingest manifest migration skipped: {exc}\n")
 
     server = http.server.ThreadingHTTPServer((args.host, args.port), DashboardHandler)
     url = f"http://{args.host}:{args.port}/"

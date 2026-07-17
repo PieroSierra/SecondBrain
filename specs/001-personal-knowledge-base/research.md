@@ -19,18 +19,23 @@
 
 ## Decision 2: Ingest Manifest Format
 
-**Decision**: `raw/.ingest-manifest.json` — a flat JSON object keyed by file path (relative to vault root), with each value containing `last_modified` (ISO 8601 timestamp string) and `ingested_at` (ISO 8601 timestamp string).
+**Decision**: `raw/.ingest-manifest.json` — a flat JSON object keyed by file path (relative to vault root), with each value containing `last_modified`, `ingested_at`, and a fingerprint of `mtime_ns`, size, and SHA-256.
 
 ```json
 {
   "raw/article-on-leadership.md": {
     "last_modified": "2026-06-15T10:22:00Z",
-    "ingested_at": "2026-06-16T09:00:00Z"
+    "ingested_at": "2026-06-16T09:00:00Z",
+    "fingerprint": {
+      "mtime_ns": 1781518920000000000,
+      "size": 12345,
+      "sha256": "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+    }
   }
 }
 ```
 
-**Rationale**: Flat JSON is the simplest structure the ingest skill can read and write without a database. Keying by relative path is stable across machines. Storing both `last_modified` and `ingested_at` lets the skill detect changed files (where `last_modified` > `ingested_at`) and skip unchanged ones.
+**Rationale**: Flat JSON remains portable and database-free. Relative paths are stable across machines. Filesystem metadata is a cheap change signal, while SHA-256 distinguishes genuine byte changes from branch checkouts or `touch` operations that change only timestamps.
 
 **Alternatives considered**:
 - Git-based change detection: Requires the vault to be a git repository and complicates the skill logic. Rejected — vault may not always have git.

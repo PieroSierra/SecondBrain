@@ -11,7 +11,7 @@
 
 - Q: How should PDF ingestion be handled — auto-detected inline during standard ingest, or via a dedicated PDF import skill that converts to markdown first? → A: Dedicated PDF import skill that converts PDFs to markdown and writes them into `raw/pdf/`; standard ingest then processes them as normal markdown
 - Q: When the Craft import skill runs, what scope of notes should it retrieve — all notes, a configured space/folder, or only explicitly tagged notes? → A: A specific Craft space or folder (configured in `CLAUDE.md`), or a specific individual note targeted at invocation time
-- Q: How does the ingest command track which files have already been processed — manifest file, full rebuild, or git history? → A: A manifest file (`raw/.ingest-manifest.json`) records each ingested file's path and last-modified timestamp; ingest compares against it to find new or changed files
+- Q: How does the ingest command track which files have already been processed — manifest file, full rebuild, or git history? → A: A manifest file (`raw/.ingest-manifest.json`) records each ingested file's path, timestamps, size, and SHA-256 fingerprint; metadata changes trigger a hash comparison to find genuine content changes
 - Q: How does the user declare their interests in `CLAUDE.md` for the first time — guided setup skill or manual template editing? → A: A one-time setup skill walks the user through declaring their interests interactively and writes the `CLAUDE.md` file
 - Q: What naming convention should output files in `outputs/` follow? → A: `YYYY-MM-DD_query-<slug>.md` for query outputs and `YYYY-MM-DD_lint.md` for lint reports (date + type prefix + brief slug)
 
@@ -114,11 +114,11 @@ The user runs a lint command periodically. The system reads the entire wiki, ide
 ### Functional Requirements
 
 - **FR-001**: The system MUST maintain a three-tier folder structure: `raw/` for unprocessed input, `wiki/` for AI-organised knowledge, and `outputs/` for generated results
-- **FR-002**: The system MUST provide an ingest command that reads new or changed files in `raw/` and updates `wiki/` accordingly; ingestion state MUST be tracked in a manifest file at `raw/.ingest-manifest.json` recording each file's path and last-modified timestamp
+- **FR-002**: The system MUST provide an ingest command that reads new or content-changed files in `raw/` and updates `wiki/` accordingly; ingestion state MUST be tracked in `raw/.ingest-manifest.json` with each file's path, timestamps, size, and SHA-256 fingerprint
 - **FR-003**: The ingest command MUST create new wiki topic files when new subjects are encountered, and update existing ones when new raw content touches an existing topic
 - **FR-004**: Wiki articles MUST be cross-linked using `[[topic-name]]` wikilink syntax wherever related topics are referenced
 - **FR-005**: The system MUST maintain a `wiki/INDEX.md` file that lists all current wiki topics with one-line summaries, updated on every ingest
-- **FR-006**: The system MUST NEVER modify files in `raw/` — that folder is append-only and serves as the source of truth
+- **FR-006**: The ingest operation MUST NOT modify source files in `raw/`; users and importers MAY update an existing source path, and ingestion MUST detect changed bytes
 - **FR-007**: The system MUST provide a query capability that accepts a natural-language question and returns a synthesised answer drawn from `wiki/` content
 - **FR-008**: Query responses MUST cite the specific wiki articles that informed the answer
 - **FR-009**: Every query response MUST be saved to `outputs/` using the filename convention `YYYY-MM-DD_query-<slug>.md`, where the slug is a short kebab-case summary of the question; the file MUST contain the original question and the full answer
@@ -144,7 +144,7 @@ The user runs a lint command periodically. The system reads the entire wiki, ide
 - **Query Output**: A markdown file in `outputs/` named `YYYY-MM-DD_query-<slug>.md`, containing the original question and the system's synthesised answer with source citations.
 - **Lint Report**: A markdown file in `outputs/` named `YYYY-MM-DD_lint.md`, listing contradictions, unsupported claims, and content gap recommendations found during a lint pass.
 - **Index**: `wiki/INDEX.md` — a continuously maintained list of all wiki topics with one-line summaries and links.
-- **Ingest Manifest**: `raw/.ingest-manifest.json` — a machine-maintained record of every file that has been ingested, keyed by file path with last-modified timestamp. Never modified by the user; updated atomically by the ingest command after each successful run.
+- **Ingest Manifest**: `raw/.ingest-manifest.json` — a machine-maintained record of every file that has been ingested, keyed by file path with timestamps and a content fingerprint. Never modified by the user; updated atomically by deterministic ingestion-state code after each successful run.
 
 ## Success Criteria *(mandatory)*
 

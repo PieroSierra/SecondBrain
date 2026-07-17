@@ -16,7 +16,7 @@ Build a self-organising personal knowledge base driven entirely by Claude Code s
 **Target Platform**: macOS (Claude Code CLI, current working directory)  
 **Project Type**: Skill-based knowledge management system (Claude Code skills)  
 **Performance Goals**: Ingest batch of ≤20 files in <2 minutes; queries answered in <60 seconds  
-**Constraints**: No external services, servers, or runtime dependencies beyond Claude Code; append-only `raw/`  
+**Constraints**: No external services or third-party runtime dependencies; ingest treats `raw/` as read-only while users and importers may update sources
 **Scale/Scope**: Single user, personal corpus; expected to grow to hundreds of wiki articles over months
 
 ## Constitution Check
@@ -48,7 +48,7 @@ specs/001-personal-knowledge-base/
 ```text
 /Users/piero.sierra/Development/SecondBrain/
 ├── CLAUDE.md                          # vault schema, folder rules, user interests
-├── raw/                               # append-only source content
+├── raw/                               # source content; ingest-read-only, importer-updateable
 │   ├── .ingest-manifest.json          # ingestion state (auto-managed by ingest skill)
 │   ├── craft/                         # notes imported from Craft MCP
 │   └── pdf/                           # markdown extracted from PDF files

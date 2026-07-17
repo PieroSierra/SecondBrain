@@ -40,6 +40,7 @@ outputs/**
 
 # Dashboard transient state
 dashboard/.uploads/
+dashboard/.ingest-state/
 dashboard/.lockdown-settings.json
 __pycache__/
 *.pyc

@@ -18,16 +18,16 @@ No arguments.
 
 ## Behaviour
 
-1. Read `raw/.ingest-manifest.json` (or treat all files as new if manifest absent)
-2. Scan all files in `raw/` recursively (skip `.ingest-manifest.json` and non-markdown files, log skipped non-text files as warnings)
-3. For each file where `last_modified > ingested_at` (or no manifest entry): process as new/changed
+1. Run the deterministic ingestion-state preparation step (or consume the bridge-supplied scan plan)
+2. Classify every raw source from its manifest fingerprint: matching metadata is current; changed metadata is confirmed with SHA-256; absent or invalid entries are pending
+3. Silently add fingerprints to valid legacy entries; never baseline unmanifested files
 4. For each new/changed file:
    a. Read the file content
    b. Identify the topic(s) it covers, guided by the user's declared interests in `CLAUDE.md`
    c. For each topic: read existing `wiki/<topic>.md` if it exists, then create or update it
    d. Ensure cross-links (`[[wikilinks]]`) are added to related articles
 5. Rebuild `wiki/INDEX.md` from all current wiki articles
-6. Write updated manifest to `raw/.ingest-manifest.json` (atomic overwrite)
+6. After all wiki writes succeed, revalidate processed fingerprints and atomically finalize the manifest through the deterministic helper
 7. Report: files processed, articles created, articles updated, files skipped
 
 ## Outputs
@@ -42,12 +42,12 @@ No arguments.
 
 - `raw/` files are NEVER modified
 - Wiki articles are never deleted by ingest — only created or updated
-- Manifest is written only after all wiki updates complete successfully
+- Only the deterministic finalizer writes the manifest, after all wiki updates complete successfully
 
 ## Error Conditions
 
 | Condition | Behaviour |
 |-----------|-----------|
 | Non-text file in `raw/` | Skip with logged warning; do not add to manifest |
-| Wiki write fails mid-batch | Report partial progress; manifest reflects only successfully ingested files |
+| Wiki write fails mid-batch | Report partial progress; do not finalize the scan, leaving affected files pending |
 | No new or changed files | Report "nothing to ingest" and exit cleanly |
