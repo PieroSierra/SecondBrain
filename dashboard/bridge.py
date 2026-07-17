@@ -377,13 +377,14 @@ def _build_craft_import(args: dict) -> str:
 def _build_pdf_import(args: dict) -> str:
     # `pdf_path` is set by the bridge after the file is staged to .uploads/.
     path = args["pdf_path"]
+    parts = [f'/second-brain-import-pdf "{_shell_quote(path)}"']
     context = (args.get("context") or "").strip()
     if context:
-        return (
-            f'/second-brain-import-pdf "{_shell_quote(path)}" '
-            f'--context "{_shell_quote(context)}"'
-        )
-    return f'/second-brain-import-pdf "{_shell_quote(path)}"'
+        parts.append(f'--context "{_shell_quote(context)}"')
+    page_count = args.get("page_count")
+    if page_count:
+        parts.append(f"--pages {int(page_count)}")
+    return " ".join(parts)
 
 
 def _build_file_import(args: dict) -> str:
@@ -1851,8 +1852,19 @@ def _parse_multipart_pdf(
     raise UploadError("no file part found in multipart body")
 
 
-def _stage_pdf(filename: str, body: bytes) -> Path:
-    """Validate and write the uploaded PDF to dashboard/.uploads/."""
+def _count_pdf_pages(body: bytes) -> int | None:
+    """Return the page count from raw PDF bytes, or None if unparseable."""
+    try:
+        return len(re.findall(rb"/Type\s*/Page\b", body))
+    except Exception:
+        return None
+
+
+def _stage_pdf(filename: str, body: bytes) -> tuple[Path, int | None]:
+    """Validate and write the uploaded PDF to dashboard/.uploads/.
+
+    Returns (path, page_count) where page_count may be None if undetectable.
+    """
 
     if not filename.lower().endswith(".pdf"):
         raise UploadError("not a PDF (filename must end in .pdf)")
@@ -1870,7 +1882,8 @@ def _stage_pdf(filename: str, body: bytes) -> Path:
         safe_stem = "upload"
     target = uploads / f"{safe_stem}.pdf"
     target.write_bytes(body)
-    return target
+    page_count = _count_pdf_pages(body)
+    return target, page_count
 
 
 def _stage_file(filename: str, body: bytes) -> Path:
@@ -2088,7 +2101,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             filename, body, fields = _parse_multipart_pdf(
                 self.headers.get("Content-Type", ""), raw
             )
-            tempfile_path = _stage_pdf(filename, body)
+            tempfile_path, page_count = _stage_pdf(filename, body)
         except UploadError as exc:
             return _json_response(
                 self, 400, {"error": "not_a_pdf", "detail": str(exc)}
@@ -2099,6 +2112,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             pdf_args = {
                 "pdf_path": str(tempfile_path),
                 "context": (fields.get("context") or "").strip()[:2000],
+                "page_count": page_count,
             }
             prompt = cfg["build"](pdf_args)
             envelope = self._run_kind("pdf-import", prompt, cfg, pdf_args)
