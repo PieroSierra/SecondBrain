@@ -1,13 +1,13 @@
 
 ![Second Brain](chrome-extension/icon-128.png)
 # Second Brain
-A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — through **Claude Code**, **OpenAI Codex** skills, or a **local web dashboard** (available as a downloadable [macOS app](https://github.com/PieroSierra/SecondBrain/releases/latest)).
+A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — through **Claude Code**, **OpenAI Codex**, or **OpenCode** skills, or a **local web dashboard** (available as a downloadable [macOS app](https://github.com/PieroSierra/SecondBrain/releases/latest)).
 
 ---
 
 ## START HERE — first run
 
-Just cloned this? Do these steps **in order**. It's the same in Claude Code or Codex.
+Just cloned this? Do these steps **in order**. It's the same in Claude Code, Codex, or OpenCode.
 
 1. **Clone the repo** (your agent may have already done this).
 2. **Restart your agent so it's running _inside_ the SecondBrain folder.** Agents
@@ -54,13 +54,14 @@ Content flows in one direction: `raw/` → ingest → `wiki/` → query → `out
 
 ## Prerequisites
 
-- **An agent CLI on your PATH — either one:**
+- **An agent CLI on your PATH — any one:**
   - **Claude Code** (`claude`) — install from [claude.ai/code](https://claude.ai/code), then sign in. *(default)*
   - **OpenAI Codex** (`codex`) — install per [OpenAI's Codex CLI docs](https://developers.openai.com/codex/cli), then `codex login` (or set `CODEX_API_KEY`).
+  - **OpenCode** (`opencode`) — install per [OpenCode's docs](https://opencode.ai/docs/), then `opencode auth login` to configure a model provider (any provider on [Models.dev](https://models.dev), including the free OpenCode Zen models).
 
-  Both run the **same** Second Brain skills; pick one at setup. Switch any time by changing `AGENT_ENGINE` in `.env`.
+  All three run the **same** Second Brain skills; pick one at setup. Switch any time by changing `AGENT_ENGINE` in `.env`.
 - **Python 3** (macOS system Python is fine — no `pip install` needed).
-- (optional) The **Craft MCP** integration — configured in Claude Code's MCP settings, or in `~/.codex/config.toml` for Codex — if you want Craft import.
+- (optional) The **Craft MCP** integration — configured in Claude Code's MCP settings, in `~/.codex/config.toml` for Codex, or in OpenCode's config for OpenCode — if you want Craft import.
 
 ---
 
@@ -71,7 +72,7 @@ Content flows in one direction: `raw/` → ingest → `wiki/` → query → `out
 $second-brain-setup     # Codex
 ```
 
-This asks which agent engine you use (Claude Code or Codex), records it in `.env`, declares your interests, and writes the configuration file — `CLAUDE.md` and `AGENTS.md` both, so you can switch engines later. Run it once, or again any time you want to update your interests.
+This asks which agent engine you use, records it in `.env`, declares your interests, and writes the configuration file — `CLAUDE.md` and `AGENTS.md` both, so you can switch engines later. (`CLAUDE.md` is read by Claude Code; `AGENTS.md` by Codex **and** OpenCode.) Run it once, or again any time you want to update your interests.
 
 > **Restart after setup.** Skills and config load at agent startup, so quit and
 > reopen your agent **inside this folder** once setup finishes — see
@@ -79,34 +80,34 @@ This asks which agent engine you use (Claude Code or Codex), records it in `.env
 
 ---
 
-## Agent engine — Claude Code or Codex
+## Agent engine — Claude Code, Codex, or OpenCode
 
-Every Second Brain operation is an [agent skill](https://agentskills.io) — a `SKILL.md` of plain instructions. **Claude Code** and **OpenAI Codex** run the *same* skills, so you can use whichever you prefer. The choice lives in one place: `AGENT_ENGINE` in `.env`.
+Every Second Brain operation is an [agent skill](https://agentskills.io) — a `SKILL.md` of plain instructions. **Claude Code**, **OpenAI Codex**, and **OpenCode** run the *same* skills, so you can use whichever you prefer. The choice lives in one place: `AGENT_ENGINE` in `.env`.
 
-|                          | Claude Code *(default)*                         | Codex                                            |
-| ------------------------ | ----------------------------------------------- | ------------------------------------------------ |
-| `.env`                   | `AGENT_ENGINE=claude`                           | `AGENT_ENGINE=codex`                             |
-| Binary                   | `claude` (override with `CLAUDE_BIN`)           | `codex` (override with `CODEX_BIN`)              |
-| Invoke a skill by hand   | `/second-brain-query "…"`                       | `$second-brain-query "…"`                        |
-| Config file it reads     | `CLAUDE.md`                                      | `AGENTS.md`                                       |
-| Vault confinement        | per-tool allow/deny + vault-scoped `Write`      | `--sandbox workspace-write` rooted at the vault  |
+|                        | Claude Code *(default)*                    | Codex                                           | OpenCode                                          |
+| ---------------------- | ------------------------------------------ | ----------------------------------------------- | ------------------------------------------------- |
+| `.env`                 | `AGENT_ENGINE=claude`                      | `AGENT_ENGINE=codex`                            | `AGENT_ENGINE=opencode`                           |
+| Binary                 | `claude` (override with `CLAUDE_BIN`)      | `codex` (override with `CODEX_BIN`)             | `opencode` (override with `OPENCODE_BIN`)         |
+| Invoke a skill by hand | `/second-brain-query "…"`                  | `$second-brain-query "…"`                       | `/second-brain-query "…"`                         |
+| Config file it reads   | `CLAUDE.md`                                | `AGENTS.md`                                      | `AGENTS.md`                                        |
+| Vault confinement      | per-tool allow/deny + vault-scoped `Write` | `--sandbox workspace-write` rooted at the vault | `run --auto` scoped to the vault dir (`--dir`)    |
 
-`/second-brain-setup` writes **both** `CLAUDE.md` and `AGENTS.md` (identical content), and the canonical `.claude/skills/` tree is exposed to Codex through a `.agents/skills` link the dashboard creates automatically — so nothing else needs changing when you switch.
+`/second-brain-setup` writes **both** `CLAUDE.md` and `AGENTS.md` (identical content), and the canonical `.claude/skills/` tree is exposed to Codex and OpenCode through a `.agents/skills` link the dashboard creates automatically — so nothing else needs changing when you switch.
 
 ### Switching engines
 
-1. Set `AGENT_ENGINE=codex` (or `claude`) in `.env` at the vault root.
+1. Set `AGENT_ENGINE=opencode` (or `claude` / `codex`) in `.env` at the vault root.
 2. Restart the dashboard with `./run.sh` — the value is read at startup.
 
-That's the whole switch. The dashboard's top status bar shows the active engine (the **"… agent"** tile), and the rest of the vault — interests, raw content, wiki — is untouched by the choice. Custom binaries stay independent: `CLAUDE_BIN` is used only under `claude` and `CODEX_BIN` only under `codex`, so flipping back and forth always relaunches the right one.
+That's the whole switch. The dashboard's top status bar shows the active engine (the **"… agent"** tile), and the rest of the vault — interests, raw content, wiki — is untouched by the choice. Custom binaries stay independent: `CLAUDE_BIN` is used only under `claude`, `CODEX_BIN` only under `codex`, and `OPENCODE_BIN` only under `opencode`, so flipping between them always relaunches the right one. With OpenCode you can also pick a model tier from the dashboard's engine menu — including the free **OpenCode Zen** models (Hy3, DeepSeek Flash, Nemotron Ultra).
 
-> **Security note:** the two engines enforce the sandbox differently. Claude Code denies `Bash`/network and path-scopes writes to the vault; Codex confines writes to the vault via its sandbox but **can still run shell commands inside it** (there is no "deny `Bash`" in Codex). Read [`dashboard/README.md`](dashboard/README.md#security-model) before choosing for an untrusted-content workflow.
+> **Security note:** the engines enforce the sandbox differently. Claude Code denies `Bash`/network and path-scopes writes to the vault. Codex and OpenCode are trust-based: Codex confines writes via `--sandbox workspace-write` and OpenCode runs with `--auto` (auto-approves anything not explicitly denied) scoped to the vault directory, but **both can still run shell commands inside the vault** — neither has a per-tool "deny `Bash`". Read [`dashboard/README.md`](dashboard/README.md#security-model) before choosing for an untrusted-content workflow.
 
 ---
 
-## Usage — Claude Code (`/`) or Codex (`$`) skills
+## Usage — Claude Code / OpenCode (`/`) or Codex (`$`) skills
 
-All knowledge-base operations are agent skills. Run them by typing the skill name in a session open to this folder — prefixed with `/` under Claude Code or `$` under Codex (e.g. `/second-brain-query "…"` or `$second-brain-query "…"`). The commands below show the Claude Code form; swap the leading `/` for `$` on Codex.
+All knowledge-base operations are agent skills. Run them by typing the skill name in a session open to this folder — prefixed with `/` under Claude Code or OpenCode, or `$` under Codex (e.g. `/second-brain-query "…"` or `$second-brain-query "…"`). The commands below show the `/` form; swap the leading `/` for `$` on Codex.
 
 ### Capture
 
@@ -156,11 +157,11 @@ The dashboard is a local web UI that surfaces the same six operations without op
 ![Dashboard example](dashboard/dashboard_sample.png)
 ### macOS app (easiest on Mac)
 
-Prefer a real app to running a script? Download **SecondBrain.app** — a signed, notarized macOS app that runs the dashboard for you: it starts the bridge, shows the dashboard in its own window, lives in the Dock while running, lets you switch engine (Claude ↔ Codex) from a menu, and shuts the bridge down when you quit.
+Prefer a real app to running a script? Download **SecondBrain.app** — a signed, notarized macOS app that runs the dashboard for you: it starts the bridge, shows the dashboard in its own window, lives in the Dock while running, lets you switch engine (Claude / Codex / OpenCode) and model tier from a menu, and shuts the bridge down when you quit.
 
 **[⬇ Download SecondBrain.app](https://github.com/PieroSierra/SecondBrain/releases/latest)** — notarized, so it opens with a normal double-click (no right-click, no Gatekeeper prompt).
 
-It's a companion to this repo, not a standalone download: clone the repo and have an agent CLI (`claude` or `codex`) on your PATH, then point the app at your vault folder on first launch. Build it yourself or read more in [`macos-app/README.md`](macos-app/README.md).
+It's a companion to this repo, not a standalone download: clone the repo and have an agent CLI (`claude`, `codex`, or `opencode`) on your PATH, then point the app at your vault folder on first launch. Build it yourself or read more in [`macos-app/README.md`](macos-app/README.md).
 
 ### Start from the terminal
 
@@ -191,7 +192,7 @@ python3 dashboard/bridge.py --port 4180 --no-open
 
 ### How it works
 
-The dashboard is a static HTML page. Every long operation fires a `POST /run` request to a tiny Python bridge (`dashboard/bridge.py`) which execs the configured agent — `claude -p "/second-brain-..." --output-format json`, or `codex exec "$second-brain-..." --sandbox workspace-write` when `AGENT_ENGINE=codex` — and streams the result back. Knowledge synthesis remains in the skills; deterministic ingestion state is shared by the bridge and direct CLI through `dashboard/ingest_state.py`.
+The dashboard is a static HTML page. Every long operation fires a `POST /run` request to a tiny Python bridge (`dashboard/bridge.py`) which execs the configured agent — `claude -p "/second-brain-..." --output-format json`, `codex exec "$second-brain-..." --sandbox workspace-write` when `AGENT_ENGINE=codex`, or `opencode run "/second-brain-..." --format json --auto --dir <vault>` when `AGENT_ENGINE=opencode` — and streams the result back. Knowledge synthesis remains in the skills; deterministic ingestion state is shared by the bridge and direct CLI through `dashboard/ingest_state.py`.
 
 ### Chrome extension
 
@@ -254,7 +255,8 @@ Avoid "fixing" a permission denial by adding bare `Write`, `Edit`, or `Bash` to 
 | "Connection refused" in the browser | The bridge isn't running — start it with `./run.sh`. |
 | `claude: command not found` in the bridge log | Ensure `claude` is on the PATH of the shell that launches the bridge, or set `CLAUDE_BIN` in `.env`. |
 | `codex: command not found` in the bridge log | With `AGENT_ENGINE=codex`, ensure `codex` is on the PATH, or set `CODEX_BIN` in `.env`. |
-| Long operation returns 504 | Skill timed out. Run the same prompt directly to debug: `claude -p "/second-brain-query \"...\"" --output-format json` (or `codex exec "$second-brain-query \"...\""`). |
+| `opencode: command not found` in the bridge log | With `AGENT_ENGINE=opencode`, ensure `opencode` is on the PATH, or set `OPENCODE_BIN` in `.env`. |
+| Long operation returns 504 | Skill timed out. Run the same prompt directly to debug: `claude -p "/second-brain-query \"...\"" --output-format json` (or `codex exec "$second-brain-query \"...\""`, or `opencode run "/second-brain-query \"...\"" --auto`). |
 | Status bar "agent" tile wrong, or change to `.env` ignored | The engine is read at startup — restart the bridge (`./run.sh`) after editing `AGENT_ENGINE`. |
 | 409 Busy | Another operation is in flight — wait for it to finish. |
 | Status strip shows `—` | `raw/.ingest-manifest.json` is missing; run `/second-brain-ingest` once to create it. |
@@ -278,7 +280,7 @@ SecondBrain/
 ├── wiki/                       AI-organised topic articles
 │   └── INDEX.md                Master topic index (rebuilt on every ingest)
 ├── outputs/                    Query answers and lint reports
-├── .claude/skills/             Agent skills — the engine behind every command (Codex reads them via the .agents/skills link)
+├── .claude/skills/             Agent skills — the engine behind every command (Codex and OpenCode read them via the .agents/skills link)
 │   ├── second-brain-query/        ask the knowledge base
 │   ├── second-brain-ingest/       fold raw/ into wiki/
 │   ├── second-brain-lint/         scan the wiki for issues
@@ -286,7 +288,7 @@ SecondBrain/
 │   ├── second-brain-import-{md,web,pdf,file,craft}/   capture content
 │   └── second-brain-setup/        first-time configuration
 ├── dashboard/                  Local web UI
-│   ├── bridge.py               Python stdlib HTTP server + claude/codex proxy
+│   ├── bridge.py               Python stdlib HTTP server + claude/codex/opencode proxy
 │   ├── index.html              Single-page dashboard
 │   ├── styles.css              Visual design
 │   ├── app.js                  Front-end controller
