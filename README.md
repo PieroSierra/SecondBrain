@@ -36,6 +36,8 @@ time it starts, so there's no restart juggling. Best path for non-technical user
 (Codex: swap the leading `/` for `$`). Full command list is under
 [Usage](#usage--claude-code--or-codex--skills) below.
 
+**Extra Credit** Install the bundled Chrome extension for easy web-page import.
+
 ---
 
 ## What it does
