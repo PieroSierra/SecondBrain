@@ -79,19 +79,35 @@ Do not attempt to answer from general knowledge. Write an output file noting the
 
 **If only partial content exists** (question is partly covered): answer the parts that are covered, then explicitly note which aspects are not in the wiki.
 
-### Step 6 — Generate output filename
+### Step 6 — Generate the thread title
 
-Generate the output slug from the first 5–6 words of the question:
+Generate one concise title that captures the specific subject of the question and answer:
+- Use 4–8 words and no more than 60 characters
+- Prefer a descriptive noun phrase over a sentence
+- Preserve important names, products, organisations, and acronyms
+- Omit request framing such as "summarise", "summarize", "what is", "how do", or "tell me"
+- Do not end with punctuation
+- Use plain text only (no Markdown)
+
+Generate this title only when starting the thread. Follow-ups never change it.
+
+Example: "Summarize how Skyscanner has changed our Software prod-end organization and ways of working to make the most of AI, including agent orchestration." → `Skyscanner's AI Software Operating Model`
+
+### Step 7 — Generate output filename
+
+Generate the output slug from the thread title:
 - Lowercase all words
 - Replace spaces with hyphens
 - Remove characters that are not alphanumeric or hyphens
-- Truncate to 40 characters maximum
+- Truncate to 60 characters maximum
 
 Output path: `outputs/YYYY-MM-DD_thread-<slug>.md`
 
-Example: "What do I know about AI partnerships?" → `outputs/2026-06-16_thread-what-do-i-know-about-ai.md`
+Example: `AI Partnership Landscape` → `outputs/2026-06-16_thread-ai-partnership-landscape.md`
 
-### Step 7 — Write the output file
+If that path already exists, append `-2`, `-3`, and so on until the path is unique. Never overwrite an existing thread.
+
+### Step 8 — Write the output file
 
 Check that `outputs/` directory exists. If not, create it.
 
@@ -100,7 +116,7 @@ Write the output file in thread format. Use the current date (YYYY-MM-DD) for th
 ```markdown
 <!-- sb:thread id="YYYY-MM-DD_thread-<slug>" created="YYYY-MM-DD" -->
 
-# [Original question]
+# [Generated thread title]
 
 <!-- sb:turn role="user" ts="YYYY-MM-DD" -->
 ## You
@@ -116,14 +132,15 @@ Write the output file in thread format. Use the current date (YYYY-MM-DD) for th
 ```
 
 Where:
-- The H1 heading reproduces the original question verbatim
+- The H1 heading is the generated thread title
+- The first user turn reproduces the original question verbatim
 - The `<!-- sb:thread -->` comment carries the thread ID (matching the filename without the `.md`)
 - Each `<!-- sb:turn -->` comment carries the role (`user` or `assistant`) and date
 - The sources line lists every wiki article that contributed to the answer (using `[[wiki/topic-name]]` syntax)
 - **No `---` horizontal rules** between turns — the comment markers delineate turns without visible dividers
 - For gap responses, the assistant turn contains the gap acknowledgement and suggestions
 
-### Step 8 — Display and confirm
+### Step 9 — Display and confirm
 
 Display the full answer to the user in the conversation.
 

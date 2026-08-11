@@ -1597,6 +1597,37 @@ function _filenameToNavMeta(filename) {
   return { date, title };
 }
 
+// The query skill targets 60 characters. This higher UI-only ceiling protects
+// against legacy or malformed titles without clipping normal generated ones.
+const OUTPUT_TITLE_DISPLAY_LIMIT = 80;
+
+function _displayOutputTitle(title) {
+  const full = String(title || "").trim();
+  if (full.length <= OUTPUT_TITLE_DISPLAY_LIMIT) return full;
+
+  const prefix = full.slice(0, OUTPUT_TITLE_DISPLAY_LIMIT + 1);
+  const wordBreak = prefix.lastIndexOf(" ");
+  const clipped = wordBreak > 0
+    ? prefix.slice(0, wordBreak)
+    : full.slice(0, OUTPUT_TITLE_DISPLAY_LIMIT);
+  return `${clipped.trimEnd()}...`;
+}
+
+function _setOutputTitle(element, title) {
+  if (!element) return;
+  const full = String(title || "").trim();
+  const display = _displayOutputTitle(full);
+  element.textContent = display;
+  if (display !== full) element.title = full;
+  else element.removeAttribute("title");
+}
+
+/** Read the canonical title stored as the thread's first Markdown H1. */
+function _threadTitleFromMarkdown(md) {
+  const match = md.match(/^#\s+(.+?)\s*$/m);
+  return match?.[1]?.trim() || "";
+}
+
 /**
  * Parse a thread markdown file and render it as chat bubbles.
  * User turns → right-aligned plain-text pill.
@@ -1749,11 +1780,13 @@ async function _optimisticThreadStart(question) {
     if (data.output_file) {
       const filename = data.output_file.replace(/^outputs\//, "");
       const { date, title } = _filenameToNavMeta(filename);
-      if (titleEl) titleEl.textContent = title;
+      _setOutputTitle(titleEl, title);
       if (metaEl)  metaEl.textContent  = `${date} · thread`;
       const res = await apiFetch(`/outputs/${encodeURIComponent(filename)}`);
       if (res.ok) {
         const md = await res.text();
+        const storedTitle = _threadTitleFromMarkdown(md);
+        if (storedTitle) _setOutputTitle(titleEl, storedTitle);
         if (bodyEl) {
           renderThreadView(bodyEl, md);
           _threadStatusDone(data.duration_ms);
@@ -1966,7 +1999,8 @@ async function loadOutputsList(force = false) {
       // when hidden) so revealing it on hover never re-wraps the text.
       const label = document.createElement("span");
       label.className = "nav-item-label";
-      label.textContent = item.title;
+      label.textContent = _displayOutputTitle(item.title);
+      if (label.textContent !== item.title) label.title = item.title;
       btn.appendChild(label);
 
       const trash = document.createElement("span");
@@ -2016,7 +2050,7 @@ async function openOutput(filename, title, date, kind, highlightTerm = "") {
   const bodyEl      = panel.querySelector(".viewer-body");
   const contentEl   = panel.querySelector(".viewer-content");
 
-  if (titleEl)    titleEl.textContent    = title;
+  _setOutputTitle(titleEl, title);
   if (metaEl)     metaEl.textContent     = `${date} · ${kind}`;
   if (bodyEl)     bodyEl.innerHTML       = '<p class="viewer-placeholder">Loading…</p>';
   if (contentEl)  contentEl.dataset.markdown = ""; // clear while loading
@@ -2549,7 +2583,10 @@ function renderSearchResults(items, q) {
 
     const titleEl = document.createElement("div");
     titleEl.className = "search-result-title";
-    titleEl.textContent = item.title;
+    titleEl.textContent = item.source === "output"
+      ? _displayOutputTitle(item.title)
+      : item.title;
+    if (titleEl.textContent !== item.title) titleEl.title = item.title;
     const meta = document.createElement("span");
     meta.className = "search-result-meta";
     const label = item.source === "wiki" ? "wiki" : (item.kind === "lint" ? "lint" : "answer");

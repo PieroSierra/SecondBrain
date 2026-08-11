@@ -23,21 +23,30 @@
 2. Read the full content of relevant wiki articles
 3. Synthesise a response grounded in wiki content
 4. If no relevant wiki content exists: acknowledge the gap and suggest what raw content would fill it — do not fabricate an answer
-5. Generate output filename: `YYYY-MM-DD_query-<slug>.md`
-   - Slug: first 5–6 words of question, lowercased, kebab-case, max 40 chars
-6. Write the query output file to `outputs/`
-7. Display the answer to the user and note the output file path
+5. Generate a descriptive thread title: 4–8 words, maximum 60 characters, with request framing omitted
+6. Generate output filename: `YYYY-MM-DD_thread-<slug>.md`
+   - Slug: generated title, lowercased, kebab-case, max 60 chars
+   - If the path exists, add a numeric suffix rather than overwriting it
+7. Write the thread output file to `outputs/`
+8. Display the answer to the user and note the output file path
 
 ## Output File Format
 
 ```markdown
-# Query: [Original question]
+<!-- sb:thread id="YYYY-MM-DD_thread-<slug>" created="YYYY-MM-DD" -->
 
-*Date: YYYY-MM-DD*
+# [Generated thread title]
+
+<!-- sb:turn role="user" ts="YYYY-MM-DD" -->
+## You
+
+[Original question]
+
+<!-- sb:turn role="assistant" ts="YYYY-MM-DD" -->
+## Second Brain
 
 [Synthesised answer]
 
----
 *Sources: [[wiki/topic-1]], [[wiki/topic-2]]*
 ```
 
@@ -45,7 +54,7 @@
 
 | Output | Description |
 |--------|-------------|
-| `outputs/YYYY-MM-DD_query-<slug>.md` | Query and full answer with source citations |
+| `outputs/YYYY-MM-DD_thread-<slug>.md` | Initial question and full answer in appendable thread format |
 
 ## Invariants
 

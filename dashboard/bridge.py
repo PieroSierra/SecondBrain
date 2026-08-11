@@ -1343,6 +1343,19 @@ def _wiki_list() -> list:
     return result
 
 
+def _first_markdown_h1(path: Path) -> str | None:
+    """Return the first plain Markdown H1, or None when it cannot be read."""
+
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if line.startswith("# "):
+                title = line[2:].strip()
+                return title or None
+    except OSError:
+        pass
+    return None
+
+
 def _outputs_list() -> list:
     """Return [{filename, date_iso, kind, title}] for all outputs, newest first."""
 
@@ -1365,6 +1378,8 @@ def _outputs_list() -> list:
             raw = slug.replace("-", " ")
             fallback = "Thread" if kind == "thread" else "Query"
             title = raw[:1].upper() + raw[1:] if raw else fallback
+            if kind == "thread":
+                title = _first_markdown_h1(p) or title
         result.append({
             "filename": p.name,
             "date_iso": date_str,
