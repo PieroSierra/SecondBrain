@@ -2001,8 +2001,8 @@ async function loadOutputsList(force = false) {
       const navIconName = item.kind === "lint" ? "lint" : "answer";
       btn.appendChild(makeNavIcon(navIconName));
 
-      // Wrap the title so the trash control can sit in a fixed right-hand
-      // column: the label flexes, the trash slot is always reserved (even
+      // Wrap the title so the actions control can sit in a fixed right-hand
+      // column: the label flexes, the actions slot is always reserved (even
       // when hidden) so revealing it on hover never re-wraps the text.
       const label = document.createElement("span");
       label.className = "nav-item-label";
@@ -2010,24 +2010,34 @@ async function loadOutputsList(force = false) {
       if (label.textContent !== item.title) label.title = item.title;
       btn.appendChild(label);
 
-      const trash = document.createElement("span");
-      trash.className = "nav-item-trash";
-      trash.setAttribute("role", "button");
-      trash.setAttribute("aria-label", `Delete ${item.title}`);
-      trash.title = "Delete";
-      const trashIcon = document.createElement("img");
-      trashIcon.src = "/static/icons/trash.png";
-      trashIcon.width = 20;
-      trashIcon.height = 20;
-      trashIcon.alt = "";
-      trashIcon.setAttribute("aria-hidden", "true");
-      trash.appendChild(trashIcon);
-      trash.addEventListener("click", (e) => {
+      const actions = document.createElement("span");
+      actions.className = "nav-item-actions";
+      actions.setAttribute("role", "button");
+      actions.setAttribute("tabindex", "0");
+      actions.setAttribute("aria-label", `Actions for ${item.title}`);
+      actions.setAttribute("aria-haspopup", "menu");
+      actions.setAttribute("aria-expanded", "false");
+      actions.title = "Actions";
+      const actionsIcon = document.createElement("img");
+      actionsIcon.src = "/static/icons/ellipsis.png";
+      actionsIcon.width = 20;
+      actionsIcon.height = 20;
+      actionsIcon.alt = "";
+      actionsIcon.setAttribute("aria-hidden", "true");
+      actions.appendChild(actionsIcon);
+      const openActions = (e) => {
         // Don't let the click bubble to the row (which would open the output).
         e.stopPropagation();
-        openDeleteModal(item.filename, item.title, btn);
+        openOutputActions(actions, item, btn);
+      };
+      actions.addEventListener("click", openActions);
+      actions.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          openActions(e);
+        }
       });
-      btn.appendChild(trash);
+      btn.appendChild(actions);
 
       btn.title = `${item.date_iso} · ${item.kind}`;
       btn.addEventListener("click", () => {
@@ -2768,6 +2778,120 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// ── Output actions and rename modal ──────────────────────────────────────
+
+const outputActionsMenu = document.getElementById("output-actions-menu");
+const renameModal = document.getElementById("rename-modal");
+const renameInput = document.getElementById("rename-title-input");
+let _pendingOutputAction = null; // { filename, title, kind, btn, trigger }
+
+function closeOutputActions({ restoreFocus = false } = {}) {
+  if (!_pendingOutputAction) return;
+  const trigger = _pendingOutputAction.trigger;
+  trigger.setAttribute("aria-expanded", "false");
+  if (outputActionsMenu) outputActionsMenu.hidden = true;
+  _pendingOutputAction = null;
+  if (restoreFocus) trigger.focus();
+}
+
+function openOutputActions(trigger, item, btn) {
+  if (!outputActionsMenu) return;
+  closeOutputActions();
+  _pendingOutputAction = { ...item, btn, trigger };
+  trigger.setAttribute("aria-expanded", "true");
+  const renameBtn = outputActionsMenu.querySelector("[data-output-rename]");
+  renameBtn.hidden = item.kind === "lint";
+  outputActionsMenu.hidden = false;
+
+  const rect = trigger.getBoundingClientRect();
+  const menuRect = outputActionsMenu.getBoundingClientRect();
+  const gap = 5;
+  const left = Math.min(rect.right - menuRect.width, window.innerWidth - menuRect.width - 8);
+  const top = Math.min(rect.bottom + gap, window.innerHeight - menuRect.height - 8);
+  outputActionsMenu.style.left = `${Math.max(8, left)}px`;
+  outputActionsMenu.style.top = `${Math.max(8, top)}px`;
+  (renameBtn.hidden ? outputActionsMenu.querySelector("[data-output-delete]") : renameBtn)?.focus();
+}
+
+function openRenameModal(target) {
+  if (!renameModal || !renameInput) return;
+  _pendingOutputAction = target;
+  const error = renameModal.querySelector(".rename-modal-error");
+  if (error) error.hidden = true;
+  renameInput.value = target.title;
+  renameModal.hidden = false;
+  renameInput.focus();
+  renameInput.select();
+}
+
+function closeRenameModal() {
+  if (renameModal) renameModal.hidden = true;
+  _pendingOutputAction = null;
+}
+
+async function confirmRename() {
+  if (!_pendingOutputAction || !renameInput) return;
+  const target = _pendingOutputAction;
+  const title = renameInput.value.trim();
+  const confirmBtn = renameModal.querySelector(".rename-modal-confirm");
+  const error = renameModal.querySelector(".rename-modal-error");
+  if (!title) {
+    if (error) { error.textContent = "Enter a title."; error.hidden = false; }
+    renameInput.focus();
+    return;
+  }
+  confirmBtn.disabled = true;
+  if (error) error.hidden = true;
+  try {
+    const { status, data } = await postJSON("/rename-output", {
+      filename: target.filename,
+      title,
+    });
+    if (status !== 200) throw new Error(data?.detail || `HTTP ${status}`);
+    const wasActive = target.btn.classList.contains("nav-item-active");
+    closeRenameModal();
+    await loadOutputsList(true);
+    if (wasActive) {
+      const replyDraft = threadReplyInput?.value ?? "";
+      await openOutput(target.filename, title, target.date_iso, target.kind);
+      if (target.kind === "thread" && threadReplyInput) {
+        threadReplyInput.value = replyDraft;
+        threadReplyInput.style.height = "auto";
+        threadReplyInput.style.height = threadReplyInput.scrollHeight + "px";
+      }
+    }
+  } catch (err) {
+    if (error) { error.textContent = err.message; error.hidden = false; }
+  } finally {
+    confirmBtn.disabled = false;
+  }
+}
+
+outputActionsMenu?.addEventListener("click", (e) => {
+  const target = _pendingOutputAction;
+  if (!target) return;
+  if (e.target.closest("[data-output-rename]")) {
+    closeOutputActions();
+    openRenameModal(target);
+  } else if (e.target.closest("[data-output-delete]")) {
+    closeOutputActions();
+    openDeleteModal(target.filename, target.title, target.btn);
+  }
+});
+
+renameModal?.addEventListener("click", (e) => {
+  if (e.target.closest("[data-rename-cancel]")) closeRenameModal();
+});
+renameModal?.querySelector("form")?.addEventListener("submit", (e) => {
+  e.preventDefault();
+  confirmRename();
+});
+
+document.addEventListener("click", (e) => {
+  if (_pendingOutputAction && !renameModal?.hidden) return;
+  if (!outputActionsMenu?.hidden && !e.target.closest("#output-actions-menu")) closeOutputActions();
+});
+
 // ── Delete-answer modal ──────────────────────────────────────────────────
 // Confirms before removing a saved output. Reuses the raw-modal scrim for the
 // darkened backdrop. Holds the pending target between opening and confirming.
@@ -2832,7 +2956,10 @@ deleteModal?.addEventListener("click", (e) => {
   if (e.target.closest("[data-delete-confirm]")) return confirmDelete();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && deleteModal && !deleteModal.hidden) closeDeleteModal();
+  if (e.key !== "Escape") return;
+  if (renameModal && !renameModal.hidden) closeRenameModal();
+  else if (deleteModal && !deleteModal.hidden) closeDeleteModal();
+  else if (outputActionsMenu && !outputActionsMenu.hidden) closeOutputActions({ restoreFocus: true });
 });
 
 // Tab button clicks

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
@@ -48,7 +49,7 @@ class BridgeOutputsTests(unittest.TestCase):
 
         self.assertEqual(item["title"], "Legacy thread")
 
-    def test_query_and_lint_titles_keep_existing_behavior(self) -> None:
+    def test_query_uses_stored_h1_and_lint_keeps_existing_behavior(self) -> None:
         self._write(
             "2026-08-11_query-original-query.md",
             "# A heading that should not replace the query slug\n",
@@ -57,8 +58,63 @@ class BridgeOutputsTests(unittest.TestCase):
 
         items = {item["kind"]: item for item in bridge._outputs_list()}
 
-        self.assertEqual(items["query"]["title"], "Original query")
+        self.assertEqual(items["query"]["title"], "A heading that should not replace the query slug")
         self.assertEqual(items["lint"]["title"], "Lint report")
+
+    def test_rename_replaces_only_first_h1(self) -> None:
+        filename = "2026-08-11_thread-original.md"
+        self._write(
+            filename,
+            '<!-- sb:thread id="example" -->\n\n# Original title\n\nBody\n\n# Later heading\n',
+        )
+
+        bridge._rename_output_title(filename, "My chosen title")
+
+        self.assertEqual(
+            (self.outputs / filename).read_text(encoding="utf-8"),
+            '<!-- sb:thread id="example" -->\n\n# My chosen title\n\nBody\n\n# Later heading\n',
+        )
+
+    def test_rename_preserves_mtime_and_output_order(self) -> None:
+        older = "2026-08-10_query-older.md"
+        newer = "2026-08-11_query-newer.md"
+        self._write(older, "# Older\n")
+        self._write(newer, "# Newer\n")
+        older_path = self.outputs / older
+        newer_path = self.outputs / newer
+        os.utime(older_path, ns=(1_000_000_000, 1_000_000_000))
+        os.utime(newer_path, ns=(2_000_000_000, 2_000_000_000))
+
+        bridge._rename_output_title(older, "Renamed older")
+
+        self.assertEqual(older_path.stat().st_mtime_ns, 1_000_000_000)
+        self.assertEqual(
+            [item["filename"] for item in bridge._outputs_list()],
+            [newer, older],
+        )
+
+    def test_rename_rejects_invalid_title_and_filename(self) -> None:
+        filename = "2026-08-11_query-original.md"
+        self._write(filename, "# Original\n")
+
+        for title in ("", "two\nlines", "x" * 201):
+            with self.subTest(title=title[:20]):
+                with self.assertRaises(ValueError):
+                    bridge._rename_output_title(filename, title)
+
+        for unsafe in ("../query.md", "2026-08-11_lint.md", "notes.md"):
+            with self.subTest(filename=unsafe):
+                with self.assertRaises(ValueError):
+                    bridge._rename_output_title(unsafe, "Title")
+
+    def test_rename_requires_existing_file_with_h1(self) -> None:
+        filename = "2026-08-11_query-no-heading.md"
+        self._write(filename, "No heading here.\n")
+
+        with self.assertRaises(LookupError):
+            bridge._rename_output_title(filename, "New title")
+        with self.assertRaises(FileNotFoundError):
+            bridge._rename_output_title("2026-08-11_query-missing.md", "New title")
 
 
 if __name__ == "__main__":

@@ -1356,6 +1356,43 @@ def _first_markdown_h1(path: Path) -> str | None:
     return None
 
 
+def _rename_output_title(filename: str, title: str) -> None:
+    """Replace only the first H1 in a saved query/thread Markdown file."""
+    if (not _SAFE_FILENAME_RE.fullmatch(filename) or "/" in filename
+            or "\\" in filename or not filename.endswith(".md")):
+        raise ValueError("invalid filename")
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}_(?:query|thread)(?:-.+)?\.md", filename):
+        raise ValueError("only saved queries and threads can be renamed")
+    if not title:
+        raise ValueError("title is required")
+    if "\n" in title or "\r" in title:
+        raise ValueError("title must be a single line")
+    if len(title) > 200:
+        raise ValueError("title must be 200 characters or fewer")
+
+    target = (OUTPUTS_DIR / filename).resolve()
+    try:
+        target.relative_to(OUTPUTS_DIR.resolve())
+    except ValueError as exc:
+        raise ValueError("invalid filename") from exc
+    if not target.is_file():
+        raise FileNotFoundError(filename)
+
+    original_stat = target.stat()
+    text = target.read_text(encoding="utf-8")
+    renamed, count = re.subn(
+        r"^# .*$",
+        lambda _match: f"# {title}",
+        text,
+        count=1,
+        flags=re.MULTILINE,
+    )
+    if count == 0:
+        raise LookupError("output has no Markdown H1 to rename")
+    target.write_text(renamed, encoding="utf-8")
+    os.utime(target, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+
+
 def _outputs_list() -> list:
     """Return [{filename, date_iso, kind, title}] for all outputs, newest first."""
 
@@ -1378,8 +1415,7 @@ def _outputs_list() -> list:
             raw = slug.replace("-", " ")
             fallback = "Thread" if kind == "thread" else "Query"
             title = raw[:1].upper() + raw[1:] if raw else fallback
-            if kind == "thread":
-                title = _first_markdown_h1(p) or title
+            title = _first_markdown_h1(p) or title
         result.append({
             "filename": p.name,
             "date_iso": date_str,
@@ -1982,7 +2018,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # require authorization. The extension authenticates by its allowlisted
         # Origin (no token).
         if path in ("/run", "/upload-pdf", "/upload-file", "/dedupe-check",
-                    "/open-folder", "/patch-finding", "/set-model"):
+                    "/open-folder", "/patch-finding", "/rename-output",
+                    "/set-model"):
             if not self._authorize(allow_extension=True):
                 return self._deny()
 
@@ -1998,6 +2035,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._handle_open_folder()
         if path == "/patch-finding":
             return self._handle_patch_finding()
+        if path == "/rename-output":
+            return self._handle_rename_output()
         if path == "/set-model":
             return self._handle_set_model()
 
@@ -2605,6 +2644,25 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             "ok": True,
             "open": open_count, "applied": applied_count, "skipped": skipped_count,
         })
+
+    def _handle_rename_output(self) -> None:
+        """Replace the first Markdown H1 in a saved query or thread."""
+        body = self._read_json_body()
+        if body is None:
+            return
+        filename = str(body.get("filename", "")).strip()
+        title = str(body.get("title", "")).strip()
+        try:
+            _rename_output_title(filename, title)
+        except ValueError as exc:
+            return _json_response(self, 400, {"error": "bad_request", "detail": str(exc)})
+        except FileNotFoundError:
+            return _json_response(self, 404, {"error": "not_found", "detail": f"no output: {filename}"})
+        except LookupError as exc:
+            return _json_response(self, 422, {"error": "missing_title", "detail": str(exc)})
+        except OSError as exc:
+            return _json_response(self, 500, {"error": "rename_failed", "detail": str(exc)})
+        _json_response(self, 200, {"ok": True, "title": title})
 
     def _handle_dedupe_check(self) -> None:
         """Model-free: does this import candidate already look imported?

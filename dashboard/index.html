@@ -421,6 +421,31 @@
     </div>
   </div>
 
+  <div id="output-actions-menu" class="output-actions-menu" hidden role="menu">
+    <button type="button" class="output-action" data-output-rename role="menuitem">
+      <img src="/static/icons/rename.png" width="18" height="18" alt="" aria-hidden="true" />
+      <span>Rename</span>
+    </button>
+    <button type="button" class="output-action output-action-delete" data-output-delete role="menuitem">
+      <img src="/static/icons/trash.png" width="18" height="18" alt="" aria-hidden="true" />
+      <span>Delete</span>
+    </button>
+  </div>
+
+  <div id="rename-modal" class="raw-modal" hidden>
+    <div class="raw-modal-scrim" data-rename-cancel></div>
+    <form class="rename-modal-sheet" role="dialog" aria-modal="true" aria-labelledby="rename-modal-title">
+      <h2 class="delete-modal-title" id="rename-modal-title">Rename answer</h2>
+      <label class="rename-modal-label" for="rename-title-input">Title</label>
+      <input id="rename-title-input" class="rename-modal-input" type="text" maxlength="200" required />
+      <p class="rename-modal-error" hidden role="alert"></p>
+      <div class="delete-modal-actions">
+        <button type="button" class="delete-modal-btn delete-modal-cancel" data-rename-cancel>Cancel</button>
+        <button type="submit" class="delete-modal-btn rename-modal-confirm">OK</button>
+      </div>
+    </form>
+  </div>
+
   <!-- Delete-answer confirmation. Reuses the raw-modal scrim for the backdrop. -->
   <div id="delete-modal" class="raw-modal" hidden>
     <div class="raw-modal-scrim" data-delete-cancel></div>
