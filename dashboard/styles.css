@@ -1748,6 +1748,33 @@ body.bar-visible .panel {
   cursor: not-allowed;
 }
 
+/* Global bridge lock: keep the textarea editable, but make its Send control
+   unmistakably unavailable. Reuses the inline status pulse at a larger size. */
+.thread-reply-submit[aria-busy="true"],
+.thread-reply-submit[aria-busy="true"]:hover {
+  background: var(--rule-strong);
+  opacity: 1;
+  cursor: wait;
+}
+.thread-reply-submit[aria-busy="true"] img {
+  display: none;
+}
+.thread-reply-submit[aria-busy="true"]::before {
+  content: "";
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--busy-ink);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .thread-reply-submit[aria-busy="true"]::before {
+    animation: none;
+    opacity: 0.7;
+  }
+}
+
 /* Footer op-status kept for fallback errors but hidden by default in thread mode. */
 .thread-reply-bar .op-status {
   margin-top: 6px;

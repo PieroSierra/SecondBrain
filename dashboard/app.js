@@ -275,9 +275,19 @@ function opClear(node) {
 
 let busyKind = null;
 
+function setQuerySubmitBusy(isBusy) {
+  const button = document.getElementById("thread-reply-btn");
+  if (!button) return;
+  button.disabled = isBusy;
+  button.setAttribute("aria-busy", String(isBusy));
+  button.setAttribute("aria-label", isBusy ? "Processing" : "Ask");
+  button.title = isBusy ? "Processing" : "Ask";
+}
+
 function setBusy(kind) {
   busyKind = kind;
   document.body.classList.add("is-busy"); // pulsing dot on the logo
+  setQuerySubmitBusy(true);
   document
     .querySelectorAll("[data-long-op]")
     .forEach((el) => el.setAttribute("data-busy", "true"));
@@ -291,6 +301,7 @@ function setBusy(kind) {
 function clearBusy() {
   busyKind = null;
   document.body.classList.remove("is-busy");
+  setQuerySubmitBusy(false);
   document
     .querySelectorAll("[data-long-op]")
     .forEach((el) => el.removeAttribute("data-busy"));
@@ -1729,8 +1740,6 @@ async function handleBarSubmit() {
 // Home mode: navigate immediately, show user bubble + spinner, fill in real content on return.
 async function _optimisticThreadStart(question) {
   setBusy("thread-start");
-  if (threadReplyBtn)   threadReplyBtn.disabled   = true;
-  if (threadReplyInput) threadReplyInput.disabled = true;
 
   const panel    = document.getElementById("panel-output-viewer");
   const titleEl  = panel?.querySelector(".viewer-title");
@@ -1803,8 +1812,6 @@ async function _optimisticThreadStart(question) {
     setTimeout(() => { showPanel("panel-home-new"); _lastHomePanel = "panel-home-new"; setBarMode("home"); }, 4000);
   } finally {
     clearBusy();
-    if (threadReplyBtn)   threadReplyBtn.disabled   = false;
-    if (threadReplyInput) threadReplyInput.disabled = false;
   }
 }
 
@@ -1813,8 +1820,13 @@ async function _threadReply(question) {
   if (!_currentThreadFile) return;
   setBusy("thread-reply");
   _threadStatusThinking();
-  if (threadReplyBtn)   threadReplyBtn.disabled   = true;
-  if (threadReplyInput) threadReplyInput.disabled = true;
+
+  // Clear the submitted question now so text entered while this reply runs is
+  // a new draft and is never erased when the response returns.
+  if (threadReplyInput) {
+    threadReplyInput.value = "";
+    threadReplyInput.style.height = "auto";
+  }
 
   try {
     const { status, data } = await postJSON("/run", {
@@ -1824,9 +1836,6 @@ async function _threadReply(question) {
 
     const errMsg = envelopeError("thread-reply", status, data);
     if (errMsg !== null) { _threadStatusError(errMsg); return; }
-
-    threadReplyInput.value = "";
-    threadReplyInput.style.height = "auto";
 
     const filename = _currentThreadFile.replace(/^outputs\//, "");
     const panel  = document.getElementById("panel-output-viewer");
@@ -1845,8 +1854,6 @@ async function _threadReply(question) {
     _threadStatusError(`Network error: ${err?.message ?? err}`);
   } finally {
     clearBusy();
-    if (threadReplyBtn)   threadReplyBtn.disabled   = false;
-    if (threadReplyInput) threadReplyInput.disabled = false;
   }
 }
 
