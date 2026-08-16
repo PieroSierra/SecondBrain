@@ -66,11 +66,11 @@ Retrieve the full content of the document via Craft MCP. The content will be ret
 ### Step 3b — Detect content date
 
 After retrieving the document, look for signals about when the content was originally created or written. Check in order:
-1. **Craft document metadata**: the MCP response may include `Created` or `Modified` timestamps — prefer `Created` as it reflects when the note was first written
-2. **Document title**: dates embedded in the title (e.g. `Meeting with Anthropic [Thu 12 Jun 2026]`, `June 2026 MBR`, `Q1 2025 Review`)
-3. **Document body**: explicit date markers near the top (`Date: 2026-06-12`, `PUBLISHED JAN 15 2026`, `Timestamp: May 2026`)
+1. **Document title**: dates embedded in the title (e.g. `Meeting with Anthropic [Thu 12 Jun 2026]`, `June 2026 MBR`, `Q1 2025 Review`)
+2. **Document body**: the first valid date by position near the top (`Date: 2026-06-12`, `PUBLISHED JAN 15 2026`, `Timestamp: May 2026`)
+3. **Craft document metadata**: use `Created` only as the final fallback; do not use `Modified`, import time, or filesystem timestamps
 
-Convert any detected date to `YYYY-MM-DD` format (use the 1st of the month when only month/year is available). If no date is found, leave `content_date` blank — do not guess.
+Recognise ISO dates; named month-first or day-first dates with optional abbreviations, commas, and ordinals; month-year dates; and unambiguous slash-numeric dates. Infer numeric order only when one of the first two components exceeds 12; if both are 12 or below, keep looking and never guess. Validate real calendar dates. Interpret two-digit years `00`–`68` as 2000–2068 and `69`–`99` as 1969–1999. Convert to `YYYY-MM-DD`, using the 1st for month-year dates. If no unambiguous date is found, omit `content_date`.
 
 ### Step 4 — Determine output filename
 

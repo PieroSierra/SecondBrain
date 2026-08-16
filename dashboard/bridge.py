@@ -329,19 +329,13 @@ _ensure_skills_link()
 # ---------------------------------------------------------------------------
 
 
-def _detect_date_from_context(context: str) -> "str | None":
-    """Scan the operator-supplied Document Context string for a date signal.
-
-    Used as a fallback when the imported file itself has no detectable date —
-    e.g. the user types "created Jun 12 2026" in the context field.
-    Returns YYYY-MM-DD or None. Delegates to text_extract._detect_date so the
-    same regex set is used everywhere without duplication.
-    """
-    if not context:
+def _detect_date(value: str) -> "str | None":
+    """Return the first supported date in a string."""
+    if not value:
         return None
     try:
-        import text_extract  # dashboard/ is on sys.path
-        return text_extract._detect_date(context)
+        from date_extract import detect_first_date
+        return detect_first_date(value)
     except Exception:
         return None
 
@@ -2203,7 +2197,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     f"title: {title}",
                     f"slides: {data['slides']}",
                 ]
-                content_date = data.get("content_date") or _detect_date_from_context(context)
+                content_date = (
+                    _detect_date(context)
+                    or _detect_date(title)
+                    or _detect_date(data.get("title") or "")
+                    or data.get("content_date")
+                )
                 if content_date:
                     fm.append(f"content_date: {content_date}")
                 fm.append("---")
@@ -2265,7 +2264,12 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     f"title: {title}",
                     f"words: {data['words']}",
                 ]
-                content_date = data.get("content_date") or _detect_date_from_context(context)
+                content_date = (
+                    _detect_date(context)
+                    or _detect_date(title)
+                    or _detect_date(data.get("title") or "")
+                    or data.get("content_date")
+                )
                 if content_date:
                     fm.append(f"content_date: {content_date}")
                 fm.append("---")
@@ -2340,7 +2344,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     f"sheets: {data['sheets']}",
                     f"rows: {data['rows']}",
                 ]
-                content_date = data.get("content_date") or _detect_date_from_context(context)
+                content_date = (
+                    _detect_date(context)
+                    or _detect_date(title)
+                    or data.get("content_date")
+                )
                 if content_date:
                     fm.append(f"content_date: {content_date}")
                 fm.append("---")
@@ -2409,7 +2417,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     f"title: {title}",
                     f"words: {data['words']}",
                 ]
-                content_date = data.get("content_date") or _detect_date_from_context(context)
+                content_date = _detect_date(context) or data.get("content_date")
                 if content_date:
                     fm.append(f"content_date: {content_date}")
                 fm.append("---")
@@ -2479,7 +2487,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     f"title: {title}",
                     f"words: {data['words']}",
                 ]
-                content_date = data.get("content_date") or _detect_date_from_context(context)
+                content_date = _detect_date(context) or data.get("content_date")
                 if content_date:
                     fm.append(f"content_date: {content_date}")
                 fm.append("---")

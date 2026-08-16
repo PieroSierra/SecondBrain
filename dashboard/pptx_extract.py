@@ -27,6 +27,8 @@ import sys
 import zipfile
 from xml.etree import ElementTree as ET
 
+from date_extract import select_content_date
+
 
 class PptxError(Exception):
     """Raised when a .pptx can't be safely or validly parsed."""
@@ -426,41 +428,6 @@ def notes_part(zf, slide):
     return None
 
 
-# --- Content-date detection (best-effort) --------------------------------
-
-_MONTHS = {
-    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
-}
-_ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
-_MONTH_DAY_YEAR_RE = re.compile(
-    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})[,\s]+(\d{4})\b",
-    re.IGNORECASE,
-)
-_MONTH_YEAR_RE = re.compile(
-    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{4})\b",
-    re.IGNORECASE,
-)
-
-
-def _detect_date(text):
-    """Return YYYY-MM-DD from a date signal in `text`, or None. Best-effort."""
-    m = _ISO_RE.search(text)
-    if m:
-        return m.group(0)
-    m = _MONTH_DAY_YEAR_RE.search(text)
-    if m:
-        mon = _MONTHS.get(m.group(1).lower()[:3])
-        if mon:
-            return "%s-%02d-%02d" % (m.group(3), mon, int(m.group(2)))
-    m = _MONTH_YEAR_RE.search(text)
-    if m:
-        mon = _MONTHS.get(m.group(1).lower()[:3])
-        if mon:
-            return "%s-%02d-01" % (m.group(2), mon)
-    return None
-
-
 # --- Public API -----------------------------------------------------------
 
 def pptx_to_markdown(path):
@@ -500,7 +467,7 @@ def pptx_to_markdown(path):
             if i == 1:
                 if blocks and blocks[0].startswith("### "):
                     title = blocks[0][4:].strip()
-                content_date = _detect_date("\n".join(blocks))
+                content_date = select_content_date(title=title, content="\n".join(blocks))
         markdown = "\n\n".join(sections)
         if len(markdown) > _MAX_MARKDOWN:
             markdown = markdown[:_MAX_MARKDOWN] + "\n\n_[truncated: exceeded size cap]_"

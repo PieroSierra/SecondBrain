@@ -26,6 +26,8 @@ import os
 import re
 import sys
 
+from date_extract import select_content_date
+
 # ---------------------------------------------------------------------------
 # Safety limits
 # ---------------------------------------------------------------------------
@@ -35,68 +37,6 @@ _MAX_MARKDOWN = 8 * 1024 * 1024  # 8 MB cap on assembled output
 
 class TextError(Exception):
     """Raised when a text file can't be safely read."""
-
-
-# ---------------------------------------------------------------------------
-# Date detection — identical regexes to docx_extract / pptx_extract
-# ---------------------------------------------------------------------------
-_MONTHS = {
-    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
-}
-_ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
-# "Jul 14, 2026" / "July 14 2026" — groups: (month, day, year)
-_MONTH_DAY_YEAR_RE = re.compile(
-    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})[,\s]+(\d{4})\b",
-    re.IGNORECASE,
-)
-# "July 2026" / "Jul 2026" — groups: (month, year)
-_MONTH_YEAR_RE = re.compile(
-    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{4})\b",
-    re.IGNORECASE,
-)
-# Matches "date: 2026-07-14" or "date: July 2026" style frontmatter / prose
-_DATE_LABEL_RE = re.compile(
-    r"\bdate\s*[:\-]\s*(.*)", re.IGNORECASE
-)
-
-
-def _detect_date(text):
-    """Return YYYY-MM-DD from a date signal in `text`, or None. Best-effort."""
-    # Check labelled date fields first ("Date: 2026-07-14")
-    m = _DATE_LABEL_RE.search(text)
-    if m:
-        candidate = m.group(1).strip()
-        iso = _ISO_RE.search(candidate)
-        if iso:
-            return iso.group(0)
-        mdy = _MONTH_DAY_YEAR_RE.search(candidate)
-        if mdy:
-            mon = _MONTHS.get(mdy.group(1).lower()[:3])
-            if mon:
-                return "%s-%02d-%02d" % (mdy.group(3), mon, int(mdy.group(2)))
-        my = _MONTH_YEAR_RE.search(candidate)
-        if my:
-            mon = _MONTHS.get(my.group(1).lower()[:3])
-            if mon:
-                return "%s-%02d-01" % (my.group(2), mon)
-    # Bare ISO date anywhere in the text
-    m = _ISO_RE.search(text)
-    if m:
-        return m.group(0)
-    # "Month Day Year" anywhere in text
-    m = _MONTH_DAY_YEAR_RE.search(text)
-    if m:
-        mon = _MONTHS.get(m.group(1).lower()[:3])
-        if mon:
-            return "%s-%02d-%02d" % (m.group(3), mon, int(m.group(2)))
-    # "Month Year" anywhere in text
-    m = _MONTH_YEAR_RE.search(text)
-    if m:
-        mon = _MONTHS.get(m.group(1).lower()[:3])
-        if mon:
-            return "%s-%02d-01" % (m.group(2), mon)
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -132,11 +72,7 @@ def _process(content, title_hint=None, context=None):
 
     title = (title_hint or "").strip() or _extract_title(content) or None
     head = "\n".join(content.splitlines()[:30])
-    content_date = _detect_date(head)
-    # Fall back to scanning the operator-supplied context note when the content
-    # itself has no date signal (e.g. "created Jun 12 2026" in the context field).
-    if not content_date and context:
-        content_date = _detect_date(context)
+    content_date = select_content_date(context=context, title=title, content=head)
 
     return {
         "markdown": content,
@@ -155,8 +91,8 @@ def text_to_markdown(path, context=None):
 
     Keys: markdown (str, verbatim content), words (int), title (str or None),
     content_date (YYYY-MM-DD or None).
-    `context` is the operator-supplied Document Context note; scanned for a date
-    signal when the file itself carries none.
+    `context` is the operator-supplied Document Context note and has first
+    priority when it contains a date.
     """
     try:
         size = os.path.getsize(path)
@@ -193,8 +129,8 @@ def text_from_string(content, title_hint=None, context=None):
     """Process raw pasted text. Returns the same dict shape as text_to_markdown.
 
     `title_hint` is the optional title the user typed in the paste form.
-    `context` is the operator note from the Document Context field; scanned for a
-    date signal when the content itself carries none.
+    `context` is the operator note from the Document Context field and has first
+    priority when it contains a date.
     Raises TextError if content is empty.
     """
     if not content or not content.strip():

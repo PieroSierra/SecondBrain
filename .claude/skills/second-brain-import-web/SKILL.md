@@ -100,7 +100,7 @@ In paste-fallback mode (Step 2 was skipped), state is forced to `ok` regardless 
 
 In fetch mode, parse the top three lines of the WebFetch reply:
 - `TITLE: <text>` → title
-- `PUBLISHED: <YYYY-MM-DD or UNKNOWN>` → content_date (omit if `UNKNOWN`)
+- `PUBLISHED: <YYYY-MM-DD or UNKNOWN>` → publication metadata candidate
 - `AUTHOR: <text or UNKNOWN>` → author (omit if `UNKNOWN`)
 
 Then strip these three lines (and the blank line that follows) from the body before writing.
@@ -110,7 +110,13 @@ In paste-fallback mode, derive the title from the pasted body the same way `seco
 2. First non-empty line truncated to 80 chars.
 3. "Untitled webpage" as a fallback.
 
-For content_date in paste-fallback mode, scan the top of the body for the same date markers `md-add` looks for: `Published: …`, `Date: …`, ISO dates, month-year strings. Convert to `YYYY-MM-DD` (use the 1st of the month when only month/year is available). Omit the field if no date found — do not guess.
+In either mode, choose `content_date` from the first source that yields a valid date, in this strict order:
+1. Operator-provided `--context`
+2. The detected title
+3. The first valid date by position near the top of the article body
+4. The fetched `PUBLISHED` publication metadata candidate
+
+Recognise ISO dates; named month-first or day-first dates with optional abbreviations, commas, and ordinals; month-year dates; and unambiguous slash-numeric dates. Infer numeric order only when one of the first two components exceeds 12; if both are 12 or below, keep looking and never guess. Validate real calendar dates. Interpret two-digit years `00`–`68` as 2000–2068 and `69`–`99` as 1969–1999. Convert to `YYYY-MM-DD`, using the 1st for month-year dates. Omit the field if no unambiguous date is found.
 
 ### Step 5 — Generate slug and output path
 
@@ -160,7 +166,7 @@ If a `--context` string was provided, embed it verbatim immediately after the fr
 > **Document Context** (provided at import): <context text>
 ```
 
-Also: if no `content_date` was detected but the provided context clearly states a date, set `content_date` in the front-matter from it (`YYYY-MM-DD`, or `YYYY-MM` if only a month-year is given). This fills dates the page itself omits.
+The provided context has already been considered as the highest-priority `content_date` source in Step 4.
 
 Notes:
 - `source:` is always the URL the user supplied. In paste-fallback mode, the URL is the one they typed in the URL field on first try — the dashboard passes it through on the second call.

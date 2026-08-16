@@ -35,6 +35,8 @@ import sys
 import zipfile
 from xml.etree import ElementTree as ET
 
+from date_extract import detect_first_date, select_content_date
+
 
 class DocxError(Exception):
     """Raised when a .docx can't be safely or validly parsed."""
@@ -304,8 +306,7 @@ def core_props(zf):
             title = el.text.strip()
         elif lt == "created" and el.text:
             head = el.text.strip()[:10]     # W3CDTF: 2024-03-05T10:00:00Z
-            if _ISO_RE.match(head):
-                created = head
+            created = detect_first_date(head)
     return title, created
 
 
@@ -692,41 +693,6 @@ def extract(root, levels, skips, nums, links, chars):
     return blocks, counts
 
 
-# --- Content-date detection (best-effort) --------------------------------
-
-_MONTHS = {
-    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
-    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
-}
-_ISO_RE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
-_MONTH_DAY_YEAR_RE = re.compile(
-    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{1,2})[,\s]+(\d{4})\b",
-    re.IGNORECASE,
-)
-_MONTH_YEAR_RE = re.compile(
-    r"\b(jan|feb|mar|apr|may|jun|jul|aug|sep|sept|oct|nov|dec)[a-z]*\.?\s+(\d{4})\b",
-    re.IGNORECASE,
-)
-
-
-def _detect_date(text):
-    """Return YYYY-MM-DD from a date signal in `text`, or None. Best-effort."""
-    m = _ISO_RE.search(text)
-    if m:
-        return m.group(0)
-    m = _MONTH_DAY_YEAR_RE.search(text)
-    if m:
-        mon = _MONTHS.get(m.group(1).lower()[:3])
-        if mon:
-            return "%s-%02d-%02d" % (m.group(3), mon, int(m.group(2)))
-    m = _MONTH_YEAR_RE.search(text)
-    if m:
-        mon = _MONTHS.get(m.group(1).lower()[:3])
-        if mon:
-            return "%s-%02d-01" % (m.group(2), mon)
-    return None
-
-
 # --- Public API -----------------------------------------------------------
 
 def docx_to_markdown(path):
@@ -753,9 +719,11 @@ def docx_to_markdown(path):
             first = next((b for b in blocks if b.startswith("#")), None)
             if first:
                 title = first.lstrip("#").strip() or None
-        # A date typed near the top of the document is the strongest content-date
-        # signal (mirrors the pptx first-slide scan); file metadata is the fallback.
-        content_date = _detect_date("\n".join(blocks[:15])) or created
+        content_date = select_content_date(
+            title=title,
+            content="\n".join(blocks[:15]),
+            metadata=created,
+        )
         return {
             "markdown": markdown,
             "words": len(markdown.split()),
