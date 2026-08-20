@@ -1344,8 +1344,9 @@ body { overflow: hidden; }
    off the scroll; .nav-list above it is the element that scrolls (see the
    overflow note on .sidebar). */
 .sidebar-foot {
+  position: relative;   /* containing block for the floating status line */
   flex-shrink: 0;
-  padding: 14px 16px 16px;
+  padding: 12px 16px 16px;
   border-top: 1px solid var(--rule);
   background: var(--bg-sidebar);
 }
@@ -1363,16 +1364,21 @@ body { overflow: hidden; }
   padding: 8px 10px;
   font-size: 0.78rem;
 }
-/* Fixed-height reservation so starting a run never nudges the buttons. The
-   height lives on the wrapper rather than the status node itself: the global
-   `[hidden] { display: none !important }` rule would collapse the node, and
-   this avoids an !important tug-of-war with it. */
+/* The status floats just above the footer rather than sitting inside it. In
+   flow it would either reserve a permanently empty band (the footer is idle
+   almost all the time) or shove the buttons up mid-run; out of flow it costs
+   nothing when idle and shifts nothing when it appears. It briefly overlays the
+   last list row, hence the opaque background. */
 .sidebar-foot-slot {
-  height: 18px;
-  margin-bottom: 8px;
+  position: absolute;
+  left: 16px;
+  right: 16px;
+  bottom: 100%;
 }
 .sidebar-foot-status {
   margin: 0;
+  padding: 4px 0 6px;
+  background: var(--bg-sidebar);
   font-size: 0.76rem;
 }
 
