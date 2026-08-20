@@ -82,6 +82,51 @@ class BridgeIngestIntegrationTests(unittest.TestCase):
         self.assertTrue(ok)
         self.assertIn("fingerprint", manifest["raw/new.md"])
 
+        # A successful run leaves a durable report, listing what it folded in.
+        self.assertIsNotNone(envelope["output_file"])
+        report = self.vault / envelope["output_file"]
+        self.assertTrue(report.is_file())
+        body = report.read_text(encoding="utf-8")
+        self.assertIn("# Ingest report", body)
+        # Sources are wikilinks so the viewer renders them clickable.
+        self.assertIn("[[raw/new.md]]", body)
+
+    def test_report_links_wiki_articles_the_run_touched(self) -> None:
+        (self.vault / "raw" / "new.md").write_text("new", encoding="utf-8")
+        existing = self.vault / "wiki" / "ai-product.md"
+        existing.write_text("before", encoding="utf-8")
+        # INDEX is rebuilt every run, so it must never show up as "updated".
+        (self.vault / "wiki" / "INDEX.md").write_text("index", encoding="utf-8")
+
+        def run(prompt: str, _cfg: dict) -> tuple[int, dict]:
+            scan_id = re.search(r'--scan-id "([0-9a-f]+)"', prompt).group(1)
+            # Simulate the agent touching one article and creating another.
+            existing.write_text("after", encoding="utf-8")
+            (self.vault / "wiki" / "ai-partnerships.md").write_text("fresh", encoding="utf-8")
+            (self.vault / "wiki" / "INDEX.md").write_text("rebuilt", encoding="utf-8")
+            return 200, {
+                "result": f'Ingest complete\n<!-- sb:ingest-complete scan_id="{scan_id}" -->',
+                "is_error": False,
+            }
+
+        with mock.patch.object(bridge, "run_skill", side_effect=run):
+            envelope = self.handler._run_ingest({})
+
+        body = (self.vault / envelope["output_file"]).read_text(encoding="utf-8")
+        self.assertIn("## Articles created", body)
+        self.assertIn("[[ai-partnerships]]", body)
+        self.assertIn("## Articles updated", body)
+        self.assertIn("[[ai-product]]", body)
+        self.assertNotIn("INDEX", body)
+
+    def test_nothing_to_ingest_writes_no_report(self) -> None:
+        # Nothing happened, so there is nothing worth recording.
+        envelope = self.handler._run_ingest({})
+
+        self.assertEqual(envelope["__status__"], 200)
+        self.assertIsNone(envelope["output_file"])
+        self.assertEqual(list((self.vault / "outputs").glob("*_ingest*.md")), [])
+
     def test_missing_completion_marker_leaves_source_pending(self) -> None:
         (self.vault / "raw" / "new.md").write_text("new", encoding="utf-8")
         with mock.patch.object(

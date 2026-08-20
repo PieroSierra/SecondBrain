@@ -1,17 +1,21 @@
 import AppKit
 
 /// Draws the Dock tile while an operation is running: the app icon plus a pulsing
-/// amber dot in the lower-left corner. The pulse mirrors the dashboard's own
-/// "working" animation (`@keyframes pulse` in dashboard/styles.css): opacity
-/// 0.35→1 and scale 1→1.4 over a 1.4s period.
+/// dot in the lower-left corner. The pulse mirrors the dashboard's own "working"
+/// animation (`@keyframes pulse` in dashboard/styles.css): the fill travels from
+/// ink to the accent while the dot scales 0.7→1, over a 1.4s period. Opacity is
+/// constant — the colour carries the pulse, so the dot never fades to invisible.
 ///
 /// The tile only re-renders when `NSDockTile.display()` is called, so `DockActivity`
 /// drives a timer that redraws while active; this view just renders the current phase.
 final class DockTileView: NSView {
 
-    /// Warm amber matching the dashboard's `--busy-ink` (#7B5A1B), brightened a touch
-    /// so the dot reads at Dock size. Tune here if it's too loud/quiet.
-    private static let dotColor = NSColor(srgbRed: 0.78, green: 0.49, blue: 0.10, alpha: 1.0)
+    /// Trough and peak of the pulse, matching the dashboard's `--ink` (#191B1F)
+    /// and `--clay` (#DB2777). Keep these in step with styles.css `:root`.
+    private static let dotInk   = NSColor(srgbRed: 0x19 / 255.0, green: 0x1B / 255.0,
+                                          blue: 0x1F / 255.0, alpha: 1.0)
+    private static let dotClay  = NSColor(srgbRed: 0xDB / 255.0, green: 0x27 / 255.0,
+                                          blue: 0x77 / 255.0, alpha: 1.0)
 
     private static let period: Double = 1.4   // seconds, matches the web animation
 
@@ -24,14 +28,14 @@ final class DockTileView: NSView {
 
         guard let start = startDate else { return }
 
-        // phase in [0,1], starting near 0 (dim/small) and easing up and back.
+        // phase in [0,1], starting near 0 (small/ink) and easing up and back.
         let t = Date().timeIntervalSince(start)
         let phase = (sin(2 * .pi * t / Self.period - .pi / 2) + 1) / 2
-        let alpha = 0.35 + 0.65 * phase
-        let scale = 1.0 + 0.4 * phase
+        let scale = 0.7 + 0.3 * phase   // peaks at 1 = native size, as in CSS
 
         let side = min(bounds.width, bounds.height)
-        let baseRadius = side * 0.10
+        // Sized so the peak (scale 1) matches the previous dot's largest state.
+        let baseRadius = side * 0.14
         let radius = baseRadius * scale
         // Lower-left, inset so it clears the tile edge and leaves the top-right free
         // for a future badge.
@@ -41,10 +45,12 @@ final class DockTileView: NSView {
                           width: radius * 2, height: radius * 2)
 
         let dot = NSBezierPath(ovalIn: rect)
-        Self.dotColor.withAlphaComponent(alpha).setFill()
+        // Lerp ink → accent in sRGB, matching the CSS keyframe's colour travel.
+        (Self.dotInk.blended(withFraction: phase, of: Self.dotClay) ?? Self.dotClay).setFill()
         dot.fill()
-        // Thin contrasting outline so the dot reads on any icon background.
-        NSColor.black.withAlphaComponent(0.25 * alpha).setStroke()
+        // Light outline, not dark: the dot is near-black at the trough, so a black
+        // ring would disappear into it. White separates it at both ends of the pulse.
+        NSColor.white.withAlphaComponent(0.55).setStroke()
         dot.lineWidth = max(1, side * 0.01)
         dot.stroke()
     }

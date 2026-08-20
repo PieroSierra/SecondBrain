@@ -517,7 +517,7 @@ function outputFileLink(relPath) {
     a.href = "#";
     a.title = "Open the file from your editor or finder";
   }
-  a.textContent = `📄 ${relPath}`;
+  a.textContent = relPath;
   return a;
 }
 
@@ -550,11 +550,19 @@ function applyStatus(data) {
   const ingest = formatIngestTime(data.last_ingest_iso, data.last_ingest_source);
   setTile("last_ingest_iso", ingest.label, ingest.sublabel, ingest.title);
 
-  // The "| N ready to ingest" pipe + segment appear only when work is pending.
-  const showReady = Number(data.raw_pending_count) > 0;
-  document
-    .querySelectorAll('#status-strip [data-seg="ready"]')
-    .forEach((el) => { el.hidden = !showReady; });
+  // The pending row is a state, not a command: it exists only while raw files
+  // are waiting, so its mere presence reads as "something needs doing".
+  const pending = Number(data.raw_pending_count) || 0;
+  const pendingRow = document.getElementById("pending-row");
+  if (pendingRow) {
+    pendingRow.hidden = pending < 1;
+    const countEl = pendingRow.querySelector(".pending-row-count");
+    const labelEl = pendingRow.querySelector(".pending-row-label");
+    if (countEl) countEl.textContent = String(pending);
+    if (labelEl) {
+      labelEl.textContent = pending === 1 ? "note ready to ingest" : "notes ready to ingest";
+    }
+  }
 }
 
 function setTile(metric, value, sublabel, title, iconSrc) {
@@ -710,7 +718,7 @@ function flashCopyButton(btn, label) {
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest(".copy-btn");
   if (!btn) return;
-  const card = btn.closest(".result-card, .maint-result, .viewer-content, #panel-wiki-viewer, .thread-turn");
+  const card = btn.closest(".result-card, .viewer-content, #panel-wiki-viewer, .thread-turn");
   const markdown = card?.dataset?.markdown;
   if (!markdown) {
     flashCopyButton(btn, "Nothing to copy");
@@ -1299,17 +1307,10 @@ pasteBody.addEventListener("blur", runPasteDupe);
 
 async function runMaintenance(form, kind) {
   if (busyKind) return;
+  // `form` is just the [data-long-op] wrapper of whichever control was
+  // clicked, so progress reports next to that control. Neither trigger renders
+  // results in place: both ops persist a report and we navigate to it.
   const opNode = form.querySelector("[data-op-status]");
-  const resultBox = form.querySelector("[data-maint-result]");
-  const body = resultBox.querySelector(".markdown-body");
-  const footer = resultBox.querySelector(".result-footer");
-  const meta = footer.querySelector(".result-meta");
-  // Reset previous render.
-  resultBox.hidden = true;
-  body.innerHTML = "";
-  footer.querySelectorAll(".output-file").forEach((el) => el.remove());
-  meta.hidden = true;
-  meta.textContent = "";
 
   setBusy(kind);
   opRunning(opNode, kind);
@@ -1322,24 +1323,19 @@ async function runMaintenance(form, kind) {
       return;
     }
 
-    const rawMd = data.result || "(no output)";
-    body.innerHTML = renderMarkdown(rawMd);
-    resultBox.dataset.markdown = rawMd;  // for any future Copy buttons
-    if (data.output_file) {
-      footer.prepend(outputFileLink(data.output_file));
-    }
-    const bits = [];
-    if (typeof data.cost_usd === "number" && data.cost_usd > 0) {
-      bits.push(`$${data.cost_usd.toFixed(4)}`);
-    }
-    if (bits.length > 0) {
-      meta.textContent = bits.join(" · ");
-      meta.hidden = false;
-    }
-    resultBox.hidden = false;
-
     opDone(opNode, kind, data.duration_ms);
     refreshStatus();
+
+    // Land the user on the report rather than leaving the outcome buried in a
+    // panel: it is a durable artifact in the Home list, so that is where it
+    // should be read. An ingest with nothing to do writes no report — the
+    // op-status line ("Nothing to ingest") is the whole answer.
+    if (data.output_file) {
+      const filename = String(data.output_file).replace(/^outputs\//, "");
+      const date = filename.slice(0, 10);
+      const title = kind === "ingest" ? "Ingest report" : "Lint report";
+      goToOutput(filename, title, date, kind);
+    }
   } catch (e) {
     opError(opNode, `Network error: ${e?.message ?? e}`);
   } finally {
@@ -1347,18 +1343,18 @@ async function runMaintenance(form, kind) {
   }
 }
 
-const ingestForm = $("#ingest-form");
-ingestForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  runMaintenance(ingestForm, "ingest");
+// Ingest has two entry points, both running the same op against their own
+// [data-long-op] wrapper so progress reports next to whichever was clicked:
+// the pending row on Home (contextual) and the sidebar footer (always there
+// under the Wiki tab, for re-running when nothing is pending).
+$("#pending-update-btn")?.addEventListener("click", (e) => {
+  runMaintenance(e.currentTarget.closest("[data-long-op]"), "ingest");
 });
-
-// The "ingest" pill in the status strip is a shortcut for the Run-ingest button.
-// Scroll the maintenance card into view so its progress/result is visible.
-$("#status-ingest-pill")?.addEventListener("click", () => {
-  if (busyKind) return;
-  document.getElementById("maintenance")?.scrollIntoView({ behavior: "smooth", block: "start" });
-  runMaintenance(ingestForm, "ingest");
+// The sidebar pair shares one status line below both buttons, so the scope
+// passed here is the footer rather than the button's own [data-long-op] wrapper
+// (which exists purely so setBusy's disable selector still reaches them).
+$("#side-ingest-btn")?.addEventListener("click", (e) => {
+  runMaintenance(e.currentTarget.closest(".sidebar-foot"), "ingest");
 });
 
 // Engine test pill — fires a trivial ping at the active engine.
@@ -1403,15 +1399,8 @@ document.querySelectorAll("[data-open-folder]").forEach((btn) => {
   });
 });
 
-const lintForm = $("#lint-form");
-lintForm.addEventListener("submit", (e) => {
-  e.preventDefault();
-  // Hide the edit bar and reset input when re-running lint.
-  const lintEditBar = document.getElementById("lint-edit-bar");
-  if (lintEditBar) lintEditBar.hidden = true;
-  const lintEditInput = document.getElementById("lint-edit-input");
-  if (lintEditInput) lintEditInput.value = "";
-  runMaintenance(lintForm, "lint");
+$("#side-lint-btn")?.addEventListener("click", (e) => {
+  runMaintenance(e.currentTarget.closest(".sidebar-foot"), "lint");
 });
 
 // ---------------------------------------------------------------------------
@@ -1447,34 +1436,6 @@ async function runWikiEdit(prompt, slug, opNode, statusNode, onSuccess) {
     clearBusy();
   }
 }
-
-// --- Lint homepage edit bar ---
-const lintEditBar    = document.getElementById("lint-edit-bar");
-const lintEditInput  = document.getElementById("lint-edit-input");
-const lintEditBtn    = document.getElementById("lint-edit-btn");
-const lintEditOpSt   = document.getElementById("lint-edit-op-status");
-const lintEditImpSt  = document.getElementById("lint-edit-import-status");
-
-// Patch runMaintenance success path: reveal edit bar after lint completes.
-// We wrap the lint form's submit to inject a post-success hook.
-const _origLintSubmit = lintForm.onsubmit;
-(function patchLintForEditBar() {
-  const _origRunMaint = runMaintenance;
-  // Intercept by observing resultBox visibility changes via MutationObserver.
-  const lintResultBox = lintForm.querySelector("[data-maint-result]");
-  if (lintResultBox && lintEditBar) {
-    const obs = new MutationObserver(() => {
-      if (!lintResultBox.hidden) lintEditBar.hidden = false;
-    });
-    obs.observe(lintResultBox, { attributes: true, attributeFilter: ["hidden"] });
-  }
-})();
-
-lintEditBtn?.addEventListener("click", () => {
-  const prompt = lintEditInput?.value.trim();
-  if (!prompt) { opError(lintEditOpSt, "Enter an edit instruction first."); return; }
-  runWikiEdit(prompt, null, lintEditOpSt, lintEditImpSt, () => {});
-});
 
 // --- Output viewer edit bar (shown only for lint files) ---
 const outputEditBar   = document.getElementById("output-edit-bar");
@@ -1857,6 +1818,19 @@ async function _threadReply(question) {
   }
 }
 
+// Grow the composer to fit its content. scrollHeight covers content + padding
+// but NOT borders, while box-sizing: border-box makes `height` include them —
+// so the borders have to be added back or every grow lands 2px short and the
+// last line sits cramped against the bottom edge.
+function sizeReplyInput() {
+  if (!threadReplyInput) return;
+  threadReplyInput.style.height = "auto";
+  const cs = getComputedStyle(threadReplyInput);
+  const borders =
+    parseFloat(cs.borderTopWidth) + parseFloat(cs.borderBottomWidth);
+  threadReplyInput.style.height = threadReplyInput.scrollHeight + borders + "px";
+}
+
 if (threadReplyBtn) {
   threadReplyBtn.addEventListener("click", handleBarSubmit);
 }
@@ -1867,10 +1841,7 @@ if (threadReplyInput) {
       handleBarSubmit();
     }
   });
-  threadReplyInput.addEventListener("input", () => {
-    threadReplyInput.style.height = "auto";
-    threadReplyInput.style.height = threadReplyInput.scrollHeight + "px";
-  });
+  threadReplyInput.addEventListener("input", sizeReplyInput);
 }
 
 // --- Wiki article viewer edit bar ---
@@ -1914,6 +1885,29 @@ function showPanel(id) {
   document.querySelector(".main-panel")?.scrollTo(0, 0);
 }
 
+// Single source of truth for nav-tab chrome: the tab pills, the two list
+// panels, and the maintenance footer (Wiki only). This was duplicated across
+// switchSection/goToWikiArticle/goToOutput — which is exactly how the footer
+// would have drifted out of sync on two of the three paths.
+// Machine-generated reports rather than user content: they get their own nav
+// icon (icons/<kind>.png) and cannot be renamed, since the title is derived
+// from the filename by the bridge.
+const REPORT_KINDS = new Set(["lint", "ingest"]);
+
+function setNavTab(section) {
+  document.querySelectorAll(".nav-tab").forEach((btn) => {
+    const active = btn.dataset.navTab === section;
+    btn.classList.toggle("nav-tab-active", active);
+    btn.setAttribute("aria-selected", String(active));
+  });
+  const homeList = document.getElementById("nav-list-home");
+  const wikiList = document.getElementById("nav-list-wiki");
+  const maint    = document.getElementById("sidebar-maint");
+  if (homeList) homeList.hidden = section !== "home";
+  if (wikiList) wikiList.hidden = section !== "wiki";
+  if (maint)    maint.hidden    = section !== "wiki";
+}
+
 function switchSection(section) {
   if (_currentSection === section) {
     // Re-tapping the active Home tab returns to New Question.
@@ -1928,16 +1922,7 @@ function switchSection(section) {
   }
   _currentSection = section;
 
-  document.querySelectorAll(".nav-tab").forEach((btn) => {
-    const active = btn.dataset.navTab === section;
-    btn.classList.toggle("nav-tab-active", active);
-    btn.setAttribute("aria-selected", String(active));
-  });
-
-  const homeList = document.getElementById("nav-list-home");
-  const wikiList = document.getElementById("nav-list-wiki");
-  if (homeList) homeList.hidden = section !== "home";
-  if (wikiList) wikiList.hidden = section !== "wiki";
+  setNavTab(section);
 
   if (section === "wiki") {
     hideBar();
@@ -1998,7 +1983,7 @@ async function loadOutputsList(force = false) {
       btn.className = "nav-item nav-item-output";
       btn.dataset.outputFilename = item.filename;
       // Lint reports and threads get their own icons; query answers use the answer icon.
-      const navIconName = item.kind === "lint" ? "lint" : "answer";
+      const navIconName = REPORT_KINDS.has(item.kind) ? item.kind : "answer";
       btn.appendChild(makeNavIcon(navIconName));
 
       // Wrap the title so the actions control can sit in a fixed right-hand
@@ -2226,12 +2211,13 @@ function _buildDelintRow(finding, proposal, filename) {
   const applyBtn = document.createElement("button");
   applyBtn.type  = "button";
   applyBtn.className   = "import-submit";
-  applyBtn.textContent = finding.type === "run-ingest" ? "RUN INGEST" : "APPLY";
+  applyBtn.textContent = finding.type === "run-ingest" ? "Run ingest" : "Apply";
 
   const skipBtn = document.createElement("button");
   skipBtn.type  = "button";
-  skipBtn.className   = "import-submit";
-  skipBtn.textContent = "SKIP";
+  // Ghost, not primary: Apply is the committing action of this pair.
+  skipBtn.className   = "import-submit import-submit--ghost";
+  skipBtn.textContent = "Skip";
 
   const opNode = document.createElement("div");
   opNode.className = "op-status";
@@ -2459,15 +2445,7 @@ function buildWikiToc(slug, bodyEl) {
 // visit opens INDEX" async branch racing the target article load.
 function goToWikiArticle(slug, highlightTerm = "") {
   _currentSection = "wiki";
-  document.querySelectorAll(".nav-tab").forEach((btn) => {
-    const active = btn.dataset.navTab === "wiki";
-    btn.classList.toggle("nav-tab-active", active);
-    btn.setAttribute("aria-selected", String(active));
-  });
-  const homeList = document.getElementById("nav-list-home");
-  const wikiList = document.getElementById("nav-list-wiki");
-  if (homeList) homeList.hidden = true;
-  if (wikiList) wikiList.hidden = false;
+  setNavTab("wiki");
   openWikiArticle(slug, undefined, highlightTerm);
   // Highlight the matching nav item once the list is present.
   loadWikiList().then(() => {
@@ -2592,7 +2570,8 @@ function renderSearchResults(items, q) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "search-result";
-    const iconName = item.source === "wiki" ? "page" : (item.kind === "lint" ? "lint" : "answer");
+    const iconName = item.source === "wiki" ? "page"
+      : (REPORT_KINDS.has(item.kind) ? item.kind : "answer");
     btn.appendChild(makeNavIcon(iconName, 16));
 
     const textWrap = document.createElement("div");
@@ -2606,7 +2585,8 @@ function renderSearchResults(items, q) {
     if (titleEl.textContent !== item.title) titleEl.title = item.title;
     const meta = document.createElement("span");
     meta.className = "search-result-meta";
-    const label = item.source === "wiki" ? "wiki" : (item.kind === "lint" ? "lint" : "answer");
+    const label = item.source === "wiki" ? "wiki"
+      : (REPORT_KINDS.has(item.kind) ? item.kind : "answer");
     meta.textContent = `  ·  ${label}${item.hits > 1 ? ` · ${item.hits} hits` : ""}`;
     titleEl.appendChild(meta);
     textWrap.appendChild(titleEl);
@@ -2647,15 +2627,7 @@ async function runSearch(q) {
 // async INDEX branch).
 function goToOutput(filename, title, date, kind, highlightTerm = "") {
   _currentSection = "home";
-  document.querySelectorAll(".nav-tab").forEach((btn) => {
-    const active = btn.dataset.navTab === "home";
-    btn.classList.toggle("nav-tab-active", active);
-    btn.setAttribute("aria-selected", String(active));
-  });
-  const homeList = document.getElementById("nav-list-home");
-  const wikiList = document.getElementById("nav-list-wiki");
-  if (homeList) homeList.hidden = false;
-  if (wikiList) wikiList.hidden = true;
+  setNavTab("home");
   _lastHomePanel = "panel-output-viewer";
   openOutput(filename, title, date, kind, highlightTerm);
   loadOutputsList(true).then(() => {
@@ -2800,7 +2772,7 @@ function openOutputActions(trigger, item, btn) {
   _pendingOutputAction = { ...item, btn, trigger };
   trigger.setAttribute("aria-expanded", "true");
   const renameBtn = outputActionsMenu.querySelector("[data-output-rename]");
-  renameBtn.hidden = item.kind === "lint";
+  renameBtn.hidden = REPORT_KINDS.has(item.kind);
   outputActionsMenu.hidden = false;
 
   const rect = trigger.getBoundingClientRect();
@@ -2856,8 +2828,7 @@ async function confirmRename() {
       await openOutput(target.filename, title, target.date_iso, target.kind);
       if (target.kind === "thread" && threadReplyInput) {
         threadReplyInput.value = replyDraft;
-        threadReplyInput.style.height = "auto";
-        threadReplyInput.style.height = threadReplyInput.scrollHeight + "px";
+        sizeReplyInput();
       }
     }
   } catch (err) {

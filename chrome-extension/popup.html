@@ -4,37 +4,65 @@
   <meta charset="utf-8">
   <title>Second Brain</title>
   <style>
-    /* Design tokens — identical to the dashboard. */
-    :root {
-      --bg:          #FBF8F3;
-      --bg-elev:     #FFFFFF;
-      --bg-subtle:   #F2ECE0;
-      --ink:         #2A1F1A;
-      --ink-muted:   #756B62;
-      --ink-faint:   #B5ADA1;
-      --rule:        #E5DED2;
-      --rule-strong: #C9C0B0;
-      --clay:        #B85C38;
-      --clay-deep:   #8E4426;
-      --clay-soft:   #FBE6DD;
-      --error-bg:    #F9E4DD;
-      --error-ink:   #82331C;
-      --error-rule:  #DEB7A6;
-      --success-bg:  #ECF1E2;
-      --success-ink: #4A5C2C;
-      --success-rule:#C7D3A8;
-      --busy-bg:     #F5EDD8;
-      --busy-ink:    #7B5A1B;
-      --busy-rule:   #DCC68C;
+    /* Self-hosted fonts, bundled with the extension (SIL Open Font License —
+       see fonts/OFL-*.txt). Extension pages run under a `default-src 'self'`
+       CSP, so a Google Fonts <link> would be blocked; bundling also means the
+       popup renders correctly with no network at all. Newsreader is subset to
+       just the glyphs in "Second Brain" (4KB) since that is all it sets. */
+    @font-face {
+      font-family: 'Figtree';
+      font-style: normal; font-weight: 400 700; font-display: swap;
+      src: url('fonts/figtree-latin.woff2') format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Figtree';
+      font-style: normal; font-weight: 400 700; font-display: swap;
+      src: url('fonts/figtree-latin-ext.woff2') format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+    @font-face {
+      font-family: 'Newsreader';
+      font-style: normal; font-weight: 500; font-display: swap;
+      src: url('fonts/newsreader-wordmark.woff2') format('woff2');
+      unicode-range: U+20, U+42, U+53, U+61, U+63-65, U+69, U+6E-6F, U+72;
+    }
 
-      --font-display: ui-serif, "New York", "Iowan Old Style", Charter, Georgia, serif;
-      --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    /* Design tokens — identical to the dashboard's :root. */
+    :root {
+      --bg:          #FFFFFF;
+      --bg-elev:     #FFFFFF;
+      --bg-subtle:   #F1F3F6;
+      --ink:         #191B1F;
+      --ink-muted:   #5C636E;
+      --ink-faint:   #9AA1AC;
+      --rule:        #EAECF0;
+      --rule-strong: #DCE0E6;
+
+      --clay:        #DB2777;
+      --clay-deep:   color-mix(in srgb, var(--clay) 86%, #000);
+      --clay-soft:   color-mix(in srgb, var(--clay) 15%, #fff);
+      --clay-tint:   color-mix(in srgb, var(--clay)  7%, #fff);
+      --clay-ring:   color-mix(in srgb, var(--clay) 32%, #fff);
+
+      --error-bg:    #FEF3F2;
+      --error-ink:   #B42318;
+      --error-rule:  #FDA29B;
+      --error-deep:  color-mix(in srgb, var(--error-ink) 80%, #000);
+      --success-bg:  #ECFDF3;
+      --success-ink: #067647;
+      --success-rule:#A6F4C5;
+
+      --font-display: 'Newsreader', ui-serif, Georgia, "Times New Roman", serif;
+      --font-body: 'Figtree', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
       --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
-      --radius:    4px;
-      --radius-lg: 6px;
-      --shadow-paper: 0 1px 0 rgba(42, 31, 26, 0.04),
-                      0 4px 16px -8px rgba(42, 31, 26, 0.10);
+      --radius-sm: 8px;
+      --radius:    12px;
+      --radius-lg: 16px;
+      --radius-pill: 999px;
+      --shadow-paper: 0 1px 2px rgba(20, 22, 28, 0.04),
+                      0 12px 32px -14px rgba(20, 22, 28, 0.16);
     }
 
     * { box-sizing: border-box; margin: 0; padding: 0; }
@@ -52,7 +80,7 @@
     /* Card — like .import-card */
     .card {
       margin: 12px;
-      padding: 16px 18px 14px;
+      padding: 18px 20px 16px;
       background: var(--bg-elev);
       border: 1px solid var(--rule);
       border-radius: var(--radius-lg);
@@ -65,10 +93,9 @@
     /* Display heading */
     .brand {
       font-family: var(--font-display);
-      font-size: 1.25rem;
-      font-weight: 350;
-      font-style: italic;
-      color: var(--clay);
+      font-size: 1.35rem;
+      font-weight: 500;
+      color: var(--ink);
       letter-spacing: -0.02em;
       line-height: 1;
     }
@@ -78,8 +105,8 @@
       display: flex;
       align-items: center;
       gap: 6px;
-      padding: 6px 8px;
-      background: var(--bg);
+      padding: 8px 10px;
+      background: var(--bg-subtle);
       border: 1px solid var(--rule);
       border-radius: var(--radius);
       overflow: hidden;
@@ -103,8 +130,8 @@
     /* Optional context textarea — matches .import-textarea */
     .context-field {
       width: 100%;
-      padding: 8px 10px;
-      border: 1px solid var(--rule);
+      padding: 10px 12px;
+      border: 1px solid var(--rule-strong);
       border-radius: var(--radius);
       background: var(--bg);
       color: var(--ink);
@@ -113,50 +140,49 @@
       line-height: 1.45;
       resize: vertical;
       min-height: 56px;
+      transition: border-color 0.15s ease, background 0.15s ease;
     }
+    /* One ring, not two: the accent border is the focus affordance. */
     .context-field:focus {
       outline: none;
       border-color: var(--clay);
-      background: var(--bg-elev);
+      background: var(--clay-tint);
     }
     .context-field::placeholder { color: var(--ink-faint); }
 
     /* Button — matches .import-submit exactly */
     #import-btn {
       align-self: flex-start;
-      padding: 6px 16px;
-      border: 1px solid var(--rule-strong);
-      border-radius: 100px;
-      background: var(--bg-elev);
-      color: var(--ink);
+      padding: 9px 20px;
+      border: 1px solid var(--clay);
+      border-radius: var(--radius-pill);
+      background: var(--clay);
+      color: #fff;
       font-family: var(--font-body);
-      font-size: 0.72rem;
-      font-weight: 500;
-      letter-spacing: 0.08em;
-      text-transform: uppercase;
+      font-size: 0.82rem;
+      font-weight: 600;
+      letter-spacing: 0.01em;
       cursor: pointer;
       transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     }
     #import-btn:hover:not(:disabled) {
-      background: var(--ink);
-      color: var(--bg-elev);
-      border-color: var(--ink);
+      background: var(--clay-deep);
+      border-color: var(--clay-deep);
     }
     #import-btn:disabled {
       opacity: 0.4;
       cursor: not-allowed;
-      background: var(--bg-elev);
-      color: var(--ink);
     }
-    /* "Import page anyway" — red/clay, matching the dashboard's override. */
+    /* "Import page anyway" — the error red, matching the dashboard's override.
+       It must not borrow the accent, which marks the safe primary action. */
     #import-btn.import-btn-anyway {
-      border-color: var(--clay);
-      color: var(--clay-deep);
+      background: var(--error-ink);
+      border-color: var(--error-ink);
+      color: #fff;
     }
     #import-btn.import-btn-anyway:hover:not(:disabled) {
-      background: var(--clay);
-      color: var(--bg-elev);
-      border-color: var(--clay);
+      background: var(--error-deep);
+      border-color: var(--error-deep);
     }
 
     /* Op-status row — pulsing dot + animated verb sweep, matches dashboard */
@@ -180,27 +206,27 @@
       flex: none;
       margin-top: calc((1.4em - 7px) / 2);
     }
-    .op-status-running { color: var(--busy-ink); font-style: italic; }
+    .op-status-running { color: var(--ink); font-style: italic; }
     .op-status-running::before {
-      background: var(--busy-ink);
+      background: var(--clay);
       animation: pulse 1.4s ease-in-out infinite;
     }
 
-    /* Verb sweep — gold shimmer glides through the italic verb */
+    /* Verb sweep — an accent highlight glides through the italic verb */
     .op-verb {
       font-style: italic;
     }
     .op-verb-anim {
-      background-color: var(--busy-ink);
+      background-color: var(--ink);
       background-image: linear-gradient(
         100deg,
-        var(--busy-ink)  0%,
-        var(--busy-ink) 30%,
-        #F0B548         42%,
-        #FFD24A         50%,
-        #F0B548         58%,
-        var(--busy-ink) 70%,
-        var(--busy-ink) 100%
+        var(--ink)        0%,
+        var(--ink)       30%,
+        var(--clay-deep) 42%,
+        var(--clay)      50%,
+        var(--clay-deep) 58%,
+        var(--ink)       70%,
+        var(--ink)      100%
       );
       background-size: 200% 100%;
       background-repeat: repeat;
@@ -214,9 +240,10 @@
       from { background-position:    0% 0; }
       to   { background-position: -200% 0; }
     }
+    /* Peaks at scale 1 so the dot's largest state is its native size. */
     @keyframes pulse {
-      0%, 100% { opacity: 0.35; transform: scale(1); }
-      50%      { opacity: 1;    transform: scale(1.4); }
+      0%, 100% { transform: scale(0.7); background: var(--ink); }
+      50%      { transform: scale(1);   background: var(--clay); }
     }
     @media (prefers-reduced-motion: reduce) {
       .op-verb-anim {
@@ -225,7 +252,7 @@
         -webkit-background-clip: initial;
         background-clip: initial;
         -webkit-text-fill-color: currentColor;
-        color: var(--busy-ink);
+        color: var(--ink);
       }
       .op-status-running::before { animation: none; opacity: 0.7; }
     }
@@ -236,11 +263,11 @@
        meta linking to the dashboard's raw-file preview). */
     .status {
       display: none;
-      padding: 8px 10px;
+      padding: 10px 12px;
       border-radius: var(--radius);
       font-size: 0.8rem;
       line-height: 1.45;
-      border-left: 2px solid transparent;
+      border: 1px solid transparent;
       overflow-wrap: anywhere;
       word-break: break-word;
     }
@@ -248,13 +275,13 @@
     .status--success {
       background: var(--success-bg);
       color: var(--success-ink);
-      border-left-color: var(--success-rule);
+      border-color: var(--success-rule);
     }
     .status--warn,
     .status--error {
       background: var(--error-bg);
       color: var(--error-ink);
-      border-left-color: var(--error-rule);
+      border-color: var(--error-rule);
     }
     .status-filename {
       margin-top: 4px;
@@ -299,7 +326,7 @@
       text-underline-offset: 2px;
       cursor: pointer;
     }
-    .dupe-warning-link:hover { color: var(--clay-deep); }
+    .dupe-warning-link:hover { color: var(--ink); }
     .dupe-warning-meta {
       margin-top: 2px;
       font-size: 0.72rem;

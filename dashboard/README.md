@@ -12,7 +12,7 @@ The bridge prints `http://127.0.0.1:4173/` and opens it in your browser. Stop wi
 
 Every model-backed action is performed by shelling out to the configured agent CLI — `claude -p "..." --output-format json` (default) or `codex exec "$..." --sandbox workspace-write` when `AGENT_ENGINE=codex`. The bridge is Python-standard-library-only and:
 
-- Serves the static page (`index.html`, `styles.css`, `app.js`, `lib/marked.min.js`).
+- Serves the static page (`index.html`, `styles.css`, `app.js`, `fonts/*.woff2`, `lib/marked.min.js`).
 - Forwards `POST /run` requests to the corresponding skill (`/second-brain-query`, `-md-add`, `-craft-import`, `-pdf-import`, `-ingest`, `-lint`).
 - Accepts file uploads at `POST /upload-file` (and PDFs at the older `POST /upload-pdf`), staged in `dashboard/.uploads/` and cleaned up after. Office and CSV files (`.pptx`/`.docx`/`.xlsx`/`.xlsm`/`.csv`) are converted to Markdown **in-process** by the pure-stdlib extractors (`pptx_extract.py`, `docx_extract.py`, `xlsx_extract.py`) — no model call, near-instant, landing in `raw/pptx|docx|xlsx|csv/`; these may be up to 512 MB (they stream). Everything else (PDF, images, text) runs the import skill via the agent and is capped at 64 MB.
 - Reads `raw/.ingest-manifest.json` plus the filesystem for `GET /status` — never spawns an agent for that. `ingest_state.py` uses mtime/size as a fast signal and SHA-256 as content identity, shared by dashboard and direct CLI ingestion.
@@ -86,10 +86,11 @@ SecondBrain/                     vault root
 │   ├── bridge.py                HTTP server + claude proxy
 │   ├── ingest_state.py          shared fingerprint scan + manifest finalizer
 │   ├── index.html               single-page UI
-│   ├── styles.css               visual design (cream paper, serif display)
+│   ├── styles.css               visual design (white sheet, Newsreader/Figtree)
 │   ├── app.js                   front-end controller (vanilla ES module)
 │   ├── README.md                this file
 │   ├── .uploads/                transient PDF staging (gitignored)
+│   ├── fonts/                   self-hosted Newsreader + Figtree (OFL)
 │   └── lib/
 │       ├── marked.min.js        vendored Markdown renderer
 │       ├── purify.min.js        vendored DOMPurify (HTML sanitiser)

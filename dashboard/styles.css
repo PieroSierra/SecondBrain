@@ -1,54 +1,125 @@
 /*
- * Second Brain dashboard — visual design (US4 polish, Phase 7)
+ * Second Brain dashboard — visual design
  * Spec: specs/002-interactive-dashboard/spec.md
  *
- * Design language:
- *   • Warm cream background, true-white "sheets" lifted onto it.
- *   • New York / Iowan Old Style for display; system sans for body; SF Mono for data.
- *   • Single accent (clay terracotta), used with restraint.
- *   • Wikilinks rendered with a marker-style highlight — the page's signature.
+ * Design language ("fresh", 2026 refresh):
+ *   • Clean white content sheet floating over a cool near-white sidebar.
+ *   • Newsreader for display; Figtree for body/UI; SF Mono for data only.
+ *   • Single accent (hot pink), used with restraint.
+ *   • Soft-rounded corners (12/16/22px); buttons are full pills.
+ *   • Wikilinks rendered as a clean accent underline in the body font.
  *   • Light only. No dark-mode duplication.
+ *
+ * Fonts are self-hosted under dashboard/fonts/ (SIL Open Font License —
+ * see the OFL-*.txt files there). They are NOT loaded from Google Fonts:
+ * the bridge serves a strict `default-src 'self'` CSP, and self-hosting also
+ * keeps the dashboard fully functional offline and leaks nothing to a CDN.
  */
 
+/* ---------- Self-hosted webfonts ---------- */
+@font-face {
+  font-family: 'Figtree';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/static/fonts/figtree-normal-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Figtree';
+  font-style: normal;
+  font-weight: 400 700;
+  font-display: swap;
+  src: url('/static/fonts/figtree-normal-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 300 600;
+  font-display: swap;
+  src: url('/static/fonts/newsreader-normal-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: normal;
+  font-weight: 300 600;
+  font-display: swap;
+  src: url('/static/fonts/newsreader-normal-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: italic;
+  font-weight: 300 500;
+  font-display: swap;
+  src: url('/static/fonts/newsreader-italic-latin.woff2') format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: 'Newsreader';
+  font-style: italic;
+  font-weight: 300 500;
+  font-display: swap;
+  src: url('/static/fonts/newsreader-italic-latin-ext.woff2') format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
 :root {
-  /* palette */
-  --bg:          #FBF8F3;
-  --bg-content:  #FDFDFC;   /* content panel — lighter/less yellow than the nav */
-  --bg-elev:     #FFFFFF;
-  --bg-subtle:   #F2ECE0;
-  --ink:         #2A1F1A;
-  --ink-muted:   #756B62;
-  --ink-faint:   #B5ADA1;
-  --rule:        #E5DED2;
-  --rule-strong: #C9C0B0;
-  --clay:        #B85C38;
-  --clay-deep:   #8E4426;
-  --clay-soft:   #FBE6DD;
-  --error-bg:    #F9E4DD;
-  --error-ink:   #82331C;
-  --error-rule:  #DEB7A6;
-  --success-bg:  #ECF1E2;
-  --success-ink: #4A5C2C;
-  --success-rule:#C7D3A8;
-  --busy-bg:     #F5EDD8;
-  --busy-ink:    #7B5A1B;
-  --busy-rule:   #DCC68C;
+  /* palette — clean neutral white, cool near-black inks */
+  --bg:          #FFFFFF;
+  --bg-content:  #FFFFFF;   /* content panel */
+  --bg-elev:     #FFFFFF;   /* cards, modals */
+  --bg-sidebar:  #F7F8FA;   /* cool near-white nav panel */
+  --bg-subtle:   #F1F3F6;   /* hovers, code chips, mono blocks */
+  --ink:         #191B1F;
+  --ink-muted:   #5C636E;
+  --ink-faint:   #9AA1AC;
+  --ink-xfaint:  #C3C8D0;   /* separators, disabled */
+  --rule:        #EAECF0;
+  --rule-strong: #DCE0E6;
+
+  /* accent — one hot pink; every tint derives from --clay, so swapping the
+     accent is a one-line change. */
+  --clay:        #DB2777;
+  --clay-deep:   color-mix(in srgb, var(--clay) 86%, #000);  /* hover / pressed */
+  --clay-soft:   color-mix(in srgb, var(--clay) 15%, #fff);  /* highlight tint */
+  --clay-tint:   color-mix(in srgb, var(--clay)  7%, #fff);  /* input / focus wash */
+  --clay-ring:   color-mix(in srgb, var(--clay) 32%, #fff);  /* underlines, soft borders */
+
+  /* status — retuned to the cool neutral base */
+  --error-bg:    #FEF3F2;
+  --error-ink:   #B42318;
+  --error-rule:  #FDA29B;
+  --error-deep:  color-mix(in srgb, var(--error-ink) 80%, #000);   /* hover */
+  --success-bg:  #ECFDF3;
+  --success-ink: #067647;
+  --success-rule:#A6F4C5;
+  --success-deep:color-mix(in srgb, var(--success-ink) 78%, #000); /* hover */
+  --busy-bg:     #FFFAEB;
+  --busy-ink:    #B54708;
+  --busy-rule:   #FEDF89;
 
   /* type */
-  --font-display: ui-serif, "New York", "Iowan Old Style", Charter, Georgia, "Times New Roman", serif;
-  --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: 'Newsreader', ui-serif, Georgia, "Times New Roman", serif;
+  --font-body: 'Figtree', system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
 
   /* layout */
   --maxw: 720px;          /* tighter than the standard 880 — for reading */
   --maxw-wide: 920px;     /* status / sections that warrant breathing room */
   --gap: 28px;
-  --radius: 4px;          /* sharp; not pill-shaped */
-  --radius-lg: 6px;
+  --radius-sm: 8px;       /* code chips, tiny selects, menu items */
+  --radius: 12px;         /* inputs, chips, small controls */
+  --radius-lg: 16px;      /* cards, modals, panels */
+  --radius-xl: 22px;      /* tab group, search / rename sheets */
+  --radius-pill: 999px;   /* buttons */
 
-  /* shadow — extremely soft, like paper on paper */
-  --shadow-paper: 0 1px 0 rgba(42, 31, 26, 0.04),
-                  0 4px 16px -8px rgba(42, 31, 26, 0.10);
+  /* shadow — a clean, soft lift */
+  --shadow-paper: 0 1px 2px rgba(20, 22, 28, 0.04),
+                  0 12px 32px -14px rgba(20, 22, 28, 0.16);
+  --shadow-lift:  0 24px 60px -20px rgba(20, 22, 28, 0.30);
 }
 
 * { box-sizing: border-box; }
@@ -69,13 +140,8 @@ html, body {
   text-rendering: optimizeLegibility;
 }
 
-body {
-  /* very subtle paper grain */
-  background-image:
-    radial-gradient(circle at 20% 10%, rgba(184, 92, 56, 0.025) 0, transparent 40%),
-    radial-gradient(circle at 90% 80%, rgba(184, 92, 56, 0.020) 0, transparent 50%);
-  background-attachment: fixed;
-}
+/* No paper grain: the refreshed language is a flat white sheet floating over a
+   cool near-white nav — the depth comes from the panel shadow, not a tint. */
 
 a { color: var(--clay-deep); text-decoration: none; border-bottom: 1px solid var(--clay-soft); transition: border-color 0.15s ease; }
 a:hover { border-bottom-color: var(--clay); }
@@ -85,6 +151,15 @@ input:focus-visible,
 textarea:focus-visible {
   outline: 2px solid var(--clay);
   outline-offset: 2px;
+}
+/* …except text fields that already carry an accent border on focus — the
+   outline would sit outside it as a second, concentric pink ring. */
+.import-input:focus-visible,
+.import-textarea:focus-visible,
+.search-modal-input:focus-visible,
+.rename-modal-input:focus-visible,
+.thread-reply-textarea:focus-visible {
+  outline: none;
 }
 
 ::selection { background: var(--clay-soft); color: var(--ink); }
@@ -104,20 +179,31 @@ textarea:focus-visible {
   padding: 0 32px;
   text-align: center;
 }
+/* Brand lockup. One type scale on the row drives both the mark and the
+   wordmark, so they stay locked at every viewport width instead of drifting
+   apart on two independent clamps. */
 .brand-row {
   display: inline-flex;
-  align-items: center;
-  gap: 18px;
+  align-items: baseline;
+  gap: 0.28em;
+  /* Sized from the space actually available, not the viewport: the sidebar is
+     a fixed 308px and the header adds 32px of padding each side, so the middle
+     term is the real content width divided by the lockup's own width in ems
+     (~7.1em) plus slack. Keeps the one-line wordmark fitting as the window
+     narrows instead of overflowing the panel. */
+  font-size: clamp(2rem, calc((100vw - 372px) / 7.4), 3.6rem);
 }
 .brand-logo {
   display: block;
-  width: clamp(40px, 7vw, 64px);
-  height: clamp(40px, 7vw, 64px);
+  width: 1.11em;
+  height: 1.11em;
   flex: none;
+  /* Baseline alignment puts a replaced element's bottom edge on the text
+     baseline, which hangs the mark high. Drop it by half the difference
+     between the mark and the cap band so their centres coincide — Newsreader's
+     cap height is 0.734em at this optical size, measured, not guessed. */
+  transform: translateY(calc((1.11em - 0.734em) / 2));
 }
-.brand-logo-animated { display: none; }
-body.is-busy .brand-logo-static   { display: none; }
-body.is-busy .brand-logo-animated { display: block; }
 /* Busy indicator: a pulsing period rendered as the wordmark's full stop
    ("Second Brain.") while any operation runs — including imports fired from the
    Chrome extension. Hidden until body.is-busy (set by setBusy/clearBusy for any
@@ -129,7 +215,9 @@ body.is-busy .brand-logo-animated { display: block; }
   height: 0.18em;
   margin-left: 0.11em;
   border-radius: 50%;
-  background: currentColor; /* inherits the brand clay */
+  /* The wordmark is ink in the refreshed language, so the dot takes the accent
+     explicitly — a near-black pulse would barely register as a busy signal. */
+  background: var(--clay);
   vertical-align: baseline;
 }
 body.is-busy .brand-busy-dot {
@@ -148,17 +236,23 @@ body.is-busy .brand-busy-dot {
 .brand {
   margin: 0;
   font-family: var(--font-display);
-  font-size: clamp(2.4rem, 6vw, 3.6rem);
-  font-weight: 350;
+  font-size: 1em;          /* inherits the lockup scale from .brand-row */
+  font-weight: 500;
   letter-spacing: -0.02em;
   line-height: 1;
-  color: var(--clay);
-  font-variation-settings: "opsz" 144;
+  color: var(--ink);
+  font-variation-settings: "opsz" 60;
+  /* The lockup is a unit — a wrapped wordmark would strand the mark beside
+     the first line only. */
+  white-space: nowrap;
 }
 .brand-sub {
-  margin: 10px 0 0;
-  font-size: 0.78rem;
-  letter-spacing: 0.18em;
+  /* Tight to the wordmark: most of the visual gap is the dead descender space
+     inside the h1's line box, so this sits closer than the number suggests. */
+  margin: 4px 0 0;
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0.22em;
   text-transform: uppercase;
   color: var(--ink-faint);
 }
@@ -185,15 +279,17 @@ body.is-busy .brand-busy-dot {
   gap: 6px;
   padding: 4px 6px;
 }
-/* Explicit separators between segments: "|" between groups, "→" for flow. */
+/* Explicit separators between segments: "|" between groups, "→" for flow.
+   The pipes sit a step fainter than the arrows — they only group, the arrows
+   carry the raw → wiki → answers reading. */
 .status-sep {
-  color: var(--ink-faint);
-  margin: 0 4px;
+  color: var(--ink-xfaint);
+  margin: 0 6px;
   user-select: none;
 }
 .status-arrow {
-  color: var(--ink-muted);
-  margin: 0 6px;
+  color: var(--ink-faint);
+  margin: 0 8px;
 }
 /* Full-width, zero-height item → forces everything after it onto a new row,
    so the pipeline (line 1) and the last-ingest/agent metadata (line 2) split. */
@@ -209,13 +305,17 @@ body.is-busy .brand-busy-dot {
   font-variant-numeric: tabular-nums;
   color: var(--ink);
 }
+/* `inherit` rather than a literal: .status-folder-link also inherits, so the
+   clickable labels ("raw notes") and the plain ones ("answers") are guaranteed
+   identical instead of drifting apart the way they had. */
 .status-label {
-  font-size: 0.78em;
-  color: var(--ink-faint);
+  color: inherit;
 }
 .status-tile-empty .status-num,
 .status-tile-empty .status-label { color: var(--ink-faint); }
 .status-seg[title] { cursor: help; }
+/* Clickable labels differ from plain ones only by the hover affordance — never
+   by size or colour, so the strip reads as one sentence. */
 .status-folder-link {
   background: none;
   border: none;
@@ -225,25 +325,21 @@ body.is-busy .brand-busy-dot {
   cursor: pointer;
 }
 .status-folder-link:hover { text-decoration: underline; }
-/* Pending ingests demand attention — deep brick red on both number and label. */
-.status-ready .status-num,
-.status-ready .status-label { color: var(--error-ink); }
-/* "ingest" is an actionable white-on-red pill that kicks off an ingest. */
 .status-pill {
   align-self: center;
   border: none;
-  background: var(--error-ink);
+  background: var(--clay);
   color: #fff;
   font-family: var(--font-body);
   font-size: 0.78em;
   font-weight: 500;
   line-height: 1;
   padding: 3px 8px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   cursor: pointer;
   transition: background 0.12s ease, opacity 0.12s ease;
 }
-.status-pill:hover { background: #6b2917; }
+.status-pill:hover { background: var(--clay-deep); }
 .status-pill:disabled { opacity: 0.55; cursor: default; }
 /* Engine test pill: neutral tone (not red like the ingest pill).
    Same size as .status-pill (the ingest pill). min-width prevents the button
@@ -255,10 +351,10 @@ body.is-busy .brand-busy-dot {
   text-align: center;
 }
 .engine-test-pill:hover:not(:disabled) { background: var(--ink); }
-.engine-test-pill.test-ok  { background: #2a7a2a; }
-.engine-test-pill.test-ok:hover  { background: #1e5c1e; }
+.engine-test-pill.test-ok  { background: var(--success-ink); }
+.engine-test-pill.test-ok:hover  { background: var(--success-deep); }
 .engine-test-pill.test-err { background: var(--error-ink); }
-.engine-test-pill.test-err:hover { background: #6b2917; }
+.engine-test-pill.test-err:hover { background: var(--error-deep); }
 /* Agent engine dropdown (app only): reads as the status text but carries a caret
    and hover affordance so it's discoverable as a control. */
 /* Baseline (not center): a center-aligned flex container exposes no text
@@ -280,7 +376,7 @@ body.is-busy .brand-busy-dot {
   background-position: right 4px center;
   background-size: 9px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 2px 17px 2px 3px;
   cursor: pointer;
   transition: background-color 0.12s ease, border-color 0.12s ease;
@@ -308,7 +404,7 @@ body.is-busy .brand-busy-dot {
   background-position: right 4px center;
   background-size: 9px;
   border: 1px solid transparent;
-  border-radius: 6px;
+  border-radius: var(--radius-sm);
   padding: 2px 17px 2px 3px;
   cursor: pointer;
   transition: background-color 0.12s ease, border-color 0.12s ease;
@@ -374,11 +470,11 @@ body.is-busy .brand-busy-dot {
   margin-top: calc((1.4em - 7px) / 2);  /* visually centred on first line */
 }
 .op-status-running {
-  color: var(--busy-ink);
+  color: var(--ink);
   font-style: italic;
 }
 .op-status-running::before {
-  background: var(--busy-ink);
+  background: var(--clay);
   animation: pulse 1.4s ease-in-out infinite;
 }
 .op-status-done {
@@ -391,7 +487,7 @@ body.is-busy .brand-busy-dot {
   color: var(--error-ink);
 }
 .op-status-error::before {
-  background: var(--clay);
+  background: var(--error-ink);
 }
 .op-status-elapsed {
   font-family: var(--font-mono);
@@ -401,29 +497,29 @@ body.is-busy .brand-busy-dot {
   opacity: 0.8;
 }
 
-/* Verb sweep: a warm clay highlight glides left-to-right across the letters
+/* Verb sweep: an accent highlight glides left-to-right across the letters
    while a query is running. The dot and the elapsed time stay calm. */
 .op-status-verb {
-  /* Inherits the running colour by default (busy-ink). When the
+  /* Inherits the running colour by default (--ink). When the
      -anim class is on, background-clip:text takes over. */
   font-style: italic;
   white-space: pre;
 }
 .op-status-verb-anim {
-  /* Dark amber resting, ramping through warm amber to a bright yellow
-     peak. Tiled with `repeat` so the bright zone glides through the
-     letters continuously, with no transparent gap when the gradient
-     slides off. Endpoints match (--busy-ink) so the seam is invisible. */
-  background-color: var(--busy-ink);
+  /* Ink at rest, ramping through the deepened accent to a full-accent peak.
+     Tiled with `repeat` so the bright zone glides through the letters
+     continuously, with no transparent gap when the gradient slides off.
+     Endpoints match (--ink) so the seam is invisible. */
+  background-color: var(--ink);
   background-image: linear-gradient(
     100deg,
-    var(--busy-ink)  0%,
-    var(--busy-ink) 30%,
-    #F0B548         42%,
-    #FFD24A         50%,
-    #F0B548         58%,
-    var(--busy-ink) 70%,
-    var(--busy-ink) 100%
+    var(--ink)        0%,
+    var(--ink)       30%,
+    var(--clay-deep) 42%,
+    var(--clay)      50%,
+    var(--clay-deep) 58%,
+    var(--ink)       70%,
+    var(--ink)      100%
   );
   background-size: 200% 100%;
   background-repeat: repeat;
@@ -445,12 +541,16 @@ body.is-busy .brand-busy-dot {
     -webkit-background-clip: initial;
     background-clip: initial;
     -webkit-text-fill-color: currentColor;
-    color: var(--busy-ink);
+    color: var(--ink);
   }
 }
+/* The busy pulse, shared by the inline status dot and the composer's send
+   button: small + ink → large + accent. Peaks at scale 1 so the dot's largest
+   state is its native size and its edge stays crisp (scaling a small circle
+   past 1x blurs it). */
 @keyframes pulse {
-  0%, 100% { opacity: 0.35; transform: scale(1); }
-  50%      { opacity: 1;    transform: scale(1.4); }
+  0%, 100% { transform: scale(0.7); background: var(--ink); }
+  50%      { transform: scale(1);   background: var(--clay); }
 }
 @media (prefers-reduced-motion: reduce) {
   .op-status-running::before { animation: none; opacity: 0.7; }
@@ -531,7 +631,7 @@ body.is-busy .brand-busy-dot {
   margin-top: 16px;
   padding: 6px 18px;
   border: 1px solid var(--rule-strong);
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   background: var(--bg-elev);
   color: var(--ink);
   font-family: var(--font-body);
@@ -575,23 +675,23 @@ body.is-busy .brand-busy-dot {
   gap: 6px;
 }
 .copy-btn {
-  padding: 4px 10px;
-  border: 1px solid var(--rule);
-  border-radius: 100px;
-  background: var(--bg);
+  padding: 5px 12px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elev);
   color: var(--ink-muted);
   font-family: var(--font-body);
-  font-size: 0.7rem;
-  font-weight: 500;
-  letter-spacing: 0.06em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .copy-btn:hover {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--bg-elev);
+  background: var(--clay-tint);
+  border-color: var(--clay-ring);
+  color: var(--clay-deep);
 }
 .copy-btn-flash {
   background: var(--success-bg);
@@ -653,7 +753,7 @@ body.is-busy .brand-busy-dot {
 .markdown-body h1 {
   font-size: 1.75rem;
   margin: 0.4em 0 0.5em;
-  font-weight: 350;
+  font-weight: 400;
 }
 .markdown-body h2 {
   font-size: 1.3rem;
@@ -683,7 +783,7 @@ body.is-busy .brand-busy-dot {
   font-size: 0.88em;
   background: var(--bg-subtle);
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: var(--ink);
 }
 .markdown-body pre {
@@ -734,27 +834,27 @@ body.is-busy .brand-busy-dot {
   border-bottom: 1px solid var(--clay-soft);
 }
 
-/* ---------- The signature: marker-highlighted wikilinks ---------- */
+/* ---------- The signature: accent-underlined wikilinks ---------- */
+/* Replaces the old serif-italic marker-highlight: same font as the body text,
+   accent-coloured, with a soft accent underline that deepens on hover. */
 .markdown-body .wikilink {
-  font-family: var(--font-display);
-  font-style: italic;
-  font-size: 0.96em;
-  font-weight: 400;
-  color: var(--ink);
-  background-image: linear-gradient(to top,
-    transparent 0,
-    transparent 5%,
-    var(--clay-soft) 5%,
-    var(--clay-soft) 38%,
-    transparent 38%,
-    transparent 100%);
-  padding: 0 3px;
-  border-radius: 1px;
+  font-family: inherit;
+  font-style: normal;
+  font-weight: 500;
+  color: var(--clay);
+  background: none;
+  padding: 0;
+  text-decoration: underline;
+  text-decoration-color: var(--clay-ring);
+  text-decoration-thickness: 1.5px;
+  text-underline-offset: 3px;
   white-space: nowrap;
 }
 
-/* ---------- Sections (imports, maintenance) ---------- */
-.commands-section {
+/* ---------- Sections ---------- */
+/* Only the gap *between* sections; the first one would otherwise double up on
+   .layout's own 56px top padding and push the cards below the fold for nothing. */
+.commands-section + .commands-section {
   margin-top: 60px;
 }
 .section-header {
@@ -782,7 +882,7 @@ body.is-busy .brand-busy-dot {
   font-size: 0.86em;
   background: var(--bg-subtle);
   padding: 1px 5px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 .section-hint strong {
   font-weight: 500;
@@ -806,7 +906,7 @@ body.is-busy .brand-busy-dot {
   margin: 0 0 6px;
   padding: 8px 10px;
   background: var(--busy-bg);
-  border-left: 2px solid var(--busy-rule);
+  border: 1px solid var(--busy-rule);
   color: var(--busy-ink);
   font-size: 0.82rem;
   border-radius: var(--radius);
@@ -816,7 +916,7 @@ body.is-busy .brand-busy-dot {
   margin-top: 6px;
   padding: 3px 10px;
   border: 1px solid var(--rule);
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   background: transparent;
   color: var(--ink-muted);
   font-family: var(--font-body);
@@ -829,63 +929,59 @@ body.is-busy .brand-busy-dot {
   color: var(--ink);
   border-color: var(--rule-strong);
 }
-.import-card,
-.maint-card {
+.import-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 18px 18px 16px;
+  gap: 12px;
+  padding: 20px;
   background: var(--bg-elev);
   border: 1px solid var(--rule);
   border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-paper);
   min-width: 0;
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.import-card:focus-within,
-.maint-card:focus-within {
-  border-color: var(--rule-strong);
-  box-shadow: var(--shadow-paper);
+.import-card:focus-within {
+  border-color: var(--clay-ring);
 }
-.import-title,
-.maint-title {
+.import-title {
   margin: 0;
   font-family: var(--font-display);
-  font-weight: 400;
-  font-size: 1.05rem;
+  font-weight: 500;
+  font-size: 1.15rem;
   color: var(--ink);
   letter-spacing: -0.005em;
 }
-.import-hint,
-.maint-hint {
+.import-hint {
   margin: -2px 0 4px;
   color: var(--ink-muted);
   font-size: 0.82rem;
   line-height: 1.45;
 }
-.import-hint code,
-.maint-hint code {
+.import-hint code {
   font-family: var(--font-mono);
   font-size: 0.86em;
   background: var(--bg-subtle);
   padding: 0 4px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 .import-input,
 .import-textarea,
 .import-file {
   width: 100%;
-  padding: 8px 10px;
-  border: 1px solid var(--rule);
+  padding: 10px 12px;
+  border: 1px solid var(--rule-strong);
   border-radius: var(--radius);
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-body);
   font-size: 0.9rem;
+  transition: border-color 0.15s ease, background 0.15s ease;
 }
 .import-input:focus,
 .import-textarea:focus {
   border-color: var(--clay);
-  background: var(--bg-elev);
+  background: var(--clay-tint);
 }
 .import-textarea {
   resize: vertical;
@@ -917,7 +1013,7 @@ body.is-busy .brand-busy-dot {
   line-height: 1;
   padding: 0 4px;
   cursor: pointer;
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   transition: color 0.15s ease;
 }
 .file-clear:hover {
@@ -929,16 +1025,16 @@ body.is-busy .brand-busy-dot {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
-  padding: 14px;
+  gap: 10px;
+  padding: 18px;
   border: 1.5px dashed var(--rule-strong);
   border-radius: var(--radius);
-  background: var(--bg);
+  background: var(--bg-subtle);
   transition: border-color 0.15s ease, background 0.15s ease;
 }
 .dropzone-active {
   border-color: var(--clay);
-  background: var(--clay-soft);
+  background: var(--clay-tint);
 }
 .dropzone-reject {
   border-color: var(--error-rule);
@@ -946,23 +1042,23 @@ body.is-busy .brand-busy-dot {
 }
 .file-picker-btn {
   display: inline-block;
-  padding: 6px 14px;
+  padding: 8px 16px;
   border: 1px solid var(--rule-strong);
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   background: var(--bg-elev);
   color: var(--ink);
   font-family: var(--font-body);
-  font-size: 0.76rem;
-  font-weight: 500;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
+  font-size: 0.8rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  text-transform: none;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 .file-picker-btn:hover {
-  background: var(--ink);
-  border-color: var(--ink);
-  color: var(--bg-elev);
+  background: var(--clay-tint);
+  border-color: var(--clay-ring);
+  color: var(--clay-deep);
 }
 .dropzone:focus-within .file-picker-btn {
   outline: 2px solid var(--clay);
@@ -989,33 +1085,106 @@ body.is-busy .brand-busy-dot {
   margin-top: auto;
 }
 
-/* ---------- Buttons (secondary) ---------- */
+/* ---------- Pending row ----------
+   The one actionable ingest affordance on Home. Present only while raw files
+   are waiting, so its presence alone reads as "something needs doing" — which
+   is why it carries the accent rather than the neutral card treatment. */
+.pending-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  /* Aligns with the content column below, not the wider status marginalia:
+     the row belongs to the page flow, so its edges match .layout's inner box
+     — --maxw less that block's 32px of side padding. */
+  max-width: calc(var(--maxw) - 64px);
+  /* Keeps .layout's 32px gutter once the panel is narrower than --maxw, instead
+     of running to the panel edges. */
+  width: calc(100% - 64px);
+  margin: 26px auto 0;
+  padding: 12px 16px 12px 18px;
+  background: var(--clay-tint);
+  border: 1px solid var(--clay-ring);
+  border-radius: var(--radius);
+}
+.pending-row-text {
+  margin: 0;
+  min-width: 0;
+  font-size: 0.9rem;
+  color: var(--ink);
+}
+.pending-row-count {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--clay-deep);
+  margin-right: 2px;
+}
+.pending-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+/* Reports in place while the run is in flight. It precedes the button in the
+   DOM so the row grows leftwards and the button stays put. */
+.pending-row-actions .op-status {
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+/* ---------- Buttons ----------
+   Two shapes only, both full pills in sentence case:
+     .import-submit    — primary, solid accent (a card's committing action)
+     .sidebar-foot-btn — ghost, accent wash on hover (wiki maintenance)      */
 .import-submit,
-.maint-submit {
+.sidebar-foot-btn {
   align-self: flex-start;
-  padding: 6px 16px;
+  padding: 9px 20px;
   border: 1px solid var(--rule-strong);
-  border-radius: 100px;
+  border-radius: var(--radius-pill);
   background: var(--bg-elev);
   color: var(--ink);
   font-family: var(--font-body);
-  font-size: 0.76rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
-.import-submit:hover,
-.maint-submit:hover {
-  background: var(--ink);
-  color: var(--bg-elev);
-  border-color: var(--ink);
+.import-submit {
+  border-color: var(--clay);
+  background: var(--clay);
+  color: #fff;
+}
+.import-submit:hover {
+  border-color: var(--clay-deep);
+  background: var(--clay-deep);
+  color: #fff;
+}
+.sidebar-foot-btn:hover {
+  background: var(--clay-tint);
+  border-color: var(--clay-ring);
+  color: var(--clay-deep);
+}
+/* A secondary action sitting next to a primary one (Skip beside Apply): same
+   pill geometry, no accent fill, so only one button reads as the committing
+   action. Two classes so it outranks the plain .import-submit accent rules. */
+.import-submit.import-submit--ghost {
+  background: var(--bg-elev);
+  border-color: var(--rule-strong);
+  color: var(--ink);
+}
+.import-submit.import-submit--ghost:hover {
+  background: var(--clay-tint);
+  border-color: var(--clay-ring);
+  color: var(--clay-deep);
 }
 .import-submit:disabled,
-.maint-submit:disabled,
+.sidebar-foot-btn:disabled,
 [data-long-op][data-busy] .import-submit,
-[data-long-op][data-busy] .maint-submit {
+[data-long-op][data-busy] .sidebar-foot-btn {
   opacity: 0.4;
   cursor: not-allowed;
   background: var(--bg-elev);
@@ -1030,8 +1199,8 @@ body.is-busy .brand-busy-dot {
   color: #fff;
 }
 .import-submit-anyway:hover {
-  background: #6b2917;
-  border-color: #6b2917;
+  background: var(--error-deep);
+  border-color: var(--error-deep);
   color: #fff;
 }
 
@@ -1040,7 +1209,7 @@ body.is-busy .brand-busy-dot {
   padding: 10px 12px;
   border-radius: var(--radius);
   font-size: 0.82rem;
-  border-left: 2px solid transparent;
+  border: 1px solid transparent;
   background: var(--bg);
   min-width: 0;
   overflow-wrap: anywhere;
@@ -1065,23 +1234,23 @@ body.is-busy .brand-busy-dot {
 .import-status-success {
   background: var(--success-bg);
   color: var(--success-ink);
-  border-left-color: var(--success-rule);
+  border-color: var(--success-rule);
 }
 .import-status-error {
   background: var(--error-bg);
   color: var(--error-ink);
-  border-left-color: var(--error-rule);
+  border-color: var(--error-rule);
   white-space: pre-wrap;
 }
 
 /* ---------- Duplicate-import warning ---------- */
-/* Advisory amber, reusing the "busy" palette. A high-confidence match uses a
-   stronger clay left-rule to signal it will intercept the first Import click. */
+/* Advisory amber, reusing the "busy" palette. A high-confidence match keeps a
+   stronger border colour to signal it will intercept the first Import click. */
 .dupe-warning {
   padding: 10px 12px;
   border-radius: var(--radius);
   font-size: 0.82rem;
-  border-left: 2px solid var(--busy-rule);
+  border: 1px solid var(--busy-rule);
   background: var(--busy-bg);
   color: var(--busy-ink);
   min-width: 0;
@@ -1089,7 +1258,7 @@ body.is-busy .brand-busy-dot {
   word-break: break-word;
 }
 .dupe-warning-high {
-  border-left-color: var(--clay);
+  border-color: var(--error-ink);
 }
 .dupe-warning-head {
   font-weight: 500;
@@ -1118,43 +1287,12 @@ body.is-busy .brand-busy-dot {
   cursor: pointer;
 }
 .dupe-warning-link:hover {
-  color: var(--clay-deep);
+  color: var(--ink);
 }
 .dupe-warning-meta {
   color: var(--busy-ink);
   opacity: 0.75;
   font-size: 0.78rem;
-}
-
-/* ---------- Maintenance grid (US4) ---------- */
-.maintenance-grid {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 14px;
-}
-.maint-result {
-  margin-top: 8px;
-  padding: 14px 16px;
-  background: var(--bg);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius);
-  font-size: 0.9rem;
-}
-.maint-result .markdown-body { font-size: 0.9rem; line-height: 1.55; }
-.maint-result .markdown-body h1,
-.maint-result .markdown-body h2 {
-  font-size: 1.1rem;
-  border: none;
-  padding: 0;
-  margin: 0.4em 0 0.3em;
-}
-.maint-result .markdown-body pre {
-  font-size: 0.82rem;
-}
-.maint-result .result-footer {
-  margin-top: 12px;
-  padding-top: 8px;
-  font-size: 0.74rem;
 }
 
 /* ---------- Footer ---------- */
@@ -1190,10 +1328,52 @@ body { overflow: hidden; }
 .sidebar {
   display: flex;
   flex-direction: column;
-  background: var(--bg);
-  overflow-y: auto;
+  /* Cool near-white panel; the white content sheet floats over it on the
+     .main-panel shadow alone — no seam border. */
+  background: var(--bg-sidebar);
+  /* hidden, not auto: .nav-list is the scroll container (flex:1 + overflow-y).
+     If the rail itself could scroll, the pinned .sidebar-foot would scroll
+     away with the list instead of staying anchored. */
+  overflow-y: hidden;
   overflow-x: hidden;
   flex-shrink: 0;
+}
+
+/* ── Wiki maintenance footer ──
+   Pinned to the bottom of the rail with the Wiki tab. flex-shrink:0 keeps it
+   off the scroll; .nav-list above it is the element that scrolls (see the
+   overflow note on .sidebar). */
+.sidebar-foot {
+  flex-shrink: 0;
+  padding: 14px 16px 16px;
+  border-top: 1px solid var(--rule);
+  background: var(--bg-sidebar);
+}
+.sidebar-foot-row {
+  display: flex;
+  gap: 8px;
+}
+.sidebar-foot-op {
+  flex: 1;
+  min-width: 0;             /* let the pair share the rail evenly */
+}
+.sidebar-foot-btn {
+  width: 100%;              /* fills its half, unlike the inline content pills */
+  text-align: center;
+  padding: 8px 10px;
+  font-size: 0.78rem;
+}
+/* Fixed-height reservation so starting a run never nudges the buttons. The
+   height lives on the wrapper rather than the status node itself: the global
+   `[hidden] { display: none !important }` rule would collapse the node, and
+   this avoids an !important tug-of-war with it. */
+.sidebar-foot-slot {
+  height: 18px;
+  margin-bottom: 8px;
+}
+.sidebar-foot-status {
+  margin: 0;
+  font-size: 0.76rem;
 }
 
 /* ── Tab switcher ── */
@@ -1210,9 +1390,11 @@ body { overflow: hidden; }
   grid-template-columns: 1fr 1fr;
   flex: 1;
   min-width: 0;
-  border: 1.5px solid var(--rule-strong);
-  border-radius: 20px;
-  overflow: hidden;
+  gap: 3px;
+  padding: 3px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-xl);
+  background: var(--bg-elev);
 }
 .nav-search-btn {
   flex: none;
@@ -1222,9 +1404,9 @@ body { overflow: hidden; }
   width: 40px;
   height: 40px;
   padding: 0;
-  border: 1.5px solid var(--rule-strong);
+  border: 1px solid var(--rule-strong);
   border-radius: 50%;
-  background: transparent;
+  background: var(--bg-elev);
   cursor: pointer;
   transition: background 0.12s ease, border-color 0.12s ease;
 }
@@ -1235,7 +1417,8 @@ body { overflow: hidden; }
   transition: opacity 0.12s ease;
 }
 .nav-search-btn:hover {
-  background: var(--bg-subtle);
+  background: var(--clay-tint);
+  border-color: var(--clay-ring);
 }
 .nav-search-btn:hover img { opacity: 0.8; }
 
@@ -1246,21 +1429,20 @@ body { overflow: hidden; }
   gap: 6px;
   padding: 8px 6px;
   border: none;
+  border-radius: calc(var(--radius-xl) - 3px);
   background: transparent;
   color: var(--ink-faint);
   font-family: var(--font-body);
   font-size: 0.83rem;
-  font-weight: 400;
+  font-weight: 500;
   cursor: pointer;
   transition: background 0.12s ease, color 0.12s ease;
   white-space: nowrap;
 }
 
-.nav-tab + .nav-tab {
-  border-left: 1.5px solid var(--rule-strong);
-}
 
 .nav-tab.nav-tab-active {
+  background: var(--bg-subtle);
   color: var(--ink);
   font-weight: 600;
 }
@@ -1329,16 +1511,21 @@ body { overflow: hidden; }
   font-weight: 400;
 }
 
+/* Accent badge for "New question". plus.png is a solid disc with the plus
+   knocked out to transparent, so masking it paints the disc in the accent and
+   lets the row colour read as the plus. Single layer on purpose: a white disc
+   behind would need to match the disc exactly (it is inset 16/128 inside the
+   canvas) and any mismatch shows as a halo. Follows --clay. */
 .nav-new-icon {
-  width: 22px;
+  width: 26px;          /* same slot as .nav-item-icon, keeps the column aligned */
   height: 22px;
-  min-width: 26px;      /* same slot as .nav-item-icon, keeps the column aligned */
-  object-fit: contain;
   flex-shrink: 0;
-  opacity: 0.85;
-  transition: opacity 0.12s ease;
+  background: var(--clay);
+  -webkit-mask: url('/static/icons/plus.png') center / contain no-repeat;
+          mask: url('/static/icons/plus.png') center / contain no-repeat;
+  transition: background 0.12s ease;
 }
-.nav-item-new:not(.nav-item-active) .nav-new-icon { opacity: 0.35; }
+.nav-item-new:hover .nav-new-icon { background: var(--clay-deep); }
 
 /* Small PNG icons inside nav list items */
 .nav-item-icon {
@@ -1410,8 +1597,8 @@ body { overflow: hidden; }
   padding: 6px;
   background: var(--bg-elev);
   border: 1px solid var(--rule);
-  border-radius: 10px;
-  box-shadow: 0 12px 30px -10px rgba(42, 31, 26, 0.35);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lift);
 }
 .output-action {
   display: flex;
@@ -1420,7 +1607,7 @@ body { overflow: hidden; }
   width: 100%;
   padding: 8px 10px;
   border: 0;
-  border-radius: 7px;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--ink);
   font: 500 0.82rem/1.2 var(--font-body);
@@ -1430,7 +1617,11 @@ body { overflow: hidden; }
 .output-action:hover,
 .output-action:focus-visible { background: var(--bg-subtle); }
 .output-action img { opacity: 0.6; object-fit: contain; }
-.output-action-delete { color: var(--clay-deep); }
+/* Destructive, so it must not borrow the accent — the accent now marks the
+   primary (safe) action everywhere else. */
+.output-action-delete { color: var(--error-ink); }
+.output-action-delete:hover,
+.output-action-delete:focus-visible { background: var(--error-bg); }
 
 /* Wiki nav items — gap for icon */
 .nav-item-wiki { gap: 10px; }
@@ -1530,7 +1721,7 @@ body { overflow: hidden; }
      the panel — and its shadow — above the sidebar in paint order. */
   position: relative;
   z-index: 1;
-  box-shadow: -6px 0 14px -6px rgba(42, 31, 26, 0.15);
+  box-shadow: -7px 0 16px -8px rgba(20, 22, 28, 0.16);
 }
 
 /* Panels fill the main-panel; shown/hidden via the HTML `hidden` attr */
@@ -1553,7 +1744,7 @@ body { overflow: hidden; }
 .viewer-title {
   margin: 0 0 6px;
   font-family: var(--font-display);
-  font-weight: 350;
+  font-weight: 400;
   font-size: clamp(1.4rem, 2.8vw, 1.9rem);
   letter-spacing: -0.015em;
   line-height: 1.2;
@@ -1574,9 +1765,10 @@ body { overflow: hidden; }
   position: sticky;
   top: 0;
   z-index: 10;
-  background: var(--bg);
+  /* Nav-panel tone, so the bar reads as chrome rather than part of the sheet. */
+  background: var(--bg-sidebar);
   border-bottom: 1px solid var(--rule);
-  padding: 10px 40px;
+  padding: 12px 40px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -1611,14 +1803,16 @@ body { overflow: hidden; }
   font-size: 0.9rem;
 }
 
-/* Clickable wikilinks (in wiki viewer) — suppress underline; marker is the affordance */
+/* Clickable wikilinks (in wiki viewer) — the accent underline is the affordance,
+   so drop the generic link border-bottom and deepen the underline on hover. */
 .markdown-body a.wikilink {
   border-bottom: none;
   cursor: pointer;
 }
 
 .markdown-body a.wikilink:hover {
-  opacity: 0.75;
+  opacity: 1;
+  text-decoration-color: var(--clay);
 }
 
 /* ── Thread chat view ──────────────────────────────────────────────────────── */
@@ -1640,7 +1834,7 @@ body { overflow: hidden; }
   max-width: 72%;
   background: var(--bg-subtle);
   border: 1px solid var(--rule);
-  border-radius: 18px 18px 4px 18px;
+  border-radius: 18px 18px 6px 18px;
   padding: 10px 16px;
   font-size: 0.95rem;
   color: var(--ink);
@@ -1708,9 +1902,13 @@ body.bar-visible .panel {
 /* Centred inner container — intentionally 10% wider than the content above
    so the query box visually "over-extends" the conversation width. */
 .thread-reply-inner {
+  /* Deliberately wider than the content column when there is room — the composer
+     is the hero. The side padding matches .layout's 32px so that once the panel
+     is narrow the field lines up with the content above rather than sitting
+     inset further than the page itself. */
   max-width: calc(var(--maxw) * 1.1);
   margin: 0 auto;
-  padding: 0 40px;
+  padding: 0 32px;
 }
 
 /* Textarea + button wrapper — button sits inside at bottom-right */
@@ -1721,16 +1919,23 @@ body.bar-visible .panel {
 .thread-reply-textarea {
   display: block;
   width: 100%;
-  padding: 12px 54px 12px 16px; /* right pad leaves room for the Ask button */
+  /* Vertical padding is split 14/10, not 12/12: Newsreader's ascent (~12px
+     here) is three times its descent (~4px), so a line of text without
+     descenders renders ~2px above the box's centre. The 2px is moved from
+     the bottom to the top rather than added, so total height — and the
+     auto-grow calculation in app.js — is unchanged.
+     Right pad leaves room for the Ask button. */
+  padding: 14px 54px 10px 16px;
   border: 1px solid var(--rule-strong);
-  border-radius: 12px;
+  border-radius: var(--radius-lg);
   background: var(--bg-elev);
   color: var(--ink);
   font-family: var(--font-display); /* serif, matching homepage query box */
-  font-size: 1.0rem;
-  line-height: 1.55;
+  font-size: 1.05rem;
+  line-height: 1.5;
+  box-shadow: var(--shadow-paper);
   resize: none;
-  min-height: 48px;
+  min-height: 52px;
   max-height: 180px;
   overflow-y: auto;
   transition: border-color 0.15s ease;
@@ -1749,13 +1954,13 @@ body.bar-visible .panel {
 /* Ask button — inside the textarea box at bottom-right */
 .thread-reply-submit {
   position: absolute;
-  right: 8px;
-  bottom: 8px;
-  width: 34px;
-  height: 34px;
+  right: 9px;
+  bottom: 9px;
+  width: 36px;
+  height: 36px;
   padding: 0;
   border: none;
-  border-radius: 8px;
+  border-radius: 11px;
   background: var(--clay);
   color: #fff;
   font-family: var(--font-body);
@@ -1796,7 +2001,7 @@ body.bar-visible .panel {
   width: 11px;
   height: 11px;
   border-radius: 50%;
-  background: var(--busy-ink);
+  background: var(--clay);
   animation: pulse 1.4s ease-in-out infinite;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1910,7 +2115,7 @@ body.bar-visible .panel {
 .delint-row {
   margin: 6px 0 10px;
   padding: 10px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius);
   border: 1px solid var(--rule);
   background: var(--bg-subtle);
   font-size: 0.82rem;
@@ -1932,7 +2137,7 @@ body.bar-visible .panel {
   margin: 10px 0 0;
   padding: 5px 8px;
   border: 1px solid var(--rule);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--bg);
   font-family: var(--font-body);
   font-size: 0.8rem;
@@ -1940,7 +2145,11 @@ body.bar-visible .panel {
   resize: vertical;
   min-height: 30px;
 }
-.delint-comment:focus { outline: none; border-color: var(--rule-strong); }
+.delint-comment:focus {
+  outline: none;
+  border-color: var(--clay);
+  background: var(--clay-tint);
+}
 .delint-actions {
   display: flex;
   align-items: center;
@@ -1991,7 +2200,7 @@ body.bar-visible .panel {
 .raw-modal-scrim {
   position: absolute;
   inset: 0;
-  background: rgba(42, 31, 26, 0.32);
+  background: rgba(20, 22, 28, 0.28);
 }
 .raw-modal-sheet {
   position: relative;
@@ -2002,8 +2211,8 @@ body.bar-visible .panel {
   max-height: 85vh;
   overflow: auto;
   background: var(--bg-content);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 18px 48px -12px rgba(42, 31, 26, 0.45);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lift);
 }
 .raw-modal-head {
   position: sticky;
@@ -2049,8 +2258,8 @@ body.bar-visible .panel {
   max-height: 70vh;
   overflow: hidden;
   background: var(--bg-content);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 18px 48px -12px rgba(42, 31, 26, 0.45);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lift);
 }
 .search-modal-head {
   display: flex;
@@ -2072,18 +2281,17 @@ body.bar-visible .panel {
 .search-modal-input {
   flex: 1;
   min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid var(--rule);
+  padding: 9px 12px;
+  border: 1.5px solid var(--clay);
   border-radius: var(--radius);
-  background: var(--bg);
+  background: var(--clay-tint);
   color: var(--ink);
   font-family: var(--font-body);
   font-size: 0.95rem;
 }
 .search-modal-input:focus {
   border-color: var(--clay);
-  background: var(--bg-elev);
-  /* Keep the global input:focus-visible outline for the double-line look. */
+  background: var(--clay-tint);
 }
 .search-modal-input::placeholder { color: var(--ink-faint); }
 .search-results {
@@ -2132,14 +2340,14 @@ body.bar-visible .panel {
 .search-snippet mark {
   background: var(--clay-soft);
   color: var(--clay-deep);
-  border-radius: 2px;
+  border-radius: 3px;
   padding: 0 1px;
 }
 /* Highlighted keyword hits inside an opened answer/wiki article (from search). */
 mark.search-hit {
-  background: #F6E4A0;
+  background: #FEF0C7;
   color: inherit;
-  border-radius: 2px;
+  border-radius: 3px;
   padding: 0 1px;
 }
 .search-empty {
@@ -2156,8 +2364,8 @@ mark.search-hit {
   width: 100%;
   max-width: 440px;
   background: var(--bg-content);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 18px 48px -12px rgba(42, 31, 26, 0.45);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lift);
   padding: 26px 28px 22px;
 }
 .rename-modal-label {
@@ -2170,28 +2378,27 @@ mark.search-hit {
 .rename-modal-input {
   width: 100%;
   margin-bottom: 22px;
-  padding: 10px 12px;
-  border: 1px solid var(--rule-strong);
-  border-radius: 8px;
-  background: var(--bg-elev);
+  padding: 11px 14px;
+  border: 1.5px solid var(--clay);
+  border-radius: var(--radius);
+  background: var(--clay-tint);
   color: var(--ink);
   font: 0.95rem/1.4 var(--font-body);
 }
 .rename-modal-input:focus {
-  outline: 2px solid var(--clay-soft);
   border-color: var(--clay);
 }
 .rename-modal-error {
   margin: -12px 0 18px;
-  color: var(--clay-deep);
+  color: var(--error-ink);
   font-size: 0.78rem;
 }
 .rename-modal-confirm {
-  border: 1px solid var(--ink);
-  background: var(--ink);
-  color: var(--bg-elev);
+  border: 1px solid var(--clay);
+  background: var(--clay);
+  color: #fff;
 }
-.rename-modal-confirm:hover { background: var(--ink-muted); }
+.rename-modal-confirm:hover { background: var(--clay-deep); border-color: var(--clay-deep); }
 .rename-modal-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .delete-modal-sheet {
@@ -2199,8 +2406,8 @@ mark.search-hit {
   width: 100%;
   max-width: 420px;
   background: var(--bg-content);
-  border-radius: var(--radius-lg);
-  box-shadow: 0 18px 48px -12px rgba(42, 31, 26, 0.45);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lift);
   padding: 26px 28px 22px;
 }
 .delete-modal-title {
@@ -2223,13 +2430,12 @@ mark.search-hit {
   gap: 10px;
 }
 .delete-modal-btn {
-  padding: 6px 18px;
-  border-radius: 100px;
+  padding: 9px 20px;
+  border-radius: var(--radius-pill);
   font-family: var(--font-body);
-  font-size: 0.78rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
@@ -2243,13 +2449,13 @@ mark.search-hit {
   border-color: var(--ink-faint);
 }
 .delete-modal-confirm {
-  border: 1px solid var(--clay-deep);
-  background: var(--clay-deep);
-  color: var(--bg-elev);
+  border: 1px solid var(--error-ink);
+  background: var(--error-ink);
+  color: #fff;
 }
 .delete-modal-confirm:hover {
-  background: var(--clay);
-  border-color: var(--clay);
+  background: var(--error-deep);
+  border-color: var(--error-deep);
 }
 .delete-modal-confirm:disabled {
   opacity: 0.5;

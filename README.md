@@ -48,7 +48,7 @@ The system has three tiers:
 | ---------- | ------------------------------------------------------------------------------- |
 | `raw/`     | Everything you capture. Append-only. Never modified by AI.                      |
 | `wiki/`    | AI-organised topic articles with cross-links. Written only by the ingest skill. |
-| `outputs/` | Query answers and lint reports, dated and saved automatically.                  |
+| `outputs/` | Query answers, lint reports, and ingest reports — dated and saved automatically. |
 
 Content flows in one direction: `raw/` → ingest → `wiki/` → query → `outputs/`.
 
@@ -188,8 +188,9 @@ python3 dashboard/bridge.py --port 4180 --no-open
 - **Hero query box** — ask a question and read the rendered answer directly in the page.
 - **Navigation bar** — browse past answers and wiki articles.
 - **Import controls** — paste Markdown, drop/select any file (PDF, PowerPoint, Word, Excel, CSV, image, plain text), import from a URL, or specify a Craft folder and document name. PowerPoint decks (`.pptx`), Word documents (`.docx`), Excel workbooks (`.xlsx`/`.xlsm`), and CSVs are converted to Markdown instantly, in-process — no model call — landing in `raw/pptx/`, `raw/docx/`, `raw/xlsx/`, and `raw/csv/`.
-- **Ingest / Lint buttons** — trigger wiki maintenance and view the results inline.
-- **Wiki edit boxes** — after a lint report runs, or while viewing any wiki article, a suggestion box lets you describe an edit in plain English and apply it directly without touching files manually.
+- **Pending row** — when raw files are waiting, a row appears under the status strip saying how many aren't searchable yet, with an **Update wiki** button. It disappears once everything is folded in.
+- **Wiki maintenance** — **Update wiki** and **Run lint** sit pinned at the bottom of the sidebar under the Wiki tab. Both write a dated report into `outputs/` and open it, so past runs stay browsable in the Home list alongside your answers.
+- **Wiki edit boxes** — while viewing a lint report or any wiki article, a suggestion box lets you describe an edit in plain English and apply it directly without touching files manually.
 - **Status strip** — wiki article count, genuinely new or content-changed raw items, and last ingest time, derived from the filesystem with no model call.
 
 ### How it works
@@ -281,7 +282,7 @@ SecondBrain/
 │   └── .ingest-manifest.json   Machine-managed ingestion state
 ├── wiki/                       AI-organised topic articles
 │   └── INDEX.md                Master topic index (rebuilt on every ingest)
-├── outputs/                    Query answers and lint reports
+├── outputs/                    Query answers, lint reports, ingest reports
 ├── .claude/skills/             Agent skills — the engine behind every command (Codex and OpenCode read them via the .agents/skills link)
 │   ├── second-brain-query/        ask the knowledge base
 │   ├── second-brain-ingest/       fold raw/ into wiki/
@@ -294,6 +295,7 @@ SecondBrain/
 │   ├── index.html              Single-page dashboard
 │   ├── styles.css              Visual design
 │   ├── app.js                  Front-end controller
+│   ├── fonts/                  Self-hosted Newsreader + Figtree webfonts (OFL)
 │   ├── lib/marked.min.js       Vendored Markdown renderer
 │   └── lib/purify.min.js       Vendored DOMPurify (HTML sanitiser)
 ├── chrome-extension/           Browser extension (load unpacked in Chrome)

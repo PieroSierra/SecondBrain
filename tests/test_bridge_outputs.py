@@ -61,6 +61,21 @@ class BridgeOutputsTests(unittest.TestCase):
         self.assertEqual(items["query"]["title"], "A heading that should not replace the query slug")
         self.assertEqual(items["lint"]["title"], "Lint report")
 
+    def test_ingest_reports_are_listed_with_a_machine_title(self) -> None:
+        # The listing regex is a closed set of kinds; an unlisted kind is
+        # silently dropped from the sidebar, search and /outputs alike.
+        self._write("2026-08-20_ingest.md", "# Ingest report\n")
+        self._write("2026-08-20_ingest-2.md", "# Ingest report\n")
+
+        items = bridge._outputs_list()
+
+        self.assertEqual({i["kind"] for i in items}, {"ingest"})
+        self.assertEqual({i["title"] for i in items}, {"Ingest report"})
+        self.assertEqual(
+            {i["filename"] for i in items},
+            {"2026-08-20_ingest.md", "2026-08-20_ingest-2.md"},
+        )
+
     def test_rename_replaces_only_first_h1(self) -> None:
         filename = "2026-08-11_thread-original.md"
         self._write(

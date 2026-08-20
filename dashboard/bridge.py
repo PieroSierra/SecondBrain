@@ -1387,12 +1387,102 @@ def _rename_output_title(filename: str, title: str) -> None:
     os.utime(target, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
 
 
+def _wiki_snapshot() -> dict:
+    """{slug: mtime_ns} for every wiki article, excluding the index.
+
+    INDEX.md is rebuilt on every run, so including it would list it as "updated"
+    each time — noise rather than signal.
+    """
+
+    if not WIKI_DIR.exists():
+        return {}
+    return {
+        p.stem: p.stat().st_mtime_ns
+        for p in WIKI_DIR.glob("*.md")
+        if p.is_file() and p.name != "INDEX.md"
+    }
+
+
+def _write_ingest_report(
+    finalized: dict, prose: str, wiki_before: dict, wiki_after: dict
+) -> str | None:
+    """Write outputs/YYYY-MM-DD_ingest.md and return its vault-relative path.
+
+    The bridge writes this rather than the skill because `finalize_plan` (plus a
+    before/after look at wiki/) is the only ground truth for what a run actually
+    touched — the model's prose can drift or omit. The prose is kept beneath the
+    deterministic lists so the report still reads like the agent's own summary.
+
+    Paths are emitted as [[wikilinks]], which the viewer turns into clickable
+    anchors: `raw/…` opens the source in the raw-file modal, a bare slug opens
+    the wiki article.
+
+    Returns None if nothing could be written; a failed report must never fail
+    an otherwise-successful ingest.
+    """
+
+    processed = finalized.get("finalized") or []
+    changed = finalized.get("changed_during_ingest") or []
+    created = sorted(set(wiki_after) - set(wiki_before))
+    updated = sorted(
+        slug for slug, mtime in wiki_after.items()
+        if slug in wiki_before and wiki_before[slug] != mtime
+    )
+    try:
+        OUTPUTS_DIR.mkdir(parents=True, exist_ok=True)
+        # Same-day collisions get a counter, matching the lint skill.
+        day = datetime.now().strftime("%Y-%m-%d")
+        target = OUTPUTS_DIR / f"{day}_ingest.md"
+        n = 2
+        while target.exists():
+            target = OUTPUTS_DIR / f"{day}_ingest-{n}.md"
+            n += 1
+
+        headline = f"Date: {day} | Sources folded in: {len(processed)}"
+        if created or updated:
+            headline += f" | Articles created: {len(created)}, updated: {len(updated)}"
+        if changed:
+            headline += f" | Still pending: {len(changed)}"
+        lines = ["# Ingest report", "", headline, ""]
+
+        if processed:
+            lines += ["## Sources folded in", ""]
+            lines += [f"- [[{rel}]]" for rel in processed]
+            lines += [""]
+        if created:
+            lines += ["## Articles created", ""]
+            lines += [f"- [[{slug}]]" for slug in created]
+            lines += [""]
+        if updated:
+            lines += ["## Articles updated", ""]
+            lines += [f"- [[{slug}]]" for slug in updated]
+            lines += [""]
+        if changed:
+            lines += [
+                "## Changed during ingest — still pending",
+                "",
+                "These were edited while the run was in flight, so they were left",
+                "unmarked and will be picked up by the next update.",
+                "",
+            ]
+            lines += [f"- [[{rel}]]" for rel in changed]
+            lines += [""]
+        if prose.strip():
+            lines += ["## Summary", "", prose.strip(), ""]
+
+        target.write_text("\n".join(lines), encoding="utf-8")
+        return str(target.relative_to(VAULT_ROOT))
+    except OSError as exc:
+        sys.stderr.write(f"Warning: ingest report not written: {exc}\n")
+        return None
+
+
 def _outputs_list() -> list:
     """Return [{filename, date_iso, kind, title}] for all outputs, newest first."""
 
     if not OUTPUTS_DIR.exists():
         return []
-    _PAT = re.compile(r"^(\d{4}-\d{2}-\d{2})_(query|lint|thread)(?:-(.+))?\.md$")
+    _PAT = re.compile(r"^(\d{4}-\d{2}-\d{2})_(query|lint|thread|ingest)(?:-(.+))?\.md$")
     result = []
     for p in OUTPUTS_DIR.glob("*.md"):
         if not p.is_file():
@@ -1405,6 +1495,8 @@ def _outputs_list() -> list:
         slug = m.group(3) or ""
         if kind == "lint":
             title = "Lint report"
+        elif kind == "ingest":
+            title = "Ingest report"
         else:
             raw = slug.replace("-", " ")
             fallback = "Thread" if kind == "thread" else "Query"
@@ -2722,6 +2814,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                         "duration_ms": int((time.time() - started) * 1000),
                     }
 
+                # Which articles the run touches is only knowable by looking:
+                # finalize_plan tracks raw sources, and the agent's prose names
+                # targets in free text. A before/after mtime pass is exact.
+                wiki_before = _wiki_snapshot()
+
                 rel_plan = plan_path.relative_to(VAULT_ROOT).as_posix()
                 prompt = (
                     f'/second-brain-ingest --scan-plan "{rel_plan}" '
@@ -2767,11 +2864,16 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                         + "\n- ".join(finalized["changed_during_ingest"])
                     )
                 result = {**result, "result": result_text}
+                # A durable record of what this run folded in, so past updates
+                # can be reviewed later the way lint reports can.
+                output_file = _write_ingest_report(
+                    finalized, result_text, wiki_before, _wiki_snapshot()
+                )
                 return {
                     "__status__": 200,
                     **result,
                     "kind": "ingest",
-                    "output_file": None,
+                    "output_file": output_file,
                     "created_files": [],
                     "duration_ms": int((time.time() - started) * 1000),
                 }
