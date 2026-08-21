@@ -1459,6 +1459,13 @@ const threadReplyOpSt   = document.getElementById("thread-reply-op-status");
 // Tracks which thread file the output viewer is currently showing.
 let _currentThreadFile = null;
 
+// While a follow-up reply is in flight, remember which thread it belongs to and
+// the question text. This survives navigating away and back: the pending turn is
+// not written to the thread file until the answer returns, so re-rendering from
+// disk would otherwise drop the question + spinner and look prematurely "done".
+// Mirrors the _delintInFlight pattern used for lint actions.
+let _pendingReply = null; // { threadFile, question } | null
+
 // Tracks the query bar's current mode: "home" (new thread) or "reply" (continue thread).
 let _barMode = "home";
 
@@ -1776,11 +1783,43 @@ async function _optimisticThreadStart(question) {
   }
 }
 
+// Re-show a pending follow-up on top of a freshly rendered thread: the user's
+// question bubble just above the bottom status bar, with that bar spinning.
+// Used both on first submit and when the user returns to a thread whose reply
+// is still running (renderThreadView() rebuilds from disk, which has no pending
+// turn yet, so we re-add the optimistic bubble afterwards).
+function _showPendingReplyBubble(bodyEl, question) {
+  if (!bodyEl || !_threadStatusBar?.parentNode) return;
+  const bubble = document.createElement("div");
+  bubble.className = "thread-bubble thread-bubble--user";
+  bubble.textContent = question;
+  _threadStatusBar.parentNode.insertBefore(bubble, _threadStatusBar);
+  _threadStatusThinking();
+  // Scroll to the true bottom AFTER inserting the bubble + spinner. When called
+  // from openOutput this matters: renderThreadView() already scrolled to the old
+  // bottom (last answer) before this appended, leaving the new question clipped.
+  const mainPanel = document.querySelector(".main-panel");
+  if (mainPanel) mainPanel.scrollTo({ top: mainPanel.scrollHeight, behavior: "smooth" });
+}
+
 // Reply mode: append a follow-up turn to the current thread.
 async function _threadReply(question) {
   if (!_currentThreadFile) return;
+  // Capture the target thread up front — the user may navigate to a different
+  // thread while this reply runs, moving _currentThreadFile out from under us.
+  const replyThreadFile = _currentThreadFile;
   setBusy("thread-reply");
-  _threadStatusThinking();
+
+  // Record the in-flight reply so navigating away and back to this thread can
+  // re-show the question + spinner instead of a stale, done-looking view.
+  _pendingReply = { threadFile: replyThreadFile, question };
+
+  // Optimistically show the user's question the instant they submit — just above
+  // the bottom status bar — so it appears before the answer is ready instead of
+  // popping in with the reply.
+  const panel  = document.getElementById("panel-output-viewer");
+  const bodyEl = panel?.querySelector(".viewer-body");
+  _showPendingReplyBubble(bodyEl, question); // also scrolls the bubble into view
 
   // Clear the submitted question now so text entered while this reply runs is
   // a new draft and is never erased when the response returns.
@@ -1789,22 +1828,25 @@ async function _threadReply(question) {
     threadReplyInput.style.height = "auto";
   }
 
+  // Whether the user is still looking at the thread this reply belongs to. When
+  // they have navigated elsewhere we must not touch the viewer DOM (it now shows
+  // a different thread); the answer is saved to disk and renders on return.
+  const stillViewing = () => _currentThreadFile === replyThreadFile;
+
   try {
     const { status, data } = await postJSON("/run", {
       kind: "thread-reply",
-      args: { question, thread_file: _currentThreadFile },
+      args: { question, thread_file: replyThreadFile },
     });
 
     const errMsg = envelopeError("thread-reply", status, data);
-    if (errMsg !== null) { _threadStatusError(errMsg); return; }
+    if (errMsg !== null) { if (stillViewing()) _threadStatusError(errMsg); return; }
 
-    const filename = _currentThreadFile.replace(/^outputs\//, "");
-    const panel  = document.getElementById("panel-output-viewer");
-    const bodyEl = panel?.querySelector(".viewer-body");
-    if (bodyEl) {
-      const res = await apiFetch(`/outputs/${encodeURIComponent(filename)}`);
-      if (res.ok) {
-        const md = await res.text();
+    const filename = replyThreadFile.replace(/^outputs\//, "");
+    const res = await apiFetch(`/outputs/${encodeURIComponent(filename)}`);
+    if (res.ok) {
+      const md = await res.text();
+      if (stillViewing() && bodyEl) {
         renderThreadView(bodyEl, md);
         _threadStatusDone(data.duration_ms);
         const contentEl = panel.querySelector(".viewer-content");
@@ -1812,8 +1854,11 @@ async function _threadReply(question) {
       }
     }
   } catch (err) {
-    _threadStatusError(`Network error: ${err?.message ?? err}`);
+    if (stillViewing()) _threadStatusError(`Network error: ${err?.message ?? err}`);
   } finally {
+    // Clear only our own pending marker (a later reply can't have started —
+    // busyKind blocks concurrency — but stay defensive).
+    if (_pendingReply?.threadFile === replyThreadFile) _pendingReply = null;
     clearBusy();
   }
 }
@@ -2083,6 +2128,12 @@ async function openOutput(filename, title, date, kind, highlightTerm = "") {
     if (contentEl) contentEl.dataset.markdown = md;
     if (isThread && bodyEl) {
       renderThreadView(bodyEl, md);
+      // If a follow-up on this same thread is still running, re-show the pending
+      // question + spinner that renderThreadView() dropped (the turn is not yet
+      // in the file). Without this, returning mid-reply looks prematurely done.
+      if (_pendingReply && _pendingReply.threadFile === `outputs/${filename}`) {
+        _showPendingReplyBubble(bodyEl, _pendingReply.question);
+      }
     } else {
       if (bodyEl)    bodyEl.innerHTML = renderMarkdown(md);
       if (bodyEl && highlightTerm) highlightMatches(bodyEl, highlightTerm);
