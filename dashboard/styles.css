@@ -325,36 +325,52 @@ body.is-busy .brand-busy-dot {
   cursor: pointer;
 }
 .status-folder-link:hover { text-decoration: underline; }
+/* Secondary outline pill, same treatment as .file-picker-btn — this is a
+   diagnostic sitting in a read-only stat line, so it should recede rather than
+   compete with the content. Padding is 1px shy of the old solid version on each
+   side, so adding the border leaves the outer size unchanged. */
 .status-pill {
   align-self: center;
-  border: none;
-  background: var(--clay);
-  color: #fff;
+  padding: 2px 7px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elev);
+  color: var(--ink);
   font-family: var(--font-body);
   font-size: 0.78em;
   font-weight: 500;
   line-height: 1;
-  padding: 3px 8px;
-  border-radius: var(--radius-pill);
   cursor: pointer;
-  transition: background 0.12s ease, opacity 0.12s ease;
+  transition: background 0.12s ease, border-color 0.12s ease, color 0.12s ease,
+              opacity 0.12s ease;
 }
-.status-pill:hover { background: var(--clay-deep); }
+.status-pill:hover:not(:disabled) {
+  background: var(--clay-tint);
+  border-color: var(--clay-ring);
+  color: var(--clay-deep);
+}
 .status-pill:disabled { opacity: 0.55; cursor: default; }
-/* Engine test pill: neutral tone (not red like the ingest pill).
-   Same size as .status-pill (the ingest pill). min-width prevents the button
-   from shrinking when the label changes from "test" → "…" → "ok ✓"/"fail ✗". */
+/* min-width stops the button resizing as the label cycles
+   "test" → "…" → "ok ✓" / "fail ✗". */
 .engine-test-pill {
-  background: var(--ink-muted);
   margin-left: 6px;
   min-width: 3.8em;
   text-align: center;
 }
-.engine-test-pill:hover:not(:disabled) { background: var(--ink); }
-.engine-test-pill.test-ok  { background: var(--success-ink); }
-.engine-test-pill.test-ok:hover  { background: var(--success-deep); }
-.engine-test-pill.test-err { background: var(--error-ink); }
-.engine-test-pill.test-err:hover { background: var(--error-deep); }
+/* The result flash stays filled: it is transient and meant to be noticed.
+   border-color tracks the fill so the pill never changes size. */
+.engine-test-pill.test-ok {
+  background: var(--success-ink); border-color: var(--success-ink); color: #fff;
+}
+.engine-test-pill.test-ok:hover {
+  background: var(--success-deep); border-color: var(--success-deep); color: #fff;
+}
+.engine-test-pill.test-err {
+  background: var(--error-ink); border-color: var(--error-ink); color: #fff;
+}
+.engine-test-pill.test-err:hover {
+  background: var(--error-deep); border-color: var(--error-deep); color: #fff;
+}
 /* Agent engine dropdown (app only): reads as the status text but carries a caret
    and hover affordance so it's discoverable as a control. */
 /* Baseline (not center): a center-aligned flex container exposes no text
