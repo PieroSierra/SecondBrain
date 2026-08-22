@@ -1552,73 +1552,71 @@ function hideBar() {
 let _threadStatusBar  = null;
 let _threadStatusTimer = null;
 
+// The thread status bar uses one persistent skeleton across all states: a fixed
+// 32px brain slot holding the static and animated (GIF) brains stacked, plus a
+// text slot. States are driven by a class on the bar; the two brains cross-fade
+// by opacity so the animated → static transition never moves position.
+function _ensureThreadStatusSkeleton() {
+  const bar = _threadStatusBar;
+  if (!bar) return null;
+  if (!bar.querySelector(".tsb-brain")) {
+    bar.innerHTML =
+      '<span class="tsb-brain">' +
+        '<img class="tsb-brain-rest" src="/static/logo.png" alt="" aria-hidden="true">' +
+        '<img class="tsb-brain-anim" src="/static/logo-animated.gif" alt="" aria-hidden="true">' +
+      "</span>" +
+      '<span class="tsb-text"></span>';
+  }
+  return bar.querySelector(".tsb-text");
+}
+
 function _threadStatusIdle() {
   if (!_threadStatusBar) return;
   if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
-  _threadStatusBar.className = "thread-status-bar";
-  _threadStatusBar.innerHTML = "";
-  const logo = document.createElement("img");
-  logo.src = "/static/logo.png";
-  logo.className = "thread-turn-logo";
-  logo.alt = "";
-  logo.setAttribute("aria-hidden", "true");
-  _threadStatusBar.appendChild(logo);
+  const text = _ensureThreadStatusSkeleton();
+  _threadStatusBar.className = "thread-status-bar tsb-idle";
+  if (text) text.textContent = "";
 }
 
 function _threadStatusThinking() {
   if (!_threadStatusBar) return;
   if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
-  // Use the shared op-status classes so we get the pulsing dot + verb sweep for free.
-  _threadStatusBar.className = "thread-status-bar op-status op-status-running";
-  _threadStatusBar.innerHTML = "";
+  const text = _ensureThreadStatusSkeleton();
+  _threadStatusBar.className = "thread-status-bar tsb-thinking";
+  if (!text) return;
+  // One random verb + a live elapsed timer, reusing the op-status verb-sweep look.
   const verbs = OP_VERBS["thread-reply"];
-  let verb = verbs[Math.floor(Math.random() * verbs.length)];
+  const verb = verbs[Math.floor(Math.random() * verbs.length)];
   const startedAt = Date.now();
-  const verbEl = document.createElement("span");
-  verbEl.className = "op-status-verb op-status-verb-anim";
-  const elapsedEl = document.createElement("span");
-  elapsedEl.className = "op-status-elapsed";
-  _threadStatusBar.appendChild(verbEl);
-  _threadStatusBar.appendChild(document.createTextNode(" "));
-  _threadStatusBar.appendChild(elapsedEl);
+  text.innerHTML =
+    '<span class="op-status-verb op-status-verb-anim"></span>' +
+    " " +
+    '<span class="op-status-elapsed"></span>';
+  const verbEl = text.querySelector(".op-status-verb");
+  const elapsedEl = text.querySelector(".op-status-elapsed");
   const tick = () => {
     verbEl.textContent = verb + "…";
     elapsedEl.textContent = fmtElapsed(Date.now() - startedAt);
   };
   tick();
-  _threadStatusTimer = setInterval(() => { tick(); }, 1000);
+  _threadStatusTimer = setInterval(tick, 1000);
 }
 
 function _threadStatusDone(durationMs) {
   if (!_threadStatusBar) return;
   if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
-  _threadStatusBar.className = "thread-status-bar thread-status-bar--done";
-  _threadStatusBar.innerHTML = "";
-  const logo = document.createElement("img");
-  logo.src = "/static/logo.png";
-  logo.className = "thread-turn-logo";
-  logo.alt = "";
-  logo.setAttribute("aria-hidden", "true");
-  _threadStatusBar.appendChild(logo);
-  const s = Math.round((durationMs || 0) / 1000);
-  if (s > 0) {
-    const text = document.createElement("span");
-    text.className = "thread-status-text";
-    text.textContent = `Thought for ${s}s`;
-    _threadStatusBar.appendChild(text);
-  }
+  const text = _ensureThreadStatusSkeleton();
+  _threadStatusBar.className = "thread-status-bar tsb-done";
+  if (text) text.textContent = (durationMs || 0) >= 1000 ? `Thought for ${fmtElapsed(durationMs)}` : "";
 }
 
 function _threadStatusError(msg) {
   if (!_threadStatusBar) return;
   if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
-  _threadStatusBar.className = "thread-status-bar thread-status-bar--error";
-  _threadStatusBar.innerHTML = "";
-  const errEl = document.createElement("span");
-  errEl.className = "thread-status-error-text";
-  errEl.textContent = msg;
-  _threadStatusBar.appendChild(errEl);
-  // Restore logo after 6 s.
+  const text = _ensureThreadStatusSkeleton();
+  _threadStatusBar.className = "thread-status-bar tsb-error";
+  if (text) text.textContent = msg;
+  // Restore the resting brain after 6 s.
   _threadStatusTimer = setTimeout(_threadStatusIdle, 6000);
 }
 
@@ -1626,18 +1624,9 @@ function _threadStatusError(msg) {
 function _threadStatusStopped() {
   if (!_threadStatusBar) return;
   if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
-  _threadStatusBar.className = "thread-status-bar thread-status-bar--done";
-  _threadStatusBar.innerHTML = "";
-  const logo = document.createElement("img");
-  logo.src = "/static/logo.png";
-  logo.className = "thread-turn-logo";
-  logo.alt = "";
-  logo.setAttribute("aria-hidden", "true");
-  _threadStatusBar.appendChild(logo);
-  const text = document.createElement("span");
-  text.className = "thread-status-text";
-  text.textContent = "Stopped";
-  _threadStatusBar.appendChild(text);
+  const text = _ensureThreadStatusSkeleton();
+  _threadStatusBar.className = "thread-status-bar tsb-done";
+  if (text) text.textContent = "Stopped";
 }
 
 /** Derive { date, title } from a thread/query/lint filename. */

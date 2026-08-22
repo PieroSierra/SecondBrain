@@ -3073,6 +3073,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         send the right HTTP code (200/409/504/502).
         """
         args = args or {}
+        started = time.time()
 
         before_outputs = _snapshot(OUTPUTS_DIR) if cfg.get("output_glob") else set()
         scoped_raw_dir = None
@@ -3148,6 +3149,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             "kind": kind,
             "output_file": output_file,
             "created_files": created_files,
+            "duration_ms": int((time.time() - started) * 1000),
         }
 
     def _handle_ping_engine(self) -> None:
