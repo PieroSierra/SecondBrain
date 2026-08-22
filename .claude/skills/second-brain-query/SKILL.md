@@ -129,6 +129,8 @@ Write the output file in thread format. Use the current date (YYYY-MM-DD) for th
 [Synthesised answer]
 
 *Sources: [[wiki/topic-1]], [[wiki/topic-2]]*
+
+<!-- sb:thread-end -->
 ```
 
 Where:
@@ -138,6 +140,7 @@ Where:
 - Each `<!-- sb:turn -->` comment carries the role (`user` or `assistant`) and date
 - The sources line lists every wiki article that contributed to the answer (using `[[wiki/topic-name]]` syntax)
 - **No `---` horizontal rules** between turns — the comment markers delineate turns without visible dividers
+- The file ends with a single `<!-- sb:thread-end -->` marker on its own line. This is the append anchor: `/second-brain-follow-up` adds later turns by replacing it, so it must be the very last line and appear exactly once.
 - For gap responses, the assistant turn contains the gap acknowledgement and suggestions
 
 ### Step 9 — Display and confirm

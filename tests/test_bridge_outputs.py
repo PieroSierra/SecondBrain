@@ -132,5 +132,96 @@ class BridgeOutputsTests(unittest.TestCase):
             bridge._rename_output_title("2026-08-11_query-missing.md", "New title")
 
 
+class ThreadEndSentinelTests(unittest.TestCase):
+    """Deterministic end-of-thread anchor guaranteed before a follow-up appends."""
+
+    SENTINEL = "<!-- sb:thread-end -->"
+
+    def setUp(self) -> None:
+        self.temp = tempfile.TemporaryDirectory()
+        self.outputs = Path(self.temp.name) / "outputs"
+        self.outputs.mkdir()
+        self.output_patch = mock.patch.object(bridge, "OUTPUTS_DIR", self.outputs)
+        self.output_patch.start()
+
+    def tearDown(self) -> None:
+        self.output_patch.stop()
+        self.temp.cleanup()
+
+    def _write(self, filename: str, content: str) -> str:
+        (self.outputs / filename).write_text(content, encoding="utf-8")
+        return f"outputs/{filename}"
+
+    def _read(self, filename: str) -> str:
+        return (self.outputs / filename).read_text(encoding="utf-8")
+
+    def test_appends_sentinel_when_missing(self) -> None:
+        rel = self._write(
+            "2026-08-22_thread-x.md",
+            '<!-- sb:thread id="x" -->\n\n# X\n\n'
+            '<!-- sb:turn role="user" ts="2026-08-22" -->\n## You\n\nHi\n',
+        )
+        bridge._ensure_thread_end_sentinel(rel)
+        text = self._read("2026-08-22_thread-x.md")
+        self.assertTrue(text.endswith(f"{self.SENTINEL}\n"))
+        self.assertEqual(text.count(self.SENTINEL), 1)
+        # Prior content is preserved.
+        self.assertIn('<!-- sb:turn role="user" ts="2026-08-22" -->', text)
+        self.assertIn("Hi", text)
+
+    def test_idempotent_when_present_at_eof(self) -> None:
+        rel = self._write(
+            "2026-08-22_thread-y.md",
+            f'<!-- sb:thread id="y" -->\n\n# Y\n\nBody\n\n{self.SENTINEL}\n',
+        )
+        before = self._read("2026-08-22_thread-y.md")
+        bridge._ensure_thread_end_sentinel(rel)
+        after = self._read("2026-08-22_thread-y.md")
+        self.assertEqual(before, after)
+
+    def test_collapses_multiple_sentinels_to_one(self) -> None:
+        rel = self._write(
+            "2026-08-22_thread-z.md",
+            f'<!-- sb:thread id="z" -->\n\n# Z\n\n{self.SENTINEL}\n\nBody\n\n{self.SENTINEL}\n',
+        )
+        bridge._ensure_thread_end_sentinel(rel)
+        text = self._read("2026-08-22_thread-z.md")
+        self.assertEqual(text.count(self.SENTINEL), 1)
+        self.assertTrue(text.endswith(f"{self.SENTINEL}\n"))
+        # The real content survives the collapse.
+        self.assertIn("Body", text)
+
+    def test_single_trailing_newline(self) -> None:
+        rel = self._write("2026-08-22_thread-nl.md", "Body\n\n\n\n")
+        bridge._ensure_thread_end_sentinel(rel)
+        text = self._read("2026-08-22_thread-nl.md")
+        self.assertTrue(text.endswith(f"{self.SENTINEL}\n"))
+        self.assertFalse(text.endswith(f"{self.SENTINEL}\n\n"))
+
+    def test_preserves_turn_content(self) -> None:
+        original = (
+            '<!-- sb:thread id="p" -->\n\n# P\n\n'
+            '<!-- sb:turn role="user" ts="2026-08-21" -->\n## You\n\nQ1\n\n'
+            '<!-- sb:turn role="assistant" ts="2026-08-21" -->\n## Second Brain\n\nA1\n\n'
+            "*Sources: [[wiki/a]]*\n"
+        )
+        rel = self._write("2026-08-22_thread-p.md", original)
+        bridge._ensure_thread_end_sentinel(rel)
+        text = self._read("2026-08-22_thread-p.md")
+        # Everything before the appended anchor is byte-for-byte the original body.
+        self.assertTrue(text.startswith(original.rstrip("\n")))
+
+    def test_noop_on_missing_file(self) -> None:
+        # Must not create the file.
+        bridge._ensure_thread_end_sentinel("outputs/2026-08-22_thread-absent.md")
+        self.assertFalse((self.outputs / "2026-08-22_thread-absent.md").exists())
+
+    def test_noop_on_path_outside_outputs(self) -> None:
+        # A traversal-y name must never escape outputs/; helper resolves by basename.
+        bridge._ensure_thread_end_sentinel("outputs/../../etc/passwd")
+        # Nothing created inside outputs, no exception raised.
+        self.assertEqual(list(self.outputs.iterdir()), [])
+
+
 if __name__ == "__main__":
     unittest.main()

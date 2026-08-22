@@ -1630,9 +1630,13 @@ function renderThreadView(container, md) {
     const role  = roleM ? roleM[1] : "assistant";
     const ts    = tsM ? tsM[1] : "";
 
-    // Strip the leading H2 heading ("## You" / "## Second Brain") only.
-    // No --- stripping needed — the skills no longer emit dividers.
-    const body = content.replace(/^\s*##\s+[^\n]*\n/, "").trim();
+    // Strip the leading H2 heading ("## You" / "## Second Brain") and, on the
+    // final turn, the trailing <!-- sb:thread-end --> append anchor — it must
+    // never render or leak into the per-turn "copy as Markdown" (dataset.markdown).
+    const body = content
+      .replace(/^\s*##\s+[^\n]*\n/, "")
+      .replace(/\n*<!--\s*sb:thread-end\s*-->\s*$/, "")
+      .trim();
 
     if (role === "user") {
       const bubble = document.createElement("div");

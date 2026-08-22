@@ -1088,6 +1088,45 @@ def _read_saved_output(rel_path: str) -> str | None:
     return "\n".join(lines[start:]).strip()
 
 
+_THREAD_END_SENTINEL = "<!-- sb:thread-end -->"
+
+
+def _ensure_thread_end_sentinel(thread_file: str) -> None:
+    """Guarantee a thread file ends with exactly one end-of-thread sentinel.
+
+    The follow-up skill appends a new turn by replacing this unique marker, so
+    its placement must be deterministic — an LLM anchoring on a repeated line
+    (e.g. an identical `*Sources: …*` footer) can otherwise insert mid-file.
+    This removes every existing sentinel line and appends exactly one at true
+    EOF, preserving all other content. Best-effort: no-op if the file is
+    missing or resolves outside outputs/, and never raises.
+
+    `thread_file` is treated as untrusted; only its basename is used, so it
+    cannot escape outputs/ via traversal.
+    """
+    try:
+        p = (OUTPUTS_DIR / Path(thread_file).name).resolve()
+        p.relative_to(OUTPUTS_DIR.resolve())
+        if not p.is_file():
+            return
+        text = p.read_text(encoding="utf-8")
+    except (OSError, ValueError):
+        return
+
+    # Drop every existing sentinel line — a stray one would make the skill's
+    # exact-match replacement ambiguous and reintroduce the mis-placement bug.
+    kept = [ln for ln in text.split("\n") if ln.strip() != _THREAD_END_SENTINEL]
+    body = "\n".join(kept).rstrip("\n")
+    new_text = f"{body}\n\n{_THREAD_END_SENTINEL}\n"
+
+    if new_text == text:
+        return
+    try:
+        p.write_text(new_text, encoding="utf-8")
+    except OSError:
+        return
+
+
 def _newest_match(dir_: Path, glob: str, exclude: set[Path]) -> str | None:
     """Return the newest file matching glob that was NOT in `exclude`.
 
@@ -2909,6 +2948,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         try:
             with long_op(kind):
+                # A follow-up appends by replacing a unique end-of-thread marker;
+                # guarantee it exists (and is singular) at true EOF first so the
+                # new turn can never land mid-file. Deterministic, under the mutex.
+                if kind == "thread-reply":
+                    tf = args.get("thread_file")
+                    if isinstance(tf, str) and tf:
+                        _ensure_thread_end_sentinel(tf)
                 status, result = run_skill(prompt, cfg)
         except Busy as busy:
             return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
