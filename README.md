@@ -1,5 +1,6 @@
 
-![Second Brain](chrome-extension/icon-128.png)
+<img src="dashboard/logo-animated.gif" alt="Second Brain" width="128" height="128" />
+
 # Second Brain
 A personal knowledge base that lives in this folder. Drop content in, have it organized automatically, ask questions, and get sourced answers — through **Claude Code**, **OpenAI Codex**, or **OpenCode** skills, or a **local web dashboard** (available as a downloadable [macOS app](https://github.com/PieroSierra/SecondBrain/releases/latest)).
 
