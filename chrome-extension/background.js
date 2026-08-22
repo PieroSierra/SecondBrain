@@ -15,8 +15,11 @@
 const BRIDGE_PORT = 4173;
 
 // ---------------------------------------------------------------------------
-// Busy icon — pulsing orange dot in the bottom-right corner of the toolbar
-// icon while an import is in progress.
+// Busy icon — pulsing brand dot in the lower-left corner of the toolbar icon
+// while an import is in progress. Mirrors the dashboard's `@keyframes pulse`
+// (styles.css) and the macOS Dock dot (DockActivity.swift): the fill travels
+// from ink to the hot-pink accent while the dot scales 0.7→1, over a 1.4s
+// period. Opacity is constant — the colour carries the pulse.
 // ---------------------------------------------------------------------------
 
 let _baseIcon16   = null; // cached ImageBitmap, loaded once on first import
@@ -33,23 +36,32 @@ async function _getBaseIcon() {
   return _baseIcon16;
 }
 
+// Brand pulse endpoints — keep in step with dashboard styles.css `:root`.
+const _DOT_INK  = [0x19, 0x1B, 0x1F]; // --ink,  trough (small)
+const _DOT_CLAY = [0xDB, 0x27, 0x77]; // --clay, peak (large)
+
 function _drawFrame(base, phase) {
   const size = 16;
   const canvas = new OffscreenCanvas(size, size);
   const ctx = canvas.getContext("2d");
   ctx.drawImage(base, 0, 0, size, size);
-  // sine-based ease matching brand-pulse: opacity 0.4→1→0.4, radius 2.5→3.5
-  const t       = Math.sin(phase * Math.PI);
-  const opacity = 0.4 + 0.6 * t;
-  const radius  = 2.5 + 1.0 * t;
-  const cx = 3, cy = size - 3; // bottom-left
-  // white outline for contrast against the brain icon background
-  ctx.globalAlpha = opacity;
-  ctx.fillStyle = "#ffffff";
+  // Sine ease: t = 0 at the trough (phase 0/1), t = 1 at the peak (phase 0.5),
+  // matching the CSS keyframe's scale/colour travel.
+  const t = Math.sin(phase * Math.PI);
+  // Radius peaks at its native largest state and shrinks to 0.7 at the trough.
+  const radius = 3.5 * (0.7 + 0.3 * t);
+  // Lerp ink → clay in sRGB — the colour, not opacity, carries the pulse.
+  const r = Math.round(_DOT_INK[0] + (_DOT_CLAY[0] - _DOT_INK[0]) * t);
+  const g = Math.round(_DOT_INK[1] + (_DOT_CLAY[1] - _DOT_INK[1]) * t);
+  const b = Math.round(_DOT_INK[2] + (_DOT_CLAY[2] - _DOT_INK[2]) * t);
+  const cx = 4, cy = size - 4; // bottom-left, inset 1px to clear the icon edge
+  // Light outline: the dot is near-black at the trough, so a dark ring would
+  // vanish into it. White separates it from the icon at both ends of the pulse.
+  ctx.fillStyle = "rgba(255,255,255,0.55)";
   ctx.beginPath();
   ctx.arc(cx, cy, radius + 1.5, 0, 2 * Math.PI);
   ctx.fill();
-  ctx.fillStyle = "#E07B2A";
+  ctx.fillStyle = `rgb(${r},${g},${b})`;
   ctx.beginPath();
   ctx.arc(cx, cy, radius, 0, 2 * Math.PI);
   ctx.fill();
