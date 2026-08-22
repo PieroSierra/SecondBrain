@@ -30,6 +30,7 @@ import os
 import re
 import secrets
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
@@ -697,6 +698,132 @@ def long_op(kind: str):
 
 
 # ---------------------------------------------------------------------------
+# Cancellation registry — lets POST /cancel reach the in-flight child process.
+#
+# `long_op`/`_lock` above is held for a run's entire duration (it's the single-
+# flight guard), so /cancel CANNOT go through it. Instead the runner registers
+# its live Popen here under a separate short-lived lock; /cancel reads the handle
+# and signals the child's whole process group. `_cancel_flag` distinguishes a
+# user Stop from an ordinary timeout so the runner can report {"stopped": true}.
+# ---------------------------------------------------------------------------
+
+_proc_lock = threading.Lock()
+_current_proc: subprocess.Popen | None = None
+_cancel_flag = False
+_CANCEL_GRACE_S = 2.0  # SIGTERM → SIGKILL escalation window
+
+
+def _new_session_kwargs() -> dict:
+    """Spawn the child as its own process-group leader on POSIX, so we can signal
+    the whole tree (agent + any grandchildren). No-op on Windows."""
+    if os.name == "posix":
+        return {"start_new_session": True}
+    return {}
+
+
+def _register_proc(proc: subprocess.Popen) -> None:
+    global _current_proc, _cancel_flag
+    with _proc_lock:
+        _current_proc = proc
+        _cancel_flag = False
+
+
+def _clear_proc() -> None:
+    global _current_proc
+    with _proc_lock:
+        _current_proc = None
+
+
+def _was_cancelled() -> bool:
+    with _proc_lock:
+        return _cancel_flag
+
+
+def _terminate_group(proc: subprocess.Popen) -> None:
+    """Signal the child (and its process group on POSIX): SIGTERM now, SIGKILL
+    after a short grace. Best-effort; already-dead processes are ignored."""
+    if proc.poll() is not None:
+        return
+    if os.name == "posix":
+        try:
+            pgid = os.getpgid(proc.pid)
+        except (ProcessLookupError, OSError):
+            pgid = None
+        if pgid is not None:
+            try:
+                os.killpg(pgid, signal.SIGTERM)
+            except (ProcessLookupError, OSError):
+                return
+
+            def _hard_kill() -> None:
+                try:
+                    proc.wait(timeout=_CANCEL_GRACE_S)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(pgid, signal.SIGKILL)
+                    except (ProcessLookupError, OSError):
+                        pass
+
+            threading.Thread(target=_hard_kill, daemon=True).start()
+            return
+    # Non-POSIX, or the group id was unavailable: fall back to the lone process.
+    try:
+        proc.terminate()
+    except (ProcessLookupError, OSError):
+        pass
+
+
+def _request_cancel() -> bool:
+    """Terminate the in-flight run, if any. Returns True if a process was signalled.
+    Idempotent and safe to call when idle."""
+    global _cancel_flag
+    with _proc_lock:
+        proc = _current_proc
+        if proc is None:
+            return False
+        _cancel_flag = True
+    _terminate_group(proc)  # outside the lock — may spawn a watchdog thread
+    return True
+
+
+def _run_capture(argv: list[str], timeout: int | None) -> tuple[subprocess.CompletedProcess | None, str]:
+    """Run argv capturing stdout/stderr, cancellable via the registry above.
+
+    Returns (cp, outcome):
+      - ("ok")       cp is a CompletedProcess (stdout/stderr/returncode)
+      - ("timeout")  cp is None — the per-kind timeout elapsed (child killed)
+      - ("stopped")  cp is None — a user Stop (POST /cancel) killed the child
+
+    FileNotFoundError from spawn propagates to the caller (→ 502), matching the
+    previous subprocess.run contract.
+    """
+    proc = subprocess.Popen(
+        argv,
+        shell=False,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        cwd=str(VAULT_ROOT),
+        **_new_session_kwargs(),
+    )
+    _register_proc(proc)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _terminate_group(proc)
+        try:
+            proc.communicate(timeout=_CANCEL_GRACE_S + 1)  # reap
+        except subprocess.TimeoutExpired:
+            pass
+        return None, "timeout"
+    finally:
+        _clear_proc()
+    if _was_cancelled():
+        return None, "stopped"
+    return subprocess.CompletedProcess(argv, proc.returncode, stdout, stderr), "ok"
+
+
+# ---------------------------------------------------------------------------
 # Subprocess: run claude -p
 # ---------------------------------------------------------------------------
 
@@ -745,19 +872,13 @@ def run_claude(
         # user-global settings) — the authoritative blast-radius guarantee.
         argv += ["--disallowedTools", ",".join(disallowed_tools)]
     try:
-        cp = subprocess.run(
-            argv,
-            shell=False,
-            capture_output=True,
-            text=True,
-            cwd=str(VAULT_ROOT),
-            timeout=timeout,
-            check=False,
-        )
+        cp, _outcome = _run_capture(argv, timeout)
     except FileNotFoundError as exc:
         return 502, {"error": "spawn_failed", "detail": str(exc)}
-    except subprocess.TimeoutExpired:
+    if _outcome == "timeout":
         return 504, {"error": "timeout", "after_seconds": timeout}
+    if _outcome == "stopped":
+        return 200, {"stopped": True}
 
     stdout = cp.stdout or ""
     stderr = cp.stderr or ""
@@ -829,19 +950,13 @@ def run_codex(prompt: str, cfg: dict) -> tuple[int, dict]:
             argv += ["--model", _CODEX_TIER_MAP[_t]]
 
         try:
-            cp = subprocess.run(
-                argv,
-                shell=False,
-                capture_output=True,
-                text=True,
-                cwd=str(VAULT_ROOT),
-                timeout=timeout,
-                check=False,
-            )
+            cp, _outcome = _run_capture(argv, timeout)
         except FileNotFoundError as exc:
             return 502, {"error": "spawn_failed", "detail": str(exc)}
-        except subprocess.TimeoutExpired:
+        if _outcome == "timeout":
             return 504, {"error": "timeout", "after_seconds": timeout}
+        if _outcome == "stopped":
+            return 200, {"stopped": True}
 
         try:
             result_text = Path(last_msg_path).read_text().strip()
@@ -892,19 +1007,13 @@ def run_opencode(prompt: str, cfg: dict) -> tuple[int, dict]:
         argv += ["-m", _OPENCODE_TIER_MAP.get(_t, _t)]
 
     try:
-        cp = subprocess.run(
-            argv,
-            shell=False,
-            capture_output=True,
-            text=True,
-            cwd=str(VAULT_ROOT),
-            timeout=timeout,
-            check=False,
-        )
+        cp, _outcome = _run_capture(argv, timeout)
     except FileNotFoundError as exc:
         return 502, {"error": "spawn_failed", "detail": str(exc)}
-    except subprocess.TimeoutExpired:
+    if _outcome == "timeout":
         return 504, {"error": "timeout", "after_seconds": timeout}
+    if _outcome == "stopped":
+        return 200, {"stopped": True}
 
     stdout = cp.stdout or ""
     stderr = cp.stderr or ""
@@ -2142,7 +2251,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # All POST endpoints trigger a skill (or a cheap read-only check) →
         # require authorization. The extension authenticates by its allowlisted
         # Origin (no token).
-        if path in ("/run", "/upload-pdf", "/upload-file", "/dedupe-check",
+        if path in ("/run", "/cancel", "/upload-pdf", "/upload-file", "/dedupe-check",
                     "/open-folder", "/patch-finding", "/rename-output",
                     "/set-model"):
             if not self._authorize(allow_extension=True):
@@ -2150,6 +2259,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/run":
             return self._handle_run()
+        if path == "/cancel":
+            return self._handle_cancel()
         if path == "/upload-pdf":
             return self._handle_upload_pdf()
         if path == "/upload-file":
@@ -2642,6 +2753,20 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         except Busy as busy:
             return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
 
+    def _handle_cancel(self) -> None:
+        """Cancel the single in-flight run, if any, by killing its process group.
+
+        Idempotent: returns {"cancelled": false} when nothing is running. The
+        cancelled /run request itself returns {"stopped": true} once its child
+        dies, which is what resets the dashboard UI.
+        """
+        snap = _in_flight
+        cancelled = _request_cancel()
+        return _json_response(self, 200, {
+            "cancelled": cancelled,
+            "kind": (snap or {}).get("kind"),
+        })
+
     def _handle_run(self) -> None:
         body = self._read_json_body()
         if body is None:
@@ -2864,6 +2989,19 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     f'--managed-manifest --scan-id "{plan["scan_id"]}"'
                 )
                 status, result = run_skill(prompt, cfg)
+                if result.get("stopped"):
+                    # User pressed Stop mid-ingest. Do NOT finalize: leaving the
+                    # manifest un-advanced keeps every source pending so the next
+                    # ingest cleanly re-synthesises (self-heal). Just drop the
+                    # scan plan and report a benign stop.
+                    ingest_state.discard_plan(plan_path)
+                    return {
+                        "__status__": 200,
+                        "stopped": True,
+                        "kind": "ingest",
+                        "output_file": None,
+                        "created_files": [],
+                    }
                 if status != 200:
                     ingest_state.discard_plan(plan_path)
                     return {"__status__": status, **result, "kind": "ingest"}

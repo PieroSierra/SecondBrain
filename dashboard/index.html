@@ -103,7 +103,12 @@
 
         <header class="site-header">
           <div class="brand-row">
-            <img class="brand-logo" src="/static/logo.png" alt="" width="56" height="56" decoding="async" />
+            <!-- Hero logo: static PNG at rest, animated "thinking" SVG while any
+                 op runs. The animated one is inline SVG injected by
+                 initAnimatedHeroLogo() (CSS keyframes don't run from an <img>);
+                 the rest/busy swap is CSS keyed off body.is-busy. -->
+            <img class="brand-logo brand-logo--rest" src="/static/logo.png" alt="" width="56" height="56" decoding="async" />
+            <span class="brand-logo brand-logo--anim" aria-hidden="true"></span>
             <!-- The pulsing period becomes the wordmark's full stop ("Second
                  Brain.") while any operation runs — including imports fired from
                  the Chrome extension. Toggled by body.is-busy; hidden when idle. -->

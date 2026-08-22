@@ -68,6 +68,19 @@ Server actions:
 
 Timeout → `504 {"error": "timeout", "kind": "...", "after_seconds": N}`.
 Spawn failure → `502 {"error": "spawn_failed", "detail": "..."}`.
+Cancelled by the user (see `POST /cancel`) → `200 {"stopped": true, "kind": "..."}`. This is a benign outcome, not an error: the child was killed before completing, so no `output_file` is produced. For `ingest`, the manifest is deliberately left un-advanced so the next ingest re-synthesises the pending sources.
+
+### `POST /cancel` → `200 application/json`
+
+Cancels the single in-flight `/run` (there is only ever one, enforced by the long-operations mutex). Body is empty (`{}`).
+
+Server actions:
+
+1. Read the registered child-process handle for the in-flight run, if any.
+2. If none is running, return `200 {"cancelled": false, "kind": null}` (idempotent — safe to call when idle).
+3. Otherwise signal the child's **process group** (`SIGTERM`, escalating to `SIGKILL` after a short grace) so the agent CLI and any grandchildren are terminated, and return `200 {"cancelled": true, "kind": "<in-flight kind>"}`.
+
+The killed `/run` request then returns its own `{"stopped": true}` response (above), which is what resets the dashboard UI. Auth is the same as `/run` (bridge token, or an allowlisted extension Origin).
 
 ### `POST /upload-pdf` → `200 application/json` | `409` | `504`
 

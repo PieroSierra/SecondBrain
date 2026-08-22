@@ -271,6 +271,19 @@ function opClear(node) {
   node.textContent = "";
 }
 
+// Neutral "Stopped" state for op-status nodes — the user cancelled the run.
+function opStopped(node) {
+  if (!node) return;
+  const prev = _opTimers.get(node);
+  if (prev) {
+    window.clearInterval(prev.intervalId);
+    _opTimers.delete(node);
+  }
+  node.className = "op-status op-status-done";
+  node.hidden = false;
+  node.textContent = "Stopped.";
+}
+
 // --- Busy controller (global lock — only one op at a time) ---------------
 
 let busyKind = null;
@@ -278,10 +291,48 @@ let busyKind = null;
 function setQuerySubmitBusy(isBusy) {
   const button = document.getElementById("thread-reply-btn");
   if (!button) return;
-  button.disabled = isBusy;
+  const img = button.querySelector("img");
+  // Busy → Stop control: stays clickable (a click cancels the run) and swaps the
+  // pink Send arrow for the white stop glyph. Idle → back to the Send arrow.
+  button.disabled = false;
   button.setAttribute("aria-busy", String(isBusy));
-  button.setAttribute("aria-label", isBusy ? "Processing" : "Ask");
-  button.title = isBusy ? "Processing" : "Ask";
+  button.classList.toggle("is-stop", isBusy);
+  button.setAttribute("aria-label", isBusy ? "Stop" : "Ask");
+  button.title = isBusy ? "Stop" : "Ask";
+  if (img) {
+    img.src = isBusy ? "/static/icons/stop.png" : "/static/icons/up.png";
+    img.alt = isBusy ? "Stop" : "Ask";
+  }
+}
+
+// The homepage hero logo shows an animated "thinking" SVG while any op runs and
+// the static logo at rest. The animated version is INLINE SVG (injected once by
+// initAnimatedHeroLogo below): its animation is CSS @keyframes, which a browser
+// freezes when the SVG is an <img> src — only inline SVG animates. The rest/busy
+// swap itself is pure CSS keyed off body.is-busy (see styles.css).
+async function initAnimatedHeroLogo() {
+  const host = document.querySelector(".brand-logo--anim");
+  if (!host || host.firstElementChild) return;
+  try {
+    const res = await apiFetch("/static/logo-animated.svg");
+    if (!res.ok) return;
+    // First-party asset shipped in this repo (equivalent to inlining it in
+    // index.html); injected inline so its CSS keyframes actually run.
+    host.innerHTML = await res.text();
+    const svg = host.querySelector("svg");
+    if (svg) {
+      // Let it scale to the em-sized .brand-logo box via its viewBox.
+      svg.setAttribute("width", "100%");
+      svg.setAttribute("height", "100%");
+      svg.setAttribute("focusable", "false");
+      svg.setAttribute("aria-hidden", "true");
+      // Gate the rest→busy swap on success: if injection ever fails, the CSS
+      // leaves the static logo visible while busy rather than showing nothing.
+      document.body.classList.add("has-anim-logo");
+    }
+  } catch {
+    /* best-effort — the static logo remains as the resting state */
+  }
 }
 
 function setBusy(kind) {
@@ -820,6 +871,8 @@ async function runImport(form, kind, opts) {
       ? await postMultipart(opts.url, opts.formData)
       : await postJSON(opts.url, opts.body);
 
+    if (isStopped(data)) { opStopped(opNode); return; }
+
     // Optional opt-in callback that gets first look at any 200 envelope
     // (including is_error:true). Used by web-import to detect
     // ✗ FETCH_FAILED and flip the card to paste mode instead of rendering
@@ -1317,6 +1370,8 @@ async function runMaintenance(form, kind) {
   try {
     const { status, data } = await postJSON("/run", { kind, args: {} });
 
+    if (isStopped(data)) { opStopped(opNode); return; }
+
     const err = envelopeError(kind, status, data);
     if (err !== null) {
       opError(opNode, err);
@@ -1418,6 +1473,7 @@ async function runWikiEdit(prompt, slug, opNode, statusNode, onSuccess) {
   try {
     const args = slug ? { prompt, slug } : { prompt };
     const { status, data } = await postJSON("/run", { kind: "wiki-edit", args });
+    if (isStopped(data)) { opStopped(opNode); return; }
     const err = envelopeError("wiki-edit", status, data);
     if (err !== null) {
       opError(opNode, err);
@@ -1566,6 +1622,24 @@ function _threadStatusError(msg) {
   _threadStatusTimer = setTimeout(_threadStatusIdle, 6000);
 }
 
+// Neutral "Stopped" state (not an error) — the user cancelled this turn.
+function _threadStatusStopped() {
+  if (!_threadStatusBar) return;
+  if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
+  _threadStatusBar.className = "thread-status-bar thread-status-bar--done";
+  _threadStatusBar.innerHTML = "";
+  const logo = document.createElement("img");
+  logo.src = "/static/logo.png";
+  logo.className = "thread-turn-logo";
+  logo.alt = "";
+  logo.setAttribute("aria-hidden", "true");
+  _threadStatusBar.appendChild(logo);
+  const text = document.createElement("span");
+  text.className = "thread-status-text";
+  text.textContent = "Stopped";
+  _threadStatusBar.appendChild(text);
+}
+
 /** Derive { date, title } from a thread/query/lint filename. */
 function _filenameToNavMeta(filename) {
   const m = filename.match(/^(\d{4}-\d{2}-\d{2})_(?:query|thread|lint)-?(.*)\.md$/);
@@ -1709,6 +1783,32 @@ async function handleBarSubmit() {
   }
 }
 
+// While an op runs the send button is a Stop control. Clicking it asks the
+// bridge to cancel the in-flight run; the killed /run request resolves with
+// {stopped:true}, and the caller's finally→clearBusy restores the Send arrow.
+let _stopPending = false;
+async function handleBarStop() {
+  if (!busyKind || _stopPending) return;
+  _stopPending = true;
+  const button = document.getElementById("thread-reply-btn");
+  if (button) {
+    button.title = "Stopping…";
+    button.setAttribute("aria-label", "Stopping…");
+  }
+  try {
+    await postJSON("/cancel", {});
+  } catch {
+    /* best-effort — the run resolves and clears busy regardless */
+  } finally {
+    _stopPending = false;
+  }
+}
+
+// A stopped run is a benign outcome, not an error.
+function isStopped(data) {
+  return !!(data && data.stopped === true);
+}
+
 // Home mode: navigate immediately, show user bubble + spinner, fill in real content on return.
 async function _optimisticThreadStart(question) {
   setBusy("thread-start");
@@ -1749,6 +1849,15 @@ async function _optimisticThreadStart(question) {
       kind: "thread-start",
       args: { question },
     });
+
+    if (isStopped(data)) {
+      // Cancelled before any thread file was written — show a neutral "Stopped",
+      // restore the question so it can be retried, and return to the home box.
+      _threadStatusStopped();
+      if (threadReplyInput) { threadReplyInput.value = question; sizeReplyInput(); }
+      setTimeout(() => { showPanel("panel-home-new"); _lastHomePanel = "panel-home-new"; setBarMode("home"); }, 1500);
+      return;
+    }
 
     const errMsg = envelopeError("thread-start", status, data);
     if (errMsg !== null) {
@@ -1843,6 +1952,16 @@ async function _threadReply(question) {
       args: { question, thread_file: replyThreadFile },
     });
 
+    if (isStopped(data)) {
+      // Cancelled — the thread already exists on disk but no answer was written.
+      // Show a neutral "Stopped" and restore the question for retry.
+      if (stillViewing()) {
+        _threadStatusStopped();
+        if (threadReplyInput) { threadReplyInput.value = question; sizeReplyInput(); }
+      }
+      return;
+    }
+
     const errMsg = envelopeError("thread-reply", status, data);
     if (errMsg !== null) { if (stillViewing()) _threadStatusError(errMsg); return; }
 
@@ -1881,7 +2000,10 @@ function sizeReplyInput() {
 }
 
 if (threadReplyBtn) {
-  threadReplyBtn.addEventListener("click", handleBarSubmit);
+  threadReplyBtn.addEventListener("click", () => {
+    if (busyKind) handleBarStop();
+    else handleBarSubmit();
+  });
 }
 if (threadReplyInput) {
   threadReplyInput.addEventListener("keydown", (e) => {
@@ -3006,6 +3128,7 @@ document.getElementById("nav-new-question")?.addEventListener("click", () => {
 setActiveNavItem(document.getElementById("nav-new-question"));
 loadOutputsList();
 setBarMode("home");
+initAnimatedHeroLogo();
 window.requestAnimationFrame(() => threadReplyInput?.focus());
 
 // ---------------------------------------------------------------------------

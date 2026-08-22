@@ -204,6 +204,23 @@ textarea:focus-visible {
      cap height is 0.734em at this optical size, measured, not guessed. */
   transform: translateY(calc((1.11em - 0.734em) / 2));
 }
+/* Hero logo rest/busy swap. Both variants share .brand-logo (same em box +
+   baseline nudge); we show exactly one. The animated SVG (injected inline) fills
+   its box via its own viewBox. Toggled by body.is-busy for any running op. */
+.brand-logo--anim {
+  display: none;
+}
+.brand-logo--anim > svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+body.is-busy.has-anim-logo .brand-logo--rest {
+  display: none;
+}
+body.is-busy.has-anim-logo .brand-logo--anim {
+  display: block;
+}
 /* Busy indicator: a pulsing period rendered as the wordmark's full stop
    ("Second Brain.") while any operation runs — including imports fired from the
    Chrome extension. Hidden until body.is-busy (set by setBusy/clearBusy for any
@@ -2006,31 +2023,18 @@ body.bar-visible .panel {
   cursor: not-allowed;
 }
 
-/* Global bridge lock: keep the textarea editable, but make its Send control
-   unmistakably unavailable. Reuses the inline status pulse at a larger size. */
-.thread-reply-submit[aria-busy="true"],
-.thread-reply-submit[aria-busy="true"]:hover {
-  background: var(--rule-strong);
-  opacity: 1;
-  cursor: wait;
-}
-.thread-reply-submit[aria-busy="true"] img {
-  display: none;
-}
-.thread-reply-submit[aria-busy="true"]::before {
-  content: "";
-  display: block;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
+/* While an operation runs, the Send arrow becomes a Stop control (white
+   stop.png swapped in by JS). It stays the brand pink and fully clickable —
+   pressing it cancels the in-flight op. Activity is shown by the other
+   indicators (brand busy dot, op-status row, in-thread status bar), so the
+   button no longer doubles as a throbber. */
+.thread-reply-submit.is-stop {
   background: var(--clay);
-  animation: pulse 1.4s ease-in-out infinite;
+  opacity: 1;
+  cursor: pointer;
 }
-@media (prefers-reduced-motion: reduce) {
-  .thread-reply-submit[aria-busy="true"]::before {
-    animation: none;
-    opacity: 0.7;
-  }
+.thread-reply-submit.is-stop:hover {
+  background: var(--clay-deep);
 }
 
 /* Footer op-status kept for fallback errors but hidden by default in thread mode. */
