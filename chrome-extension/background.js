@@ -122,6 +122,15 @@ async function doImport(url, markdown, context) {
       await storeError(url, "Bridge is busy — try again in a moment.");
       return;
     }
+    // The import was cancelled (e.g. via the dashboard's Stop control): the
+    // bridge killed the run and returned {stopped:true} with HTTP 200. Nothing
+    // was saved, so report a neutral "stopped" — not success, not an error.
+    if (body?.stopped) {
+      await chrome.storage.session.set({
+        importState: { status: "stopped", url },
+      });
+      return;
+    }
     if (!resp.ok || body?.is_error) {
       await storeError(url, body?.result ?? body?.error ?? `Bridge returned HTTP ${resp.status}`);
       return;

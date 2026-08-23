@@ -58,6 +58,7 @@ function computeView() {
   if (s?.status === "running" && same  && fresh) return { kind: "importing", verb: s.verb || "Importing…", bg: true };
   if (s?.status === "running" && !same && fresh) return { kind: "busy-other" };
   if (s?.status === "success" && same)           return { kind: "success", filename: s.filename };
+  if (s?.status === "stopped" && same)           return { kind: "stopped" };
   if (s?.status === "error"   && same)           return { kind: "error", msg: s.result };
   if (dupeMatch)                                 return { kind: "dupe", match: dupeMatch };
   return { kind: "idle" };
@@ -100,6 +101,11 @@ function applyView(v) {
       break;
     case "error":
       showStatusText("error", v.msg || "Import failed.");
+      break;
+    case "stopped":
+      // Cancelled by the user (nothing was saved) — offer a fresh import with a
+      // neutral note rather than a red error or a green "success".
+      setNote("Import stopped.");
       break;
     case "dupe":
       buildDupe(v.match);

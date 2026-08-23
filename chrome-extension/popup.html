@@ -185,32 +185,36 @@
       border-color: var(--error-deep);
     }
 
-    /* Op-status row — pulsing dot + animated verb sweep, matches dashboard */
+    /* Op-status row — animated brain + animated verb sweep, matches the
+       dashboard's Chat/Answers thinking control. */
     .op-status {
       display: none;
-      align-items: flex-start;
-      gap: 8px;
+      align-items: center;
+      gap: 10px;
       font-size: 0.82rem;
       line-height: 1.4;
       color: var(--ink-muted);
     }
     .op-status.visible { display: flex; }
 
-    /* Dot */
-    .op-status::before {
-      content: "";
-      display: block;
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
+    /* 32px brain slot: the animated GIF normally, a static brain under reduced
+       motion (stacked so the swap needs no JS). */
+    .op-brain {
+      position: relative;
       flex: none;
-      margin-top: calc((1.4em - 7px) / 2);
+      width: 32px;
+      height: 32px;
     }
+    .op-brain img {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .op-brain-anim { opacity: 1; }
+    .op-brain-rest { opacity: 0; }
     .op-status-running { color: var(--ink); font-style: italic; }
-    .op-status-running::before {
-      background: var(--clay);
-      animation: pulse 1.4s ease-in-out infinite;
-    }
 
     /* Verb sweep — an accent highlight glides through the italic verb */
     .op-verb {
@@ -240,11 +244,6 @@
       from { background-position:    0% 0; }
       to   { background-position: -200% 0; }
     }
-    /* Peaks at scale 1 so the dot's largest state is its native size. */
-    @keyframes pulse {
-      0%, 100% { transform: scale(0.7); background: var(--ink); }
-      50%      { transform: scale(1);   background: var(--clay); }
-    }
     @media (prefers-reduced-motion: reduce) {
       .op-verb-anim {
         animation: none;
@@ -254,7 +253,9 @@
         -webkit-text-fill-color: currentColor;
         color: var(--ink);
       }
-      .op-status-running::before { animation: none; opacity: 0.7; }
+      /* No animated GIF under reduced motion — show the static brain instead. */
+      .op-brain-anim { opacity: 0; }
+      .op-brain-rest { opacity: 1; }
     }
 
     /* Single status panel — the one red/green space above the button. Exactly
@@ -353,8 +354,12 @@
 
     <button id="import-btn">Import this page</button>
 
-    <!-- Pulsar + animated verb (shown while this tab's import runs) -->
+    <!-- Animated brain + animated verb (shown while this tab's import runs) -->
     <div class="op-status op-status-running" id="op-status">
+      <span class="op-brain" aria-hidden="true">
+        <img class="op-brain-anim" src="logo-animated.gif" alt="">
+        <img class="op-brain-rest" src="icon-128.png" alt="">
+      </span>
       <span class="op-verb op-verb-anim" id="op-verb">Importing…</span>
     </div>
     <div class="bg-hint" id="bg-hint">Running in background — you can close this.</div>
