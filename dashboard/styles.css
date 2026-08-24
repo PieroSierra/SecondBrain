@@ -470,7 +470,11 @@ body.is-busy .brand-busy-dot {
 .layout {
   max-width: var(--maxw);
   margin: 0 auto;
-  padding: 56px 32px 80px;
+  /* Side padding is 15px wider than the reply bar's 32px (.thread-reply-inner)
+     so the content column always stays inset from the input field — including
+     at narrow widths where both columns become viewport-bound and would
+     otherwise line up edge to edge. */
+  padding: 56px 47px 80px;
 }
 
 /* ---------- Op-status (per-form: running / done / error) ---------- */
