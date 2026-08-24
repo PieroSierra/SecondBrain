@@ -614,6 +614,11 @@ function applyStatus(data) {
       labelEl.textContent = pending === 1 ? "note ready to ingest" : "notes ready to ingest";
     }
   }
+  // Mirror the pending state onto the Wiki nav's "Update wiki" button: accent
+  // fill when notes are waiting, resting ghost otherwise.
+  document
+    .getElementById("side-ingest-btn")
+    ?.classList.toggle("sidebar-foot-btn--pending", pending > 0);
 }
 
 function setTile(metric, value, sublabel, title, iconSrc) {

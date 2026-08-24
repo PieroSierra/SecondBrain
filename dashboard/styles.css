@@ -1201,6 +1201,19 @@ body.is-busy .brand-busy-dot {
   border-color: var(--clay-ring);
   color: var(--clay-deep);
 }
+/* Raw notes waiting: the sidebar "Update wiki" fills with the accent, mirroring
+   the homepage pending banner so the call to ingest reads from the Wiki nav too.
+   The [data-busy] disable rules below outrank this, so it still greys mid-run. */
+.sidebar-foot-btn--pending {
+  border-color: var(--clay);
+  background: var(--clay);
+  color: #fff;
+}
+.sidebar-foot-btn--pending:hover {
+  border-color: var(--clay-deep);
+  background: var(--clay-deep);
+  color: #fff;
+}
 /* A secondary action sitting next to a primary one (Skip beside Apply): same
    pill geometry, no accent fill, so only one button reads as the committing
    action. Two classes so it outranks the plain .import-submit accent rules. */
