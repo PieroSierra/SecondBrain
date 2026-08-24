@@ -12,6 +12,7 @@ const urlEl        = document.getElementById("page-url");
 const btn          = document.getElementById("import-btn");
 const opStatus     = document.getElementById("op-status");
 const opVerb       = document.getElementById("op-verb");
+const opStop       = document.getElementById("op-stop");
 const bgHint       = document.getElementById("bg-hint");
 const statusEl     = document.getElementById("status");
 const noteEl       = document.getElementById("note");
@@ -91,10 +92,18 @@ function applyView(v) {
     case "importing":
       btn.style.display = "none"; // no import button while this tab imports
       setOp(v.verb, v.bg);
+      // The Stop control (inside #op-status) cancels the bridge run. Enabled only
+      // once the run is actually in flight (v.bg); the brief in-popup extract
+      // phase has no bridge op to cancel yet, so it shows disabled.
+      opStop.disabled = !v.bg;
       break;
     case "busy-other":
+      // A DIFFERENT tab's import is in flight. Show it + a Stop so it can be
+      // cancelled from here (single-flight /cancel targets that run); the plain
+      // Import button stays disabled until it ends.
       btn.disabled = true;
-      setNote("Another import is running — try again shortly.");
+      setOp("Importing another page…", false);
+      opStop.disabled = false;
       break;
     case "success":
       buildSuccess(v.filename);
@@ -392,5 +401,45 @@ btn.addEventListener("click", async () => {
   const context = (contextField?.value || "").trim();
   chrome.runtime.sendMessage({ type: "import", url: pageData.url, pasted_markdown: markdown, context });
 });
+
+// Stop the in-flight import by asking the bridge to cancel the running op.
+let stopPending = false;
+async function handleStop() {
+  if (stopPending) return;
+  stopPending = true;
+  try {
+    let cancelled = false;
+    try {
+      const resp = await fetch(`http://localhost:${BRIDGE_PORT}/cancel`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      cancelled = !!(await resp.json().catch(() => ({}))).cancelled;
+    } catch {
+      // Bridge unreachable — leave state as-is; background surfaces any error.
+    }
+    // Only write "stopped" when something was actually killed. If cancelled is
+    // false, the run had already finished (completion race) — don't clobber its
+    // real success/error. When true, write it ourselves so the popup reflects the
+    // stop even if the service worker died mid-import (background may never write).
+    if (cancelled) {
+      // Mark the import that was actually running as stopped — using its own url,
+      // which may belong to another tab (busy-other). That tab then shows "Import
+      // stopped."; the current tab falls back to a normal, enabled Import view.
+      const url = importState?.url || activeTab?.url;
+      if (url) {
+        const st = { status: "stopped", url };
+        importState = st;
+        await chrome.storage.session.set({ importState: st });
+      }
+    }
+    render();
+  } finally {
+    stopPending = false;
+  }
+}
+
+opStop.addEventListener("click", handleStop);
 
 init();

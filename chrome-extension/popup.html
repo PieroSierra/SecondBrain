@@ -216,6 +216,27 @@
     .op-brain-rest { opacity: 0; }
     .op-status-running { color: var(--ink); font-style: italic; }
 
+    /* Stop control — a pink circle with the white stop glyph, matching the
+       dashboard's stop button. Pushed to the right edge of the status row. */
+    .op-stop {
+      margin-left: auto;
+      flex: none;
+      width: 30px;
+      height: 30px;
+      padding: 0;
+      border: none;
+      border-radius: 50%;
+      background: var(--clay);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.15s ease, opacity 0.15s ease;
+    }
+    .op-stop:hover:not(:disabled) { background: var(--clay-deep); }
+    .op-stop:disabled { opacity: 0.5; cursor: default; }
+    .op-stop img { width: 14px; height: 14px; display: block; }
+
     /* Verb sweep — an accent highlight glides through the italic verb */
     .op-verb {
       font-style: italic;
@@ -354,13 +375,16 @@
 
     <button id="import-btn">Import this page</button>
 
-    <!-- Animated brain + animated verb (shown while this tab's import runs) -->
+    <!-- Animated brain + animated verb + Stop (shown while this tab's import runs) -->
     <div class="op-status op-status-running" id="op-status">
       <span class="op-brain" aria-hidden="true">
         <img class="op-brain-anim" src="logo-animated.gif" alt="">
         <img class="op-brain-rest" src="icon-128.png" alt="">
       </span>
       <span class="op-verb op-verb-anim" id="op-verb">Importing…</span>
+      <button class="op-stop" id="op-stop" type="button" title="Stop" aria-label="Stop">
+        <img src="stop.png" alt="Stop">
+      </button>
     </div>
     <div class="bg-hint" id="bg-hint">Running in background — you can close this.</div>
 
