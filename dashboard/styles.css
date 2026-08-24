@@ -1134,11 +1134,11 @@ body.is-busy .brand-busy-dot {
   flex-wrap: wrap;
   /* Aligns with the content column below, not the wider status marginalia:
      the row belongs to the page flow, so its edges match .layout's inner box
-     — --maxw less that block's 32px of side padding. */
-  max-width: calc(var(--maxw) - 64px);
-  /* Keeps .layout's 32px gutter once the panel is narrower than --maxw, instead
+     — --maxw less that block's 47px of side padding (2 × 47 = 94px). */
+  max-width: calc(var(--maxw) - 94px);
+  /* Keeps .layout's 47px gutter once the panel is narrower than --maxw, instead
      of running to the panel edges. */
-  width: calc(100% - 64px);
+  width: calc(100% - 94px);
   margin: 26px auto 0;
   padding: 12px 16px 12px 18px;
   background: var(--clay-tint);
