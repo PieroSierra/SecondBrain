@@ -2509,7 +2509,14 @@ mark.search-hit {
     justify-content: center;
   }
 
-  .nav-search-btn, .thread-reply-submit, .nav-item-actions { position: relative; }
+  /* Only elements that are statically positioned need this to anchor their
+     ::after. .thread-reply-submit is deliberately absent: it is already
+     position:absolute (right:9px; bottom:9px inside .thread-reply-input-wrap),
+     so it already establishes a containing block — and forcing it to relative
+     drops it out of the corner into normal flow, below the textarea. That only
+     reproduces on a coarse pointer, i.e. a real phone, never in the desktop
+     app, which is what made it easy to miss. */
+  .nav-search-btn, .nav-item-actions { position: relative; }
   .nav-search-btn::after,
   .thread-reply-submit::after,
   .nav-item-actions::after {
