@@ -162,6 +162,29 @@ _OPENCODE_MODEL_TIER:  str = os.environ.get("OPENCODE_MODEL",  "default").strip(
 #
 # A Host-header check additionally defeats DNS-rebinding (where a malicious
 # domain resolves to 127.0.0.1 to bypass the localhost boundary).
+#
+# REMOTE ACCESS (REMOTE_HOSTS) — read this before "fixing" the allowlist.
+#
+# The bind is still 127.0.0.1 and `main()` still refuses to bind anything else.
+# We never expose this process directly. To reach it from a phone, a reverse
+# proxy that is ITSELF access-controlled (Tailscale Serve — the tailnet is the
+# authentication) terminates on the network and forwards to 127.0.0.1. The only
+# thing that has to change here is the Host-header check, because the proxy
+# forwards the original hostname.
+#
+# So REMOTE_HOSTS is an explicit, opt-in list of hostnames whose requests we
+# accept, on the stated assumption that ARRIVING at that hostname already
+# required tailnet membership. Unset (the default) = localhost only = the
+# original behaviour, byte for byte.
+#
+# It follows that REMOTE_HOSTS is only ever safe behind a proxy that
+# authenticates. Do NOT add a hostname reachable from the public internet, and
+# do NOT use `tailscale funnel`: `POST /run` execs an agent CLI with
+# file-system access, and the token that authorizes it is served in the HTML of
+# an ungated page (any client that can load `/` can read it). That is coherent
+# when reaching `/` at all requires being on the tailnet. It is an RCE
+# dispenser the moment it is not. Facing this at the internet is not a config
+# change; it starts with replacing the token-in-the-HTML model entirely.
 
 # Fresh per process start; never persisted.
 BRIDGE_TOKEN = secrets.token_urlsafe(32)
@@ -175,6 +198,50 @@ DASHBOARD_ORIGINS: frozenset[str] = frozenset()
 # tool, since a malicious *installed* extension already has far broader
 # capabilities than reaching localhost. Set EXTENSION_ORIGIN in .env to pin it.
 _EXTENSION_ORIGIN = os.environ.get("EXTENSION_ORIGIN", "").strip()
+
+# Hostnames accepted in the Host header in addition to localhost. Comma
+# separated, e.g. "my-machine.my-tailnet.ts.net". See the block above: only ever
+# a hostname that is unreachable without passing an authenticating proxy.
+def _parse_remote_hosts(raw: str) -> frozenset[str]:
+    """Split, lowercase, and strip any :port — Host headers may carry one."""
+    out = set()
+    for part in raw.split(","):
+        h = part.strip().lower()
+        if not h:
+            continue
+        if h.startswith("["):          # bracketed IPv6 literal
+            h = h.partition("]")[0].lstrip("[")
+        else:
+            h = h.rsplit(":", 1)[0] if h.count(":") == 1 else h
+        if h:
+            out.add(h)
+    return frozenset(out)
+
+
+REMOTE_HOSTS: frozenset[str] = _parse_remote_hosts(os.environ.get("REMOTE_HOSTS", ""))
+
+# Hosts allowed in the Host header. localhost is always in; REMOTE_HOSTS is the
+# opt-in extension.
+ALLOWED_HOSTS: frozenset[str] = frozenset({"localhost", "127.0.0.1"}) | REMOTE_HOSTS
+
+# Remote callers may read the vault but not spend money or change it.
+#
+# DEFAULTS ON, and that is deliberate. Enabling remote access at all means
+# something outside this machine can now reach an endpoint that runs an agent
+# CLI. Anyone who sets REMOTE_HOSTS by following the README gets a remote
+# *reader*; making it writable is a second, conscious decision. Set
+# REMOTE_READ_ONLY=0 in .env once you have read the block at the top of this
+# file and are satisfied the proxy in front actually authenticates.
+_rro = os.environ.get("REMOTE_READ_ONLY", "").strip().lower()
+REMOTE_READ_ONLY: bool = _rro not in ("0", "false", "no")
+
+# Endpoints refused to remote callers under REMOTE_READ_ONLY: everything that
+# runs an agent (spends) or mutates the vault. /dedupe-check and /set-model are
+# cheap and local-state-only; /open-folder acts on the Mac's own UI, which is
+# already meaningless from a phone.
+_REMOTE_WRITE_PATHS = frozenset({
+    "/run", "/upload-pdf", "/upload-file", "/patch-finding", "/rename-output",
+})
 
 # Placeholder substituted with BRIDGE_TOKEN when index.html is served.
 _TOKEN_PLACEHOLDER = "__BRIDGE_TOKEN__"
@@ -2153,11 +2220,13 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
           - an allowlisted chrome-extension:// Origin (the extension), when
             `allow_extension` is set (state-changing endpoints only).
 
-        A Host-header check rejects DNS-rebinding attempts up front.
+        A Host-header check rejects DNS-rebinding attempts up front. It admits
+        localhost plus anything explicitly listed in REMOTE_HOSTS — see the
+        REMOTE ACCESS note at the top of this file before widening it.
         """
         host = self.headers.get("Host", "")
         hostname = host.rsplit(":", 1)[0] if host else ""
-        if hostname not in ("localhost", "127.0.0.1"):
+        if hostname.lower() not in ALLOWED_HOSTS:
             return False
 
         token = self.headers.get("X-Bridge-Token", "")
@@ -2171,6 +2240,27 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     def _deny(self) -> None:
         _json_response(self, 403, {"error": "forbidden", "detail": "unauthorized origin or missing bridge token"})
+
+    # ----- Remote (proxied) request detection ------------------------------
+
+    def _is_remote(self) -> bool:
+        """True if this request reached us through the reverse proxy.
+
+        X-Forwarded-For is set by the proxy and cannot be set by a web page:
+        it is a forbidden header name, so `fetch()` silently drops it. A local
+        process could forge it, but a local process already has the machine.
+        """
+        return bool(self.headers.get("X-Forwarded-For", "").strip())
+
+    def _read_only_blocked(self, path: str) -> bool:
+        """True if REMOTE_READ_ONLY should refuse this remote request."""
+        return REMOTE_READ_ONLY and path in _REMOTE_WRITE_PATHS and self._is_remote()
+
+    def _deny_read_only(self) -> None:
+        _json_response(self, 403, {
+            "error": "forbidden",
+            "detail": "REMOTE_READ_ONLY is set: this endpoint is local-only",
+        })
 
     # ----- GET ------------------------------------------------------------
 
@@ -2256,6 +2346,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     "/set-model"):
             if not self._authorize(allow_extension=True):
                 return self._deny()
+            if self._read_only_blocked(path):
+                return self._deny_read_only()
 
         if path == "/run":
             return self._handle_run()
@@ -2287,6 +2379,10 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # Deleting a saved output mutates the vault → require authorization.
         if not self._authorize():
             return self._deny()
+        # Every DELETE mutates the vault, so the whole method is gated rather
+        # than a path set (paths here are prefixes, not exact matches).
+        if REMOTE_READ_ONLY and self._is_remote():
+            return self._deny_read_only()
 
         if path.startswith("/outputs/") and len(path) > 9:
             return self._delete_output_file(path[9:])
@@ -3433,10 +3529,18 @@ def main(argv: list[str] | None = None) -> int:
 
     # The dashboard is reachable on both localhost and 127.0.0.1; allow both as
     # request Origins regardless of which name the browser used to load it.
+    # Behind the proxy the browser's origin is the proxied hostname on the
+    # standard port, so add those too. Strictly belt-and-braces — _authorize
+    # passes on the token alone and same-origin GETs send no Origin — but
+    # _origin_allowed also drives the CORS preflight and response headers, and
+    # an allowlist that is right in one place and wrong in another is worse
+    # than one that is wrong everywhere.
     global DASHBOARD_ORIGINS
-    DASHBOARD_ORIGINS = frozenset(
-        {f"http://localhost:{args.port}", f"http://127.0.0.1:{args.port}"}
-    )
+    origins = {f"http://localhost:{args.port}", f"http://127.0.0.1:{args.port}"}
+    for h in REMOTE_HOSTS:
+        origins.add(f"https://{h}")
+        origins.add(f"http://{h}")
+    DASHBOARD_ORIGINS = frozenset(origins)
 
     _clean_uploads()
 
@@ -3458,6 +3562,11 @@ def main(argv: list[str] | None = None) -> int:
     url = f"http://{args.host}:{args.port}/"
     sys.stderr.write(f"Second Brain dashboard listening on {url}\n")
     sys.stderr.write(f"Vault: {VAULT_ROOT}\n")
+    if REMOTE_HOSTS:
+        sys.stderr.write(
+            f"Remote hosts accepted: {', '.join(sorted(REMOTE_HOSTS))}"
+            f"{' (READ-ONLY)' if REMOTE_READ_ONLY else ''}\n"
+        )
 
     if not args.no_open and sys.platform == "darwin":
         try:

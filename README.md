@@ -139,6 +139,69 @@ CRAFT_ENABLED=1
 
 The `.env` file is gitignored, so it never leaves your machine.
 
+There are two further settings, `REMOTE_HOSTS` and `REMOTE_READ_ONLY`, used only
+if you want to reach the dashboard from another device — see [Remote access](#remote-access).
+
+## Remote access
+
+*Optional and advanced — skip this unless you specifically want the dashboard on
+your phone or another machine. Nothing above requires it.*
+
+The bridge binds `127.0.0.1` and refuses to bind anything else. That is not an
+oversight to work around — `POST /run` runs an agent CLI with file-system access,
+and the token that authorizes it is served in the HTML of an ungated page, so
+anything that can load `/` can drive it. That model is sound when reaching `/`
+already means being on the machine. It is a remote-code-execution dispenser the
+moment it is reachable by strangers.
+
+So the supported way to use it from a phone or laptop is to put a proxy in front
+that is *itself* access-controlled, and leave the bind alone. [Tailscale
+Serve](https://tailscale.com/kb/1312/serve) is the easy version: your tailnet
+becomes the authentication, nothing is published to the internet, and you get a
+real HTTPS certificate.
+
+```bash
+tailscale serve --bg 4173          # https://<machine>.<tailnet>.ts.net
+```
+
+Then add that hostname to `REMOTE_HOSTS` in `.env` and restart the bridge — the
+proxy forwards the original `Host` header, and the bridge rejects any hostname
+it was not explicitly told about. The dashboard itself needs no changes; its
+fetches are all relative.
+
+Two things not to do:
+
+- **Do not use `tailscale funnel`.** Same command family, public listener, and
+  every reason above applies.
+- **Do not add a publicly-resolvable hostname to `REMOTE_HOSTS`.** Putting this
+  on the open internet is not a configuration change; it starts with replacing
+  the token-in-the-HTML auth model.
+
+**Remote access is read-only by default.** Once `REMOTE_HOSTS` is set, remote
+callers can browse, search and read the wiki, but cannot run a skill, upload,
+edit or delete. Local use is unaffected either way. Requests count as remote when
+they carry the `X-Forwarded-For` header the proxy adds.
+
+To allow remote callers to run queries and imports too, set `REMOTE_READ_ONLY=0`
+— but do that only once you are confident the proxy in front of the bridge really
+does authenticate, because that endpoint runs an agent CLI on your machine.
+
+### Keeping it up without the app
+
+By default the bridge is a child of the app, so quitting the app takes the
+dashboard down with it — awkward when the point is to reach it from elsewhere.
+`launchd/install.sh` (macOS) hands ownership to `launchd` instead, with restart
+on crash and on reboot:
+
+```bash
+./launchd/install.sh              # install
+./launchd/install.sh --uninstall  # back to an app-owned bridge
+```
+
+The app then *adopts* the running bridge rather than spawning its own. Note the
+side effect: an adopted bridge gets no environment injection, so the app's
+Engine and Model menus stop taking effect and `.env` becomes the only dial.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -188,6 +251,7 @@ SecondBrain/
 │   └── lib/purify.min.js       Vendored DOMPurify (HTML sanitiser)
 ├── chrome-extension/           Browser extension (load unpacked in Chrome)
 ├── macos-app/                  Native macOS app that runs the dashboard (Swift source + scripts)
+├── launchd/                    macOS LaunchAgent so the bridge outlives the app (see Remote access)
 ├── run.sh                      Start the dashboard (idempotent port cleanup)
 ├── CLAUDE.md                   Vault schema + your declared interests (gitignored)
 ├── CLAUDE.md.example           Template to copy when setting up a new vault
