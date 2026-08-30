@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- TEMPLATE — install.sh fills in the vault path, home directory and port, and
+     writes the result to ~/Library/LaunchAgents. Do not load this file directly.
+
+     Keeps the dashboard bridge alive independently of SecondBrain.app. By default
+     the bridge is a child of the app, so quitting the app takes the dashboard down
+     with it — fine locally, useless if you want to reach the vault from elsewhere.
+
+     With this installed, launchd owns the bridge and the app ADOPTS it:
+     BridgeController.start() probes /healthz, marks it externally owned, and
+     stop() refuses to kill a bridge it did not spawn.
+
+     CONSEQUENCE worth knowing: an adopted bridge gets NO environment injection,
+     because that happens only inside BridgeController.spawn(). The app's Engine
+     and Model menus therefore stop taking effect, and the vault .env becomes the
+     only dial. Change the engine there.
+
+     `zsh -ilc` is deliberate and mirrors BridgeController.swift: launchd hands a
+     job a nearly empty PATH, and a typical macOS setup exports its real PATH from
+     ~/.zshrc, which zsh reads only for INTERACTIVE shells. `-l` alone is not
+     enough — python3 (Homebrew) and the agent CLIs would be invisible. -->
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>com.secondbrain.bridge</string>
+  <key>ProgramArguments</key>
+    <array>
+      <string>/bin/zsh</string>
+      <string>-ilc</string>
+      <string>exec python3 "$0/dashboard/bridge.py" --port "$1" --no-open</string>
+      <string>__VAULT__</string>
+      <string>__PORT__</string>
+    </array>
+  <key>WorkingDirectory</key><string>__VAULT__</string>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ProcessType</key><string>Background</string>
+  <key>StandardOutPath</key><string>__HOME__/Library/Logs/SecondBrain/bridge.out.log</string>
+  <key>StandardErrorPath</key><string>__HOME__/Library/Logs/SecondBrain/bridge.err.log</string>
+</dict>
+</plist>

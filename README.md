@@ -139,6 +139,20 @@ CRAFT_ENABLED=1
 
 The `.env` file is gitignored, so it never leaves your machine.
 
+Two further settings, `REMOTE_HOSTS` and `REMOTE_READ_ONLY`, apply only if you
+reach the dashboard from another device — see [docs/remote-access.md](docs/remote-access.md).
+
+## Remote access
+
+If you want to reach your wiki from your phone or another machine, you can. The
+dashboard runs behind a proxy that only your own devices can reach — most simply
+[Tailscale Serve](https://tailscale.com/kb/1312/serve), one command — so it stays
+private and nothing is published to the internet. Remote visitors get read access
+by default, and the dashboard already fits a phone screen.
+
+See [docs/remote-access.md](docs/remote-access.md) for setup, and for the
+LaunchAgent that keeps the dashboard running when the app is closed.
+
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -188,6 +202,8 @@ SecondBrain/
 │   └── lib/purify.min.js       Vendored DOMPurify (HTML sanitiser)
 ├── chrome-extension/           Browser extension (load unpacked in Chrome)
 ├── macos-app/                  Native macOS app that runs the dashboard (Swift source + scripts)
+├── launchd/                    macOS LaunchAgent so the bridge outlives the app
+├── docs/                       Longer-form docs (remote access)
 ├── run.sh                      Start the dashboard (idempotent port cleanup)
 ├── CLAUDE.md                   Vault schema + your declared interests (gitignored)
 ├── CLAUDE.md.example           Template to copy when setting up a new vault
