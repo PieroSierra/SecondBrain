@@ -97,7 +97,32 @@ function renderMarkdown(md) {
     (_, name) => `<a class="wikilink" href="#" data-wiki-slug="${escapeHtml(name)}">${escapeHtml(name)}</a>`,
   );
   const html = window.marked.parse(withWikilinks, { gfm: true, breaks: false });
-  return sanitizeHtml(html);
+  return wrapTables(sanitizeHtml(html));
+}
+
+// Wide tables are the only horizontal-overflow source left in rendered content
+// (<pre> already has overflow-x:auto), and marked emits a bare <table> with no
+// wrapper. Give each one its own scroll container so a wide table scrolls
+// inside the column instead of forcing the whole article sideways.
+//
+// Runs AFTER sanitizeHtml and only inserts a <div> we construct ourselves, so
+// it cannot reintroduce anything unsafe. <template> content is inert — parsing
+// here triggers no image loads and no script execution.
+//
+// The CSS-only alternative (table { display:block; overflow-x:auto }) forces
+// anonymous-table generation, which breaks border-collapse and doubles cell
+// borders — hence doing it here instead.
+function wrapTables(cleanHtml) {
+  if (!cleanHtml || cleanHtml.indexOf("<table") === -1) return cleanHtml;
+  const tpl = document.createElement("template");
+  tpl.innerHTML = cleanHtml;
+  for (const table of tpl.content.querySelectorAll("table")) {
+    const wrap = document.createElement("div");
+    wrap.className = "md-table-wrap";
+    table.replaceWith(wrap);
+    wrap.append(table);
+  }
+  return tpl.innerHTML;
 }
 
 // Render a "could not load" message without using innerHTML on a template
@@ -774,7 +799,7 @@ function flashCopyButton(btn, label) {
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest(".copy-btn");
   if (!btn) return;
-  const card = btn.closest(".result-card, .viewer-content, #panel-wiki-viewer, .thread-turn");
+  const card = btn.closest(".viewer-content, #panel-wiki-viewer, .thread-turn");
   const markdown = card?.dataset?.markdown;
   if (!markdown) {
     flashCopyButton(btn, "Nothing to copy");
@@ -2863,7 +2888,24 @@ function searchResultButtons() {
   return searchResults ? [...searchResults.querySelectorAll(".search-result")] : [];
 }
 
-document.getElementById("nav-search-btn")?.addEventListener("click", openSearchModal);
+// #output-actions-menu is position:fixed and placed imperatively, with no
+// reposition listener — it detaches from its trigger when the nav list scrolls
+// (much more likely inside a drawer). Dismiss instead of repositioning, which
+// is what every native menu on both platforms does.
+document.getElementById("nav-list-home")?.addEventListener(
+  "scroll",
+  () => closeOutputActions(),
+  { passive: true },
+);
+window.addEventListener("resize", () => {
+  closeOutputActions();
+  reconcileDrawerState();
+});
+
+// Two entry points: the desktop rail button and the mobile top-bar button.
+["nav-search-btn", "topbar-search-btn"].forEach((id) => {
+  document.getElementById(id)?.addEventListener("click", openSearchModal);
+});
 searchModal?.addEventListener("click", (e) => {
   if (e.target.closest("[data-search-close]")) closeSearchModal();
 });
@@ -3102,12 +3144,100 @@ document.addEventListener("keydown", (e) => {
   if (renameModal && !renameModal.hidden) closeRenameModal();
   else if (deleteModal && !deleteModal.hidden) closeDeleteModal();
   else if (outputActionsMenu && !outputActionsMenu.hidden) closeOutputActions({ restoreFocus: true });
+  else if (document.body.classList.contains("nav-open")) closeNav();
 });
 
 // Tab button clicks
 document.querySelectorAll(".nav-tab").forEach((btn) => {
   btn.addEventListener("click", () => switchSection(btn.dataset.navTab));
 });
+
+/* ── Mobile nav drawer ──────────────────────────────────────────────────────
+   Below the 900px shell breakpoint the sidebar is an overlay. State is a
+   single body class, matching the existing body.is-busy / body.bar-visible
+   idiom. Elements are resolved on demand rather than captured in module
+   consts so this stays safe to call from anywhere during boot. */
+// Held in a module-level const, NOT re-created per call: a MediaQueryList with
+// no strong reference can be garbage-collected along with its listener, which
+// silently kills the resize reset below.
+const NAV_DRAWER_MQL = window.matchMedia("(max-width: 900px)");
+const inDrawerMode = () => NAV_DRAWER_MQL.matches;
+
+function setNavOpen(open) {
+  const body = document.body;
+  if (open === body.classList.contains("nav-open")) return; // idempotent
+  body.classList.toggle("nav-open", open);
+
+  const toggle = document.getElementById("nav-menu-btn");
+  toggle?.setAttribute("aria-expanded", String(open));
+
+  // inert on the occluded content is a focus trap for free. Only ever applied
+  // in drawer mode — but always *cleared* on close, so resizing to desktop
+  // while open can never strand the panel unfocusable.
+  // The top bar stays interactive on purpose — it remains visible above the
+  // drawer, so its hamburger is the close affordance.
+  const panel = document.querySelector(".main-panel");
+  if (open && inDrawerMode()) panel?.setAttribute("inert", "");
+  else panel?.removeAttribute("inert");
+}
+
+// Independent safety net. inert on .main-panel is the one piece of drawer state
+// that is catastrophic if stranded — a desktop layout with a dead content pane
+// — so it is also reconciled on every resize, not only on the breakpoint
+// crossing the change event reports.
+function reconcileDrawerState() {
+  if (inDrawerMode()) return;
+  document.body.classList.remove("nav-open");
+  document.querySelector(".main-panel")?.removeAttribute("inert");
+  document.getElementById("nav-menu-btn")?.setAttribute("aria-expanded", "false");
+
+  if (open) document.querySelector(".sidebar .nav-tab")?.focus();
+  else if (inDrawerMode()) toggle?.focus(); // after inert is cleared
+}
+
+function closeNav() {
+  setNavOpen(false);
+}
+
+document.getElementById("nav-menu-btn")?.addEventListener("click", () => {
+  setNavOpen(!document.body.classList.contains("nav-open"));
+});
+document.getElementById("nav-backdrop")?.addEventListener("click", closeNav);
+
+// One delegated listener rather than editing every nav call site. Two
+// deliberate exemptions: the row actions affordance opens a menu that must
+// outlive the tap, and the Home/Wiki tabs swap which list is shown *inside*
+// the drawer — the user hasn't chosen a destination yet, so it stays open.
+document.querySelector(".sidebar")?.addEventListener("click", (e) => {
+  if (!inDrawerMode()) return;
+  if (e.target.closest(".nav-item-actions")) return;
+  if (e.target.closest(".nav-tab")) return;
+  if (e.target.closest("button, [role='button'], a")) closeNav();
+});
+
+// Resizing/rotating out of drawer mode must not strand an open drawer — which
+// would leave .main-panel inert, i.e. the whole content pane dead to input.
+NAV_DRAWER_MQL.addEventListener("change", (e) => {
+  if (!e.matches) closeNav();
+});
+
+/* ── Software-keyboard inset ────────────────────────────────────────────────
+   #thread-reply-bar is position:fixed, which anchors to the LAYOUT viewport.
+   iOS shrinks only the VISUAL viewport for the keyboard, so without this the
+   composer — the primary input of the app — sits behind the keyboard the
+   moment it is tapped. Neither dvh nor env(safe-area-inset-*) addresses this.
+   Publish the occluded height; CSS lifts anything bottom-anchored by it. */
+(function trackKeyboardInset() {
+  const vv = window.visualViewport;
+  if (!vv) return;
+  const sync = () => {
+    const inset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    document.documentElement.style.setProperty("--kb-inset", `${inset}px`);
+  };
+  vv.addEventListener("resize", sync);
+  vv.addEventListener("scroll", sync);
+  sync();
+})();
 
 // "New question" button
 document.getElementById("nav-new-question")?.addEventListener("click", () => {

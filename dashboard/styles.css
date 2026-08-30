@@ -110,6 +110,22 @@
   --maxw: 720px;          /* tighter than the standard 880 — for reading */
   --maxw-wide: 920px;     /* status / sections that warrant breathing room */
   --gap: 28px;
+
+  /* Shell geometry. --sidebar-w is the rail's own width; --shell-nav-w is how
+     much horizontal space it takes AWAY from the content column. They are the
+     same on desktop, but the mobile query drops --shell-nav-w to 0 when the rail
+     becomes an overlay drawer — which is what lets the grid, the composer's
+     left edge and the brand clamp all follow from one declaration. */
+  --sidebar-w: 308px;
+  --shell-nav-w: var(--sidebar-w);
+  --layout-gutter: 47px;  /* .layout side padding; derived calcs read this */
+  /* INVARIANT: --layout-gutter > --composer-pad. The delta is what keeps the
+     content column inset from the input field once both are viewport-bound
+     (commit 317746b). It matters MORE on mobile, not less — preserve it in
+     every breakpoint that retunes either value. */
+  --composer-pad: 32px;
+  --topbar-h: 52px;       /* mobile top bar (hamburger / wordmark / search) */
+
   --radius-sm: 8px;       /* code chips, tiny selects, menu items */
   --radius: 12px;         /* inputs, chips, small controls */
   --radius-lg: 16px;      /* cards, modals, panels */
@@ -187,11 +203,12 @@ textarea:focus-visible {
   align-items: baseline;
   gap: 0.28em;
   /* Sized from the space actually available, not the viewport: the sidebar is
-     a fixed 308px and the header adds 32px of padding each side, so the middle
-     term is the real content width divided by the lockup's own width in ems
-     (~7.1em) plus slack. Keeps the one-line wordmark fitting as the window
-     narrows instead of overflowing the panel. */
-  font-size: clamp(2rem, calc((100vw - 372px) / 7.4), 3.6rem);
+     --shell-nav-w wide and the header adds 32px of padding each side, so the
+     middle term is the real content width divided by the lockup's own width in
+     ems (~7.1em) plus slack. Keeps the one-line wordmark fitting as the window
+     narrows instead of overflowing the panel. When the rail becomes a drawer
+     --shell-nav-w is 0, so this widens to the full viewport automatically. */
+  font-size: clamp(2rem, calc((100vw - var(--shell-nav-w) - 64px) / 7.4), 3.6rem);
 }
 .brand-logo {
   display: block;
@@ -418,6 +435,12 @@ body.is-busy .brand-busy-dot {
 .engine-select:focus-visible { outline: 2px solid var(--clay); outline-offset: 1px; }
 .engine-select:disabled { opacity: 0.55; cursor: default; }
 
+/* renderEngineTile/renderModelTile set an inline ch-based width (app.js), and
+   an inline width beats any stylesheet rule — but not a max-width, which is
+   applied afterwards. This is the one guard that keeps a long model label from
+   overflowing the strip on a narrow screen, with no JS change. */
+.engine-select, .model-select { max-width: 100%; }
+
 /* Model tier dropdown — same visual language as engine-select.
    Always interactive; no engine-icon beside it (it sits flush after the
    engine select). */
@@ -459,13 +482,6 @@ body.is-busy .brand-busy-dot {
   flex: 0 0 auto;
 }
 
-@media (max-width: 720px) {
-  .status-strip { gap: 4px 0; padding: 0 16px; }
-  .status-seg { padding: 4px; }
-  .status-sep { margin: 0 2px; }
-  .status-arrow { margin: 0 4px; }
-}
-
 /* ---------- Layout ---------- */
 .layout {
   max-width: var(--maxw);
@@ -474,7 +490,7 @@ body.is-busy .brand-busy-dot {
      so the content column always stays inset from the input field — including
      at narrow widths where both columns become viewport-bound and would
      otherwise line up edge to edge. */
-  padding: 56px 47px 80px;
+  padding: 56px var(--layout-gutter) 80px;
 }
 
 /* ---------- Op-status (per-form: running / done / error) ---------- */
@@ -491,10 +507,6 @@ body.is-busy .brand-busy-dot {
   white-space: pre-wrap;          /* preserve newlines from skill output */
   overflow-wrap: anywhere;        /* break long unbreakable tokens (file paths) */
   word-break: break-word;
-}
-/* Hero query is centred — the op-status row should match. */
-.query-form .op-status {
-  justify-content: center;
 }
 .op-status::before {
   content: "";
@@ -593,117 +605,7 @@ body.is-busy .brand-busy-dot {
   .op-status-running::before { animation: none; opacity: 0.7; }
 }
 
-/* ---------- Hero (US1) ---------- */
-.hero {
-  margin: 32px 0 48px;
-  text-align: center;
-}
-.query-form {
-  display: block;
-  margin: 0 auto;
-  max-width: 600px;
-}
-.query-form::before {
-  content: "Ask your knowledge base.";
-  display: block;
-  font-family: var(--font-display);
-  font-style: italic;
-  font-weight: 350;
-  font-size: clamp(1.4rem, 3vw, 1.7rem);
-  color: var(--ink-muted);
-  margin-bottom: 14px;
-  font-variation-settings: "opsz" 36;
-}
-.query-input {
-  display: block;
-  width: 100%;
-  resize: none;
-  overflow: hidden;        /* JS auto-grow handles height; no scrollbar flash */
-  min-height: 60px;
-  max-height: 50vh;         /* fall back to scrolling for very long pastes */
-  padding: 14px 0 12px;
-  border: none;
-  border-bottom: 1px solid var(--rule-strong);
-  background: transparent;
-  color: var(--ink);
-  font-family: var(--font-display);
-  font-size: clamp(1.1rem, 2.4vw, 1.35rem);
-  line-height: 1.45;
-  font-weight: 400;
-  text-align: center;
-  transition: border-color 0.18s ease;
-  font-variation-settings: "opsz" 36;
-}
-/* When the textarea is tall enough that we hit max-height, restore scrolling. */
-.query-input.query-input-overflow { overflow-y: auto; }
-/* Custom placeholder rendered as a normal centered block, not the textarea's
-   own centered text — a center-aligned <textarea> picks up a sub-pixel
-   horizontal scroll offset at fractional zoom levels and drifts right. This
-   overlay matches the textarea's box metrics and centers reliably at any zoom. */
-.query-field {
-  position: relative;
-}
-.query-placeholder {
-  position: absolute;
-  inset: 0;
-  padding: 14px 0 12px;                       /* match .query-input padding */
-  font-family: var(--font-display);
-  font-size: clamp(1.1rem, 2.4vw, 1.35rem);   /* match .query-input */
-  line-height: 1.45;                          /* match .query-input */
-  font-style: italic;
-  color: var(--ink-faint);
-  text-align: center;
-  pointer-events: none;
-  font-variation-settings: "opsz" 36;
-}
-.query-field.has-value .query-placeholder {
-  display: none;
-}
-.query-input:focus {
-  outline: none;
-  border-bottom-color: var(--clay);
-}
-.query-submit {
-  display: inline-block;
-  margin-top: 16px;
-  padding: 6px 18px;
-  border: 1px solid var(--rule-strong);
-  border-radius: var(--radius-pill);
-  background: var(--bg-elev);
-  color: var(--ink);
-  font-family: var(--font-body);
-  font-size: 0.78rem;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  cursor: pointer;
-  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
-}
-.query-submit:hover {
-  background: var(--ink);
-  color: var(--bg-elev);
-  border-color: var(--ink);
-}
-.query-submit[disabled],
-[data-long-op][data-busy] .query-submit {
-  opacity: 0.4;
-  cursor: not-allowed;
-  background: var(--bg-elev);
-  color: var(--ink);
-  border-color: var(--rule);
-}
-
 /* ---------- Result sheet ---------- */
-.result-card {
-  position: relative;
-  margin: 36px 0 0;
-  background: var(--bg-elev);
-  border: 1px solid var(--rule);
-  border-radius: var(--radius-lg);
-  padding: 32px 40px 24px;
-  box-shadow: var(--shadow-paper);
-  text-align: left;
-}
 .result-actions {
   position: absolute;
   top: 14px;
@@ -926,14 +828,17 @@ body.is-busy .brand-busy-dot {
   color: var(--ink);
 }
 
+/* Scroll container for wide tables (see wrapTables() in app.js). */
+.md-table-wrap {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
 /* ---------- Imports grid (US2) ---------- */
 .imports-grid {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
   gap: 14px;
-}
-@media (max-width: 540px) {
-  .imports-grid { grid-template-columns: 1fr; }
 }
 
 /* Web import — paste-fallback mode. Amber palette signals "recoverable
@@ -1134,11 +1039,11 @@ body.is-busy .brand-busy-dot {
   flex-wrap: wrap;
   /* Aligns with the content column below, not the wider status marginalia:
      the row belongs to the page flow, so its edges match .layout's inner box
-     — --maxw less that block's 47px of side padding (2 × 47 = 94px). */
-  max-width: calc(var(--maxw) - 94px);
-  /* Keeps .layout's 47px gutter once the panel is narrower than --maxw, instead
+     — --maxw less that block's side padding on both edges. */
+  max-width: calc(var(--maxw) - var(--layout-gutter) * 2);
+  /* Keeps .layout's gutter once the panel is narrower than --maxw, instead
      of running to the panel edges. */
-  width: calc(100% - 94px);
+  width: calc(100% - var(--layout-gutter) * 2);
   margin: 26px auto 0;
   padding: 12px 16px 12px 18px;
   background: var(--clay-tint);
@@ -1345,17 +1250,6 @@ body.is-busy .brand-busy-dot {
   font-size: 0.78rem;
 }
 
-/* ---------- Footer ---------- */
-.site-footer {
-  max-width: var(--maxw-wide);
-  margin: 60px auto 32px;
-  padding: 0 32px;
-  color: var(--ink-faint);
-  font-size: 0.74rem;
-  text-align: center;
-  letter-spacing: 0.04em;
-}
-
 /* ════════════════════════════════════════════════════════════
    App shell — sidebar navigation + main panel layout
    ════════════════════════════════════════════════════════════ */
@@ -1369,9 +1263,51 @@ body { overflow: hidden; }
   /* Sidebar widened by 28px vs. the original 280px to house the answer-row
      trash slot (20px icon + 8px gap). The extra width exactly offsets that
      reserved slot, so answer titles wrap at the same point as before. */
-  grid-template-columns: 308px 1fr;
+  grid-template-columns: var(--shell-nav-w) 1fr;
+  /* dvh, not vh: on mobile Safari the collapsing toolbar makes 100vh taller
+     than the visible area, which would push the fixed composer off-screen.
+     The vh line stays as a fallback — dvh needs Safari 15.4+, and the macOS
+     wrapper still supports back to macOS 11 (Safari 14 WebKit). */
   height: 100vh;
+  height: 100dvh;
   overflow: hidden;
+}
+
+/* ── Mobile top bar ──
+   Only exists below the shell breakpoint. Carries the three things the drawer
+   would otherwise bury: the way back to navigation, identity, and search. */
+.mobile-topbar { display: none; }
+.nav-backdrop  { display: none; }
+
+.topbar-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;             /* full 44px touch target, not the 40px desktop rail button */
+  height: 44px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-pill);
+  background: none;
+  color: var(--ink-muted);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.topbar-btn:active { background: var(--bg-subtle); }
+.topbar-btn img { opacity: 0.55; }
+
+/* Live text rather than wordmark.png: the homepage lockup (.brand-row) is
+   Newsreader text, so this matches it exactly, stays crisp at any DPR and
+   respects user font scaling. Centred between the two 44px buttons. */
+.topbar-wordmark {
+  flex: 1;
+  text-align: center;
+  font-family: var(--font-display);
+  font-weight: 500;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  color: var(--ink);
 }
 
 /* ── Sidebar ── */
@@ -1627,8 +1563,11 @@ body { overflow: hidden; }
   background: none;
   border-radius: var(--radius);
   cursor: pointer;
-  opacity: 0;
-  pointer-events: none;      /* not clickable until revealed on hover */
+  /* Default is REACHABLE. Rename/Delete are only reachable through this
+     control, so a touch device that never fires :hover would otherwise lose
+     them entirely — a feature-parity failure, not a polish issue. */
+  opacity: 1;
+  pointer-events: auto;
   transition: opacity 0.12s ease;
 }
 .nav-item-actions img {
@@ -1638,13 +1577,7 @@ body { overflow: hidden; }
   opacity: 0.55;
   transition: opacity 0.12s ease;
 }
-.nav-item-output:hover .nav-item-actions,
-.nav-item-actions:focus-visible,
-.nav-item-actions[aria-expanded="true"] {
-  opacity: 1;
-  pointer-events: auto;
-}
-.nav-item-actions:hover img { opacity: 0.95; }
+
 
 .output-actions-menu {
   position: fixed;
@@ -1771,6 +1704,7 @@ body { overflow: hidden; }
 .main-panel {
   overflow-y: auto;
   height: 100vh;
+  height: 100dvh;
   background: var(--bg-content);
   /* Content reads as a raised sheet above the darker nav, casting a soft
      shadow leftward onto it (replaces the old hairline seam). z-index lifts
@@ -1875,7 +1809,7 @@ body { overflow: hidden; }
 
 /* Bottom padding when the reply bar is visible so content isn't hidden behind it. */
 #panel-output-viewer.has-thread-reply .viewer-content {
-  padding-bottom: 140px;
+  padding-bottom: calc(140px + env(safe-area-inset-bottom));
 }
 
 .thread-bubble {
@@ -1942,17 +1876,22 @@ body { overflow: hidden; }
 /* Fixed to the viewport so it never bounces with macOS overscroll. */
 .thread-reply-bar {
   position: fixed;
-  left: 308px; /* matches .app-shell grid sidebar column width */
+  left: var(--shell-nav-w); /* same token as the .app-shell sidebar column */
   right: 0;
   bottom: 0;
   z-index: 10;
   background: var(--bg-content); /* same as the page — invisible seam */
-  padding: 0 0 16px;
+  /* env() clears the iOS home indicator; resolves to 0 everywhere else. */
+  padding: 0 0 calc(16px + env(safe-area-inset-bottom));
+  /* Lifted clear of the software keyboard. --kb-inset is published by
+     trackKeyboardInset() in app.js from the VisualViewport API; it is 0
+     whenever no keyboard is up, so this is inert on desktop. */
+  transform: translateY(calc(-1 * var(--kb-inset, 0px)));
 }
 
 /* All panels get bottom padding when the bar is visible so content isn't hidden. */
 body.bar-visible .panel {
-  padding-bottom: 120px;
+  padding-bottom: calc(120px + env(safe-area-inset-bottom));
 }
 
 /* Centred inner container — intentionally 10% wider than the content above
@@ -1964,7 +1903,7 @@ body.bar-visible .panel {
      inset further than the page itself. */
   max-width: calc(var(--maxw) * 1.1);
   margin: 0 auto;
-  padding: 0 32px;
+  padding: 0 var(--composer-pad);
 }
 
 /* Textarea + button wrapper — button sits inside at bottom-right */
@@ -2060,7 +1999,7 @@ body.bar-visible .panel {
   font-size: 0.82rem;
 }
 
-/* Caption line — mirrors the homepage .site-footer text */
+/* Caption line — the page's footer text, under the composer */
 .thread-reply-caption {
   margin: 5px 0 0;
   color: var(--ink-faint);
@@ -2265,7 +2204,7 @@ body.bar-visible .panel {
   flex-direction: column;
   width: 100%;
   max-width: 760px;
-  max-height: 85vh;
+  max-height: 85dvh;
   overflow: auto;
   background: var(--bg-content);
   border-radius: var(--radius-xl);
@@ -2305,14 +2244,14 @@ body.bar-visible .panel {
 
 /* ── Search overlay ── */
 /* Top-anchored (spotlight feel) rather than vertically centred. */
-.search-modal { align-items: flex-start; padding-top: 12vh; }
+.search-modal { align-items: flex-start; padding-top: 12dvh; }
 .search-modal-sheet {
   position: relative;
   display: flex;
   flex-direction: column;
   width: 100%;
   max-width: 640px;
-  max-height: 70vh;
+  max-height: 70dvh;
   overflow: hidden;
   background: var(--bg-content);
   border-radius: var(--radius-xl);
@@ -2517,4 +2456,262 @@ mark.search-hit {
 .delete-modal-confirm:disabled {
   opacity: 0.5;
   cursor: not-allowed;
+}
+
+
+/* ════════════════════════════════════════════════════════════
+   RESPONSIVE BREAKPOINTS
+
+   Deliberately last in the file. These blocks override components that are
+   declared much further down than the shell they sit with conceptually
+   (.thread-bubble--user, .viewer-content, the modal sheets), and at equal
+   specificity source order decides. Keeping them here is what makes the
+   overrides actually apply — do not move them back up next to the rules
+   they modify.
+   ════════════════════════════════════════════════════════════ */
+
+/* Desktop opts IN to hiding it until hover. Deliberately written as
+   `hover: hover` gating the hide rather than `hover: none` gating the show:
+   some Android WebViews mis-report these features, and the failure modes are
+   not symmetric. A false negative here just leaves the glyph always visible
+   (cosmetic); the inverse would leave Rename/Delete unreachable (a hard
+   failure). Fail toward reachable.
+
+   The slot is always laid out either way (see the note above), so revealing
+   it causes no reflow. */
+@media (hover: hover) and (pointer: fine) {
+  .nav-item-actions {
+    opacity: 0;
+    pointer-events: none;
+  }
+  .nav-item-output:hover .nav-item-actions,
+  .nav-item-actions:focus-visible,
+  .nav-item-actions[aria-expanded="true"] {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.nav-item-actions:hover img { opacity: 0.95; }
+
+/* ── Touch target sizing ──
+   Applied only on coarse pointers, so desktop density is untouched. Controls
+   that can grow do; icon-only controls keep their visual size and get a 44px
+   hit box from a centred pseudo-element instead. */
+@media (pointer: coarse) {
+  .nav-item, .nav-tab, .import-submit, .sidebar-foot-btn, .file-picker-btn,
+  .output-action, .copy-btn, .wiki-toc-entry {
+    min-height: 44px;
+  }
+  .nav-tab, .sidebar-foot-btn, .import-submit, .file-picker-btn,
+  .output-action, .copy-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  .nav-search-btn, .thread-reply-submit, .nav-item-actions { position: relative; }
+  .nav-search-btn::after,
+  .thread-reply-submit::after,
+  .nav-item-actions::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: max(100%, 44px);
+    height: max(100%, 44px);
+  }
+  /* .nav-list clips horizontally, and this control sits 20px from the right
+     edge — pull the overhang back inside so the hit box is not cropped. */
+  .nav-item-actions { margin-right: -6px; }
+}
+/* ════════════════════════════════════════════════════════════
+   Responsive shell — the sidebar becomes an overlay drawer.
+
+   900px is derived from the content model, not convention: the reading column
+   is --maxw (720px) and needs roughly 600px to stay comfortable, plus the
+   308px rail ≈ 900. Below that the rail costs more than it returns. This puts
+   iPad portrait (768px) into drawer mode deliberately — a docked rail there
+   leaves only ~460px of content.
+   ════════════════════════════════════════════════════════════ */
+@media (max-width: 900px) {
+  /* The single declaration that does most of the work: the rail no longer
+     takes width from the content, so the grid column, .thread-reply-bar's
+     left edge and the .brand-row clamp all correct themselves. */
+  :root { --shell-nav-w: 0px; }
+
+  .app-shell {
+    grid-template-columns: 1fr;
+    /* minmax(0,1fr) — not 1fr — or the scrolling .main-panel refuses to
+       shrink below its content height and the row overflows the shell. */
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 8px;
+    padding-top: env(safe-area-inset-top);   /* clear the notch */
+    height: calc(var(--topbar-h) + env(safe-area-inset-top));
+    background: var(--bg-sidebar);
+    border-bottom: 1px solid var(--rule);
+    /* Above the drawer's own shadow, below the drawer itself. */
+    position: relative;
+    z-index: 70;
+  }
+
+  /* Row 2 of the grid sizes it now, so it must not claim the whole viewport. */
+  .main-panel {
+    height: auto;
+    /* REQUIRED: grid tracks floor at min-content, which would defeat
+       overflow-y:auto and overflow the shell instead of scrolling. */
+    min-height: 0;
+    /* The desktop shadow falls onto the rail, which is no longer beside it. */
+    box-shadow: none;
+    overscroll-behavior: contain;
+  }
+
+  .sidebar {
+    position: fixed;
+    /* Starts BELOW the top bar, not at the viewport top — otherwise the rail's
+       own header (the Home/Wiki pill and search button) is clipped behind it.
+       Leaving the bar visible also keeps the hamburger available as the close
+       affordance, which is the standard app-bar-above-drawer pattern. */
+    top: calc(var(--topbar-h) + env(safe-area-inset-top));
+    bottom: 0;
+    left: 0;
+    z-index: 60;
+    /* Never wider than the screen on a small phone. */
+    width: min(var(--sidebar-w), 86vw);
+    transform: translateX(-100%);
+    /* A translated-off-screen element is still Tab-reachable and still in the
+       a11y tree. visibility fixes both, and is specially interpolated — it
+       flips to visible at any non-zero progress, so one declaration gives an
+       instant show and a deferred hide. No JS needed to keep it in sync. */
+    visibility: hidden;
+    /* transform, not left/width — the slide stays on the compositor. */
+    transition: transform 0.24s cubic-bezier(0.2, 0, 0, 1), visibility 0.24s;
+    box-shadow: 2px 0 24px -8px rgba(20, 22, 28, 0.28);
+  }
+  body.nav-open .sidebar { transform: none; visibility: visible; }
+
+  /* The top bar carries search below this breakpoint, so the rail's own copy
+     is a duplicate. Hiding it lets .nav-tabs (flex:1) reclaim the full header
+     width for the Home/Wiki pill. ⌘K and the top-bar button both still reach
+     openSearchModal, so no entry point is lost. */
+  #nav-search-btn { display: none; }
+
+  /* Stop the drawer's and the panel's scrolls chaining to the page behind. */
+  .nav-list { overscroll-behavior: contain; }
+
+  .nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(20, 22, 28, 0.38);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.24s ease;
+  }
+  body.nav-open .nav-backdrop { opacity: 1; pointer-events: auto; }
+
+  /* ── Content reflow for the drawer band ──
+     Below 900 the rail is out of flow, so panel width == viewport width. That
+     is what makes plain viewport queries correct here; see the note above. */
+  :root {
+    --layout-gutter: 32px;
+    --composer-pad: 20px;   /* invariant preserved: gutter > composer-pad */
+  }
+
+  /* 56px of top margin sat under a full-bleed page; under a 52px bar it is
+     twice too much. */
+  .site-header { margin-top: 28px; padding: 0 20px; }
+
+  /* Desktop has these at 40px while .layout is at 47px. Converge them on
+     mobile only — unifying on desktop would be a 7px visual change. */
+  .viewer-content     { padding: 32px var(--layout-gutter) 80px; }
+  .wiki-viewer-chrome { padding: 12px var(--layout-gutter); }
+
+  /* Without this the breadcrumb shoves the copy buttons off the chrome. */
+  .wiki-breadcrumb {
+    flex: 1;
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}
+
+/* ════════════════════════════════════════════════════════════
+   Phone breakpoint.
+
+   560 is where the two-column import grid actually dies: a usable import card
+   floors at ~240px, so 2 x 240 + 14px gap + 2 x 32px gutter = 558. The two
+   queries this replaces (720px for .status-strip, 540px for .imports-grid)
+   were not merely mistuned — they were unanswerable while the rail was in
+   flow, because they measured the viewport while their targets lived in a
+   panel 308px narrower.
+
+   RULE: no panel-content media query may sit at or above 900px. Above it the
+   panel is (viewport - rail) and a viewport query says nothing reliable;
+   below it the rail is out of flow and viewport width IS panel width.
+   ════════════════════════════════════════════════════════════ */
+@media (max-width: 560px) {
+  :root {
+    --layout-gutter: 22px;
+    --composer-pad: 14px;   /* invariant preserved: gutter > composer-pad */
+  }
+
+  .status-strip { gap: 4px 0; padding: 0 16px; }
+  .status-seg   { padding: 4px; }
+  .status-sep   { margin: 0 2px; }
+  .status-arrow { margin: 0 4px; }
+
+  .imports-grid    { grid-template-columns: 1fr; }
+  .import-card     { padding: 16px; }
+  /* Four stacked at 170px is 680px of empty textarea to scroll past. */
+  .import-textarea { min-height: 110px; }
+
+  .pending-row { flex-direction: column; align-items: stretch; }
+
+  /* 72% of a 346px column is 249px — too tight for a question. */
+  .thread-bubble--user { max-width: 88%; }
+
+  /* Always-visible (not hover-gated), but it floats in .viewer-content's top
+     padding where it collides with the title. Put it back in flow. */
+  .viewer-content .result-actions {
+    position: static;
+    margin-bottom: 16px;
+    justify-content: flex-end;
+  }
+
+  /* nowrap is an active mobile bug: one long [[wikilink]] cannot break and
+     forces the whole article to scroll sideways. A wrapped accent underline
+     is unambiguously better than that. */
+  .markdown-body .wikilink { white-space: normal; }
+  /* break-word, NOT anywhere: `anywhere` also shrinks intrinsic min-content
+     size, which lets a table column collapse to a single character and wrap
+     a header like "Last Updated" one letter per line. `break-word` still
+     rescues long unbreakable tokens (bare URLs) without that side effect. */
+  .markdown-body { overflow-wrap: break-word; }
+
+  /* Top-anchor the sheets. Centred on an 844px layout viewport puts a sheet at
+     y=322 — under the keyboard line the moment its input focuses. */
+  .raw-modal {
+    align-items: flex-start;
+    padding: 12px 12px calc(12px + env(safe-area-inset-bottom));
+  }
+  .search-modal { padding-top: 10px; }
+  .raw-modal-sheet, .search-modal-sheet,
+  .rename-modal-sheet, .delete-modal-sheet {
+    max-height: calc(100dvh - 24px - var(--kb-inset, 0px));
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* A near-zero duration rather than `none`, so the visibility transition
+     still resolves and the drawer can't be stranded hidden. */
+  .sidebar, .nav-backdrop { transition-duration: 0.01ms; }
 }

@@ -7,7 +7,8 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="viewport"
+        content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content" />
   <!-- Bridge CSRF token, substituted server-side when "/" is served.
        Readable only by same-origin scripts; a cross-origin page cannot
        reach into this DOM, so the token stays secret. -->
@@ -30,8 +31,32 @@
 <body>
   <div class="app-shell">
 
+    <!-- ══════════════════ MOBILE TOP BAR ══════════════════
+         Hidden above the shell breakpoint. Below it, the sidebar leaves the
+         grid flow (position:fixed) and this occupies row 1, so no padding
+         compensation is needed on .main-panel. -->
+    <header class="mobile-topbar">
+      <button type="button" id="nav-menu-btn" class="topbar-btn"
+              aria-label="Menu" aria-expanded="false" aria-controls="sidebar">
+        <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" focusable="false">
+          <g stroke="currentColor" stroke-width="1.6" stroke-linecap="round">
+            <line x1="3" y1="6" x2="17" y2="6" />
+            <line x1="3" y1="10" x2="17" y2="10" />
+            <line x1="3" y1="14" x2="17" y2="14" />
+          </g>
+        </svg>
+      </button>
+      <span class="topbar-wordmark">Second Brain</span>
+      <button type="button" id="topbar-search-btn" class="topbar-btn" aria-label="Search">
+        <img src="/static/icons/magnifyingglass.png" width="20" height="20" alt="" aria-hidden="true" />
+      </button>
+    </header>
+
+    <!-- Dims the content behind an open drawer; tap to close. -->
+    <div id="nav-backdrop" class="nav-backdrop"></div>
+
     <!-- ══════════════════ SIDEBAR ══════════════════ -->
-    <nav class="sidebar" aria-label="Navigation">
+    <nav class="sidebar" id="sidebar" aria-label="Navigation">
 
       <div class="nav-header">
         <div class="nav-tabs" role="tablist">
