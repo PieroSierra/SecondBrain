@@ -21,17 +21,18 @@ Initialize or update this personal knowledge base vault. This skill creates the 
 
 1. Checks whether `CLAUDE.md` / `AGENTS.md` already exist and reads existing configuration as defaults
 2. Asks which agent engine you use — Claude Code or OpenAI Codex — and records it in `.env`
-3. Asks you to declare your primary interests (topics you want the wiki to focus on)
-4. Asks for your Craft space or folder name
-5. Creates `raw/`, `wiki/`, and `outputs/` directories if they do not exist
-6. Writes or updates `CLAUDE.md` and `AGENTS.md` (identical vault schema, one per engine) with your interests and Craft config
-7. Confirms completion and suggests next steps
+3. Asks whose Second Brain this is and records it in `.env` as `OWNER_NAME`
+4. Asks you to declare your primary interests (topics you want the wiki to focus on)
+5. Asks for your Craft space or folder name
+6. Creates `raw/`, `wiki/`, and `outputs/` directories if they do not exist
+7. Writes or updates `CLAUDE.md` and `AGENTS.md` (identical vault schema, one per engine) with your interests and Craft config
+8. Confirms completion and suggests next steps
 
 ## Execution
 
 ### Step 1 — Check existing configuration
 
-Read `CLAUDE.md` (or `AGENTS.md`) if it exists. Look for the `[INTERESTS]` block and `[CRAFT]` block. If found, extract the current values to use as defaults in the questions below. Also read `.env` if present and note any existing `AGENT_ENGINE` value.
+Read `CLAUDE.md` (or `AGENTS.md`) if it exists. Look for the `[INTERESTS]` block and `[CRAFT]` block. If found, extract the current values to use as defaults in the questions below. Also read `.env` if present and note any existing `AGENT_ENGINE` and `OWNER_NAME` values.
 
 ### Step 1b — Choose your agent engine
 
@@ -53,6 +54,29 @@ Write the choice to `.env` at the vault root as `AGENT_ENGINE=claude` or `AGENT_
 - Never write more than one `AGENT_ENGINE` line.
 
 The dashboard reads this to decide which CLI to invoke. Both engines run the same skills; the choice changes nothing else.
+
+### Step 1c — Personalise the vault (optional)
+
+Ask for the owner's display name, which appears above the hero mark on the
+dashboard and in the window title:
+
+> Whose Second Brain is this? This shows above the logo — e.g. "Piero's" gives
+> you "PIERO'S / Second Brain". Press Enter to skip.
+
+The value is stored and displayed **verbatim**, so include the apostrophe. If an
+`OWNER_NAME` already exists in `.env`, show it as the default. If the user
+skips, write `Your`.
+
+Write the value to `.env` at the vault root as `OWNER_NAME=<value>`, following
+the same rule as `AGENT_ENGINE`:
+- If `.env` does not exist, create it with that line.
+- If it exists and already has an `OWNER_NAME=` line, replace that line in place.
+- If it exists without one, append the line.
+- Never write more than one `OWNER_NAME` line.
+
+Reject a value longer than 32 characters or containing a line break, and ask
+again — the dashboard enforces the same limits, and a line break inside `.env`
+would be read as a separate configuration key.
 
 ### Step 2 — Declare interests
 
@@ -213,6 +237,7 @@ Directories:
 CLAUDE.md: [created | updated]
 AGENTS.md: [created | updated]
 Engine:    [Claude Code | Codex]   (saved to .env as AGENT_ENGINE)
+Owner:     [name]                  (saved to .env as OWNER_NAME)
 
 Declared interests:
   - [interest-1]
