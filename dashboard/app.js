@@ -400,6 +400,7 @@ let _configLoaded = false;
 const OWNER_NAME_DEFAULT = "Your";
 let _ownerName = OWNER_NAME_DEFAULT;
 
+const ownerRow     = document.querySelector(".brand-owner-row");
 const ownerEl      = document.getElementById("brand-owner");
 const ownerInput   = document.getElementById("brand-owner-input");
 const ownerEditBtn = document.getElementById("brand-owner-edit");
@@ -467,6 +468,7 @@ function endOwnerEdit() {
   if (!ownerEl || !ownerInput) return;
   ownerInput.hidden = true;
   ownerEl.hidden = false;
+  setOwnerHover(false);   // a finger never fires pointerleave
 }
 
 async function commitOwnerEdit() {
@@ -489,6 +491,31 @@ async function commitOwnerEdit() {
   applyOwnerName(data.owner_name || next);    // trust the server's normalisation
 }
 
+// WKWebView (the macOS app) doesn't reliably clear the CSS :hover state when
+// the pointer leaves — it sticks until a resize or navigation. Pointer events
+// do fire correctly there, so the reveal is driven from them instead.
+function setOwnerHover(on) {
+  ownerRow?.classList.toggle("is-hovered", on);
+}
+
+ownerRow?.addEventListener("pointerenter", () => setOwnerHover(true));
+ownerRow?.addEventListener("pointerleave", () => setOwnerHover(false));
+ownerRow?.addEventListener("pointercancel", () => setOwnerHover(false));
+// Backstop for the same WebKit bug: if the pointer is demonstrably elsewhere
+// and we still think we're hovered, drop it. Only runs while the pencil shows.
+document.addEventListener("mousemove", (e) => {
+  if (!ownerRow?.classList.contains("is-hovered")) return;
+  const r = ownerRow.getBoundingClientRect();
+  const inside = e.clientX >= r.left && e.clientX <= r.right
+              && e.clientY >= r.top  && e.clientY <= r.bottom;
+  if (!inside) setOwnerHover(false);
+});
+// Leaving the window entirely (cmd-tab, clicking another app) also strands it.
+window.addEventListener("blur", () => setOwnerHover(false));
+
+// Both the name and the pencil open the editor. The name is what makes this
+// reachable on touch, where there is no hover to reveal the pencil at all.
+ownerEl?.addEventListener("click", beginOwnerEdit);
 ownerEditBtn?.addEventListener("click", beginOwnerEdit);
 ownerInput?.addEventListener("input", sizeOwnerInput);
 ownerInput?.addEventListener("blur", commitOwnerEdit);

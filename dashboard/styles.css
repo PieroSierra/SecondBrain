@@ -210,10 +210,19 @@ textarea:focus-visible {
   width: fit-content;
   align-items: center;
   gap: 6px;
-  margin: 0 auto 2px;
+  margin: 0 auto;
+}
+/* The name is a button, not a span: tapping it opens the editor. That is the
+   only affordance on touch, where there is no hover to reveal the pencil. */
+.brand-owner {
+  border: 0;
+  padding: 0;
+  background: none;
+  cursor: pointer;
 }
 .brand-owner,
 .brand-owner-input {
+  font-family: inherit;
   font-size: 0.76rem;
   font-weight: 500;
   letter-spacing: 0.22em;
@@ -243,17 +252,17 @@ textarea:focus-visible {
   cursor: pointer;
   opacity: 0;
   transition: opacity 120ms ease;
+  /* Negative block margin cancels the padding so an 18px button can't set the
+     row's height — the row should be as tall as the 12px name, nothing more. */
+  margin-block: -3px;
 }
 .brand-owner-edit img { opacity: 0.5; }
-.brand-owner-row:hover .brand-owner-edit,
+/* Reveal is driven by a JS-toggled class rather than :hover. WKWebView (the
+   macOS app) does not reliably clear :hover when the pointer leaves — the state
+   sticks until a resize or a navigation. Pointer events clear correctly there.
+   Touch needs no equivalent: tapping the name opens the editor directly. */
+.brand-owner-row.is-hovered .brand-owner-edit,
 .brand-owner-edit:focus-visible { opacity: 1; }
-/* Permanently visible in the responsive layout — you can't hover with a finger,
-   so a hover-only affordance is unreachable. Keyed to the same 900px breakpoint
-   that swaps the sidebar rail for the mobile topbar, plus a pointer check so a
-   large touch screen above that width is covered too. */
-@media (max-width: 900px), (hover: none), (pointer: coarse) {
-  .brand-owner-edit { opacity: 1; }
-}
 .brand-owner-error {
   display: block;
   margin: 0 0 6px;
