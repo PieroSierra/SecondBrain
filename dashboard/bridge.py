@@ -1536,7 +1536,16 @@ def _vault_status() -> dict:
             return 0
         return sum(1 for _ in OUTPUTS_DIR.glob(pattern))
 
-    outputs_query_count = _glob_count("*query*.md")
+    # Saved answers were renamed from `<date>_query-<slug>.md` to
+    # `<date>_thread-<slug>.md` when multi-turn threads landed, so a glob for
+    # "*query*" alone matches nothing created since and the count sits at 0 on
+    # any vault started after that. Both patterns are counted, de-duplicated:
+    # vaults from before the rename keep their history, and the number starts
+    # moving again for everyone else.
+    outputs_query_count = len(
+        {p.name for p in OUTPUTS_DIR.glob("*query*.md")}
+        | {p.name for p in OUTPUTS_DIR.glob("*thread-*.md")}
+    ) if OUTPUTS_DIR.exists() else 0
     outputs_lint_count = _glob_count("*lint*.md")
 
     # raw breakdown — counts of user-facing markdown files.
