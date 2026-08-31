@@ -2391,6 +2391,7 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         if path == "/config":
             return _json_response(self, 200, {
                 "vault_root":           str(VAULT_ROOT),
+                "owner_name":           _OWNER_NAME,
                 "craft_enabled":        _CRAFT_ENABLED,
                 "engine":               AGENT_ENGINE,
                 "claude_model_tier":    _CLAUDE_MODEL_TIER,
@@ -2430,6 +2431,15 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
         # All POST endpoints trigger a skill (or a cheap read-only check) →
         # require authorization. The extension authenticates by its allowlisted
         # Origin (no token).
+        # Token-gated only — deliberately NOT allow_extension. The extension
+        # authenticates by Origin alone, and _is_extension_origin() accepts any
+        # chrome-extension:// origin unless EXTENSION_ORIGIN is pinned, so
+        # letting it here would hand the owner's name to any installed
+        # extension probing localhost.
+        if path == "/set-owner":
+            if not self._authorize():
+                return self._deny()
+
         if path in ("/run", "/cancel", "/upload-pdf", "/upload-file", "/dedupe-check",
                     "/open-folder", "/patch-finding", "/rename-output",
                     "/set-model"):
@@ -2456,6 +2466,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._handle_rename_output()
         if path == "/set-model":
             return self._handle_set_model()
+        if path == "/set-owner":
+            return self._handle_set_owner()
 
         self._not_found()
 
@@ -3427,6 +3439,47 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             "tier":     tier,
             "model_id": tier_map.get(tier, tier if tier != "default" else None),
         })
+
+    def _handle_set_owner(self) -> None:
+        """Persist the vault owner's display name to .env.
+
+        Unlike /set-model — which is deliberately session-scoped and touches
+        only an in-memory global — the owner name must outlive the bridge, so
+        this writes through to .env as well as updating the global.
+
+        Caveat worth knowing: _load_env_file() uses os.environ.setdefault, so an
+        OWNER_NAME exported in the user's shell outranks the file. An edit here
+        would then appear to work and silently revert on the next start. That
+        precedence rule is intentional (it lets a shell override any key); this
+        comment is the warning.
+        """
+        global _OWNER_NAME
+
+        body = self._read_json_body()
+        if body is None:
+            return
+
+        cleaned = _sanitize_owner_name(body.get("owner_name", ""))
+        if cleaned is None:
+            return _json_response(self, 400, {
+                "error": "bad_request",
+                "detail": (
+                    f"owner name must be a single line of at most "
+                    f"{OWNER_NAME_MAX_LEN} characters"
+                ),
+            })
+
+        try:
+            _write_env_var("OWNER_NAME", cleaned)
+        except OSError as exc:
+            # .env and the global both untouched, so the UI can restore what it
+            # had rather than displaying a name that was never saved.
+            return _json_response(self, 500, {
+                "error": "write_failed", "detail": str(exc),
+            })
+
+        _OWNER_NAME = cleaned
+        _json_response(self, 200, {"owner_name": cleaned})
 
     # ----- helpers --------------------------------------------------------
 
