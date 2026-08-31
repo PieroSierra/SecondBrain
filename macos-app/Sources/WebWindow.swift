@@ -123,6 +123,13 @@ extension WebWindow: WKScriptMessageHandler {
                let tier   = body["tier"]   as? String {
                 (NSApp.delegate as? AppDelegate)?.switchModel(engine: engine, to: tier)
             }
+        case "setTitle":
+            // The page owns the vault's display name (it comes from .env via
+            // /config), so it drives the window title rather than the app
+            // re-reading configuration it otherwise has no need for.
+            if let title = body["title"] as? String, !title.isEmpty {
+                window?.title = title
+            }
         default:
             break
         }
