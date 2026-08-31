@@ -458,6 +458,7 @@ function beginOwnerEdit() {
   sizeOwnerInput();
   ownerEl.hidden = true;
   ownerInput.hidden = false;
+  ownerEditBtn?.blur();     // focus belongs in the input, not the button
   ownerInput.focus();
   ownerInput.select();
 }
