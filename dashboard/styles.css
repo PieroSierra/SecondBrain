@@ -195,6 +195,66 @@ textarea:focus-visible {
   padding: 0 32px;
   text-align: center;
 }
+
+/* ---------- Owner personalisation ----------
+   Sits above the lockup in .brand-sub's small-caps treatment, but at full
+   --ink: this is a name, not a caption. The value is stored verbatim and
+   uppercased here, so the user owns the apostrophe. */
+.brand-owner-row {
+  /* Its own line above the lockup — inline-flex would let it share the
+     baseline with .brand-row and sit beside the mark instead of over it. */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 6px;
+}
+.brand-owner,
+.brand-owner-input {
+  font-size: 0.76rem;
+  font-weight: 500;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+.brand-owner-input {
+  font-family: inherit;
+  border: none;
+  border-bottom: 1px solid var(--ink-faint);
+  background: none;
+  padding: 0;
+  outline: none;
+  text-align: center;
+}
+.brand-owner-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  background: none;
+  line-height: 0;
+  cursor: pointer;
+  opacity: 1;
+  transition: opacity 120ms ease;
+}
+.brand-owner-edit img { opacity: 0.5; }
+/* Default is visible. Only where hover genuinely exists do we hide it at rest
+   and reveal on hover/keyboard focus — touch has no hover, so a hover-only
+   affordance would be permanently unreachable there. */
+@media (hover: hover) and (pointer: fine) {
+  .brand-owner-edit { opacity: 0; }
+  .brand-owner-row:hover .brand-owner-edit,
+  .brand-owner-edit:focus-visible { opacity: 1; }
+}
+.brand-owner-error {
+  display: block;
+  margin: 0 0 6px;
+  font-size: 0.7rem;
+  letter-spacing: 0.01em;
+  color: var(--error-ink);
+}
+.brand-owner-error[hidden] { display: none; }
 /* Brand lockup. One type scale on the row drives both the mark and the
    wordmark, so they stay locked at every viewport width instead of drifting
    apart on two independent clamps. */
@@ -1308,6 +1368,14 @@ body { overflow: hidden; }
   font-size: 1.05rem;
   letter-spacing: -0.02em;
   color: var(--ink);
+  /* A personalised name can push this past the available width. The topbar is
+     fixed-height chrome, so truncate rather than wrap to a second line and
+     shove the whole page down — the hero above still shows the name in full.
+     min-width:0 lets a flex item shrink below its content width at all. */
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 /* ── Sidebar ── */
@@ -2566,6 +2634,10 @@ mark.search-hit {
     /* Above the drawer's own shadow, below the drawer itself. */
     position: relative;
     z-index: 70;
+    /* Grid items default to min-width:auto, so a nowrap wordmark long enough
+       to exceed the viewport would blow the track out and drag the whole page
+       sideways. Let it shrink so the wordmark's own ellipsis does the work. */
+    min-width: 0;
   }
 
   /* Row 2 of the grid sizes it now, so it must not claim the whole viewport. */

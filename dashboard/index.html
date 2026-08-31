@@ -127,6 +127,20 @@
       <div id="panel-home-new" class="panel">
 
         <header class="site-header">
+          <!-- Optional personalisation. The default value is the literal
+               "Your", not an empty placeholder, so the row always renders and
+               the pencil always has an anchor to sit beside. -->
+          <div class="brand-owner-row">
+            <span class="brand-owner" id="brand-owner">Your</span>
+            <input class="brand-owner-input" id="brand-owner-input" type="text"
+                   maxlength="32" size="8" spellcheck="false"
+                   aria-label="Owner name" hidden />
+            <button type="button" class="brand-owner-edit" id="brand-owner-edit"
+                    aria-label="Edit owner name" title="Edit owner name">
+              <img src="/static/icons/rename.png" width="14" height="14" alt="" aria-hidden="true" />
+            </button>
+          </div>
+          <span class="brand-owner-error" id="brand-owner-error" role="status" hidden></span>
           <div class="brand-row">
             <!-- Hero logo: static PNG at rest, animated "thinking" SVG while any
                  op runs. The animated one is inline SVG injected by

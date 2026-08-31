@@ -393,6 +393,115 @@ function clearBusy() {
 let VAULT_ROOT = ""; // set lazily by ensureConfig()
 let _configLoaded = false;
 
+// --- Owner personalisation -------------------------------------------------
+// One stored string, four surfaces. The hero shows the name alone (CSS
+// uppercases it); everywhere else it reads as a possessive sentence, so it is
+// used exactly as typed.
+const OWNER_NAME_DEFAULT = "Your";
+let _ownerName = OWNER_NAME_DEFAULT;
+
+const ownerEl      = document.getElementById("brand-owner");
+const ownerInput   = document.getElementById("brand-owner-input");
+const ownerEditBtn = document.getElementById("brand-owner-edit");
+const ownerErrorEl = document.getElementById("brand-owner-error");
+
+function applyOwnerName(name) {
+  _ownerName = (name || "").trim() || OWNER_NAME_DEFAULT;
+  if (ownerEl) ownerEl.textContent = _ownerName;
+
+  const full = `${_ownerName} Second Brain`;
+  const topbar = document.querySelector(".topbar-wordmark");
+  if (topbar) topbar.textContent = full;
+  document.title = full;
+
+  // The native app owns its NSWindow title and can't read .env; a plain
+  // browser has no such channel and simply skips this.
+  window.webkit?.messageHandlers?.secondBrain?.postMessage({
+    action: "setTitle",
+    title: full,
+  });
+}
+
+function showOwnerError(message) {
+  if (!ownerErrorEl) return;
+  ownerErrorEl.textContent = message;
+  ownerErrorEl.hidden = false;
+  window.setTimeout(() => { ownerErrorEl.hidden = true; }, 5000);
+}
+
+// The input inherits the owner line's 0.22em tracking, which the `size`
+// attribute — measured in "0" glyph widths — doesn't account for: a 7-character
+// name in a size=8 field overflows and scrolls its first letter out of view.
+// Measure the real rendered width from a mirror carrying the identical type
+// treatment instead.
+let _ownerMirror = null;
+
+function sizeOwnerInput() {
+  if (!ownerInput) return;
+  if (!_ownerMirror) {
+    _ownerMirror = document.createElement("span");
+    _ownerMirror.className = "brand-owner";
+    _ownerMirror.setAttribute("aria-hidden", "true");
+    _ownerMirror.style.cssText =
+      "position:absolute;left:-9999px;top:0;white-space:pre;pointer-events:none;";
+    document.body.appendChild(_ownerMirror);
+  }
+  _ownerMirror.textContent = ownerInput.value || " ";
+  // +2px so the caret sitting past the last character still has somewhere to go.
+  ownerInput.style.width = `${Math.ceil(_ownerMirror.offsetWidth) + 2}px`;
+}
+
+function beginOwnerEdit() {
+  if (!ownerEl || !ownerInput) return;
+  if (ownerErrorEl) ownerErrorEl.hidden = true;
+  ownerInput.value = _ownerName;
+  sizeOwnerInput();
+  ownerEl.hidden = true;
+  ownerInput.hidden = false;
+  ownerInput.focus();
+  ownerInput.select();
+}
+
+function endOwnerEdit() {
+  if (!ownerEl || !ownerInput) return;
+  ownerInput.hidden = true;
+  ownerEl.hidden = false;
+}
+
+async function commitOwnerEdit() {
+  if (!ownerInput || ownerInput.hidden) return;
+  const previous = _ownerName;
+  const next = ownerInput.value.trim() || OWNER_NAME_DEFAULT;
+  endOwnerEdit();
+  // Escape rewrites the field to the current value before closing, so an
+  // unchanged value here also covers "the user cancelled".
+  if (next === previous) return;
+
+  applyOwnerName(next);                       // optimistic
+  // postJSON resolves to {status, data} — the payload is NOT the top level.
+  const { status, data } = await postJSON("/set-owner", { owner_name: next });
+  if (status !== 200 || data?.error) {
+    applyOwnerName(previous);                 // never leave an unsaved name up
+    showOwnerError(data?.detail || "Couldn't save that name.");
+    return;
+  }
+  applyOwnerName(data.owner_name || next);    // trust the server's normalisation
+}
+
+ownerEditBtn?.addEventListener("click", beginOwnerEdit);
+ownerInput?.addEventListener("input", sizeOwnerInput);
+ownerInput?.addEventListener("blur", commitOwnerEdit);
+ownerInput?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    commitOwnerEdit();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    ownerInput.value = _ownerName;            // makes the blur-commit a no-op
+    endOwnerEdit();
+  }
+});
+
 async function ensureConfig() {
   if (_configLoaded) return;
   try {
@@ -400,6 +509,7 @@ async function ensureConfig() {
     if (!res.ok) return;
     const data = await res.json();
     VAULT_ROOT = data.vault_root || "";
+    applyOwnerName(data.owner_name || OWNER_NAME_DEFAULT);
     if (!data.craft_enabled) {
       const craftEl = document.getElementById("craft-form");
       if (craftEl) craftEl.hidden = true;
