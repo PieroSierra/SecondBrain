@@ -94,6 +94,22 @@ if AGENT_ENGINE not in ("claude", "codex", "opencode"):
 _CRAFT_ENABLED = os.environ.get("CRAFT_ENABLED", "").lower() in ("1", "true", "yes")
 
 # ---------------------------------------------------------------------------
+# Owner name
+# ---------------------------------------------------------------------------
+# Optional personalisation: the vault owner's display name, rendered above the
+# hero mark ("PIERO'S") and folded into the topbar and window titles. Stored
+# verbatim — the user types the possessive themselves, because synthesising it
+# breaks on names ending in "s" and on anything that isn't English.
+#
+# Unset is not a distinct state: the default IS the string "Your", so a fresh
+# vault reads "Your Second Brain" and the inline-edit pencil always has
+# something to anchor to (a hover affordance over nothing is undiscoverable).
+OWNER_NAME_DEFAULT = "Your"
+OWNER_NAME_MAX_LEN = 32
+
+_OWNER_NAME: str = os.environ.get("OWNER_NAME", "").strip() or OWNER_NAME_DEFAULT
+
+# ---------------------------------------------------------------------------
 # Model tier selection
 # ---------------------------------------------------------------------------
 # Claude accepts tier aliases maintained by Anthropic — no model-ID bookkeeping
@@ -260,6 +276,79 @@ _CSP = (
     "frame-ancestors 'none'; "
     "form-action 'self'"
 )
+
+
+def _sanitize_owner_name(value: object) -> str | None:
+    """Normalise a submitted owner name, or None if it must be rejected.
+
+    Validation is a security boundary here, not cosmetics: `_load_env_file`
+    parses .env line by line, so a value carrying a newline would inject
+    arbitrary environment keys — CLAUDE_BIN among them — into the next bridge
+    start. Newlines are therefore rejected outright rather than stripped.
+
+    Over-length is likewise rejected rather than truncated: the hero lockup is
+    `white-space: nowrap`, and silently storing something other than what the
+    user typed is worse than saying no.
+    """
+    if not isinstance(value, str):
+        return None
+    if "\n" in value or "\r" in value:
+        return None
+    cleaned = "".join(ch for ch in value if ch >= " " and ch != "\x7f").strip()
+    if not cleaned:
+        return OWNER_NAME_DEFAULT
+    if len(cleaned) > OWNER_NAME_MAX_LEN:
+        return None
+    return cleaned
+
+
+def _write_env_var(key: str, value: str) -> None:
+    """Set `key` to `value` in the vault-root .env, in place.
+
+    Preserves every other line, its order, and its comments, and replaces an
+    existing `key=` line rather than appending a second one — matching the rule
+    the setup skill already follows for AGENT_ENGINE. Written to a temp file in
+    the same directory and renamed, so a crash mid-write cannot truncate a
+    config file the bridge needs to start.
+
+    Raises OSError if the file cannot be written; the caller is expected to
+    leave its in-memory state untouched in that case.
+    """
+    env_path = VAULT_ROOT / ".env"
+    try:
+        lines = env_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        lines = []
+
+    out: list[str] = []
+    replaced = False
+    for line in lines:
+        stripped = line.strip()
+        is_key = (
+            not stripped.startswith("#")
+            and "=" in stripped
+            and stripped.partition("=")[0].strip() == key
+        )
+        if is_key:
+            if not replaced:
+                out.append(f"{key}={value}")
+                replaced = True
+            continue          # drop any duplicate lines for the same key
+        out.append(line)
+    if not replaced:
+        out.append(f"{key}={value}")
+
+    fd, tmp = tempfile.mkstemp(dir=str(VAULT_ROOT), prefix=".env.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write("\n".join(out) + "\n")
+        os.replace(tmp, env_path)
+    except OSError:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _is_extension_origin(origin: str) -> bool:
