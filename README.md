@@ -36,7 +36,7 @@ It runs through an AI agent you already have: **Claude Code** by default (also C
 
 No need to know your way around GitHub. Your agent does the setup for you.
 
-**1. Get the files.** Open your favourite agent (**Claude Code** or **Codex**) and paste this in:
+**1. Get the files.** Open your favourite agent (**Claude Code**, **Codex** or **OpenCode**) and paste this in:
 
 ```
 Clone https://github.com/PieroSierra/SecondBrain and tell me where you saved it.
