@@ -2077,6 +2077,23 @@ body.bar-visible .panel {
   background: var(--clay-deep);
 }
 
+/* Busy ripples — a canvas layered inside the Stop control while an op runs
+   (see stop-ripple.js). Clipped to the button's squircle; the glyph sits above
+   it, and it never intercepts the click that cancels the op. */
+.thread-reply-submit { overflow: hidden; }
+.thread-reply-submit > img { position: relative; z-index: 1; }
+.stop-ripple-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .stop-ripple-canvas { display: none; }
+}
+
 /* Footer op-status kept for fallback errors but hidden by default in thread mode. */
 .thread-reply-bar .op-status {
   margin-top: 6px;
