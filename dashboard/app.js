@@ -1964,13 +1964,6 @@ function renderPromoteProposal(host, promotions, errorText) {
 
   const footer = document.createElement("div");
   footer.className = "promote-footer";
-  const approveAll = document.createElement("button");
-  approveAll.type = "button";
-  approveAll.className = "promote-approve-all import-submit import-submit--ghost";
-  approveAll.textContent = "Approve all";
-  approveAll.addEventListener("click", () => {
-    panel.querySelectorAll(".promote-row").forEach((r) => _setRowApproved(r, true));
-  });
   const applyBtn = document.createElement("button");
   applyBtn.type = "button";
   applyBtn.className = "promote-apply-btn import-submit";
@@ -1984,7 +1977,7 @@ function renderPromoteProposal(host, promotions, errorText) {
     _promoteState.delete(_currentThreadFile);
     _renderPromoteLauncher(host);
   });
-  footer.append(approveAll, applyBtn, cancelBtn);
+  footer.append(applyBtn, cancelBtn);
   panel.appendChild(footer);
   host.appendChild(panel);
 }
@@ -2060,6 +2053,14 @@ async function applyPromotions(host) {
   })).filter((c) => c.statement && c.target_slug);
   if (!changes.length) return;
 
+  // Working state: swap the label and lock the panel so the run is visible.
+  const applyBtn = host.querySelector(".promote-apply-btn");
+  const cancelBtn = host.querySelector(".promote-cancel-btn");
+  const applyLabel = applyBtn ? applyBtn.textContent : "Apply approved";
+  if (applyBtn) { applyBtn.textContent = "Applying…"; applyBtn.disabled = true; }
+  if (cancelBtn) cancelBtn.disabled = true;
+  host.querySelectorAll(".promote-approve, .promote-reject, .promote-statement").forEach((el) => { el.disabled = true; });
+
   setBusy("promote-apply");
   try {
     const { status, data } = await postJSON("/run", {
@@ -2085,6 +2086,13 @@ async function applyPromotions(host) {
     }
   } finally {
     clearBusy();
+    // On success the host was replaced; these are no-ops. On failure (or a
+    // thrown request) the panel is still here, so unlock it for a retry.
+    const stillApply = host.querySelector(".promote-apply-btn");
+    if (stillApply) { stillApply.textContent = applyLabel; stillApply.disabled = false; }
+    const stillCancel = host.querySelector(".promote-cancel-btn");
+    if (stillCancel) stillCancel.disabled = false;
+    host.querySelectorAll(".promote-approve, .promote-reject, .promote-statement").forEach((el) => { el.disabled = false; });
   }
 }
 

@@ -2947,6 +2947,8 @@ mark.search-hit {
   border-color: var(--clay);
   color: #fff;
 }
+.promote-approve:disabled,
+.promote-reject:disabled { opacity: 0.4; cursor: not-allowed; }
 .promote-empty, .promote-done {
   font-size: 0.9rem;
   color: var(--ink-muted);
