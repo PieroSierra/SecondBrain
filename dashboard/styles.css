@@ -2839,13 +2839,14 @@ mark.search-hit {
   gap: 8px;
   align-items: flex-start;
 }
-/* Launcher: a discreet, text-sized pill with a dotted grey outline; a light
-   pink wash on hover marks it as a suggestion, not a required action. */
+/* Launcher: a discreet, text-sized pill with a dashed grey outline matching the
+   Copy buttons' line colour; a light pink wash on hover marks it as a
+   suggestion, not a required action. */
 .promote-launch-btn {
   align-self: flex-start;
   width: auto;
   padding: 8px 16px;
-  border: 1px dotted var(--rule-strong);
+  border: 1px dashed var(--rule-strong);
   border-radius: var(--radius-pill);
   background: var(--bg-elev);
   color: var(--ink-muted);
