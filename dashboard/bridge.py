@@ -637,6 +637,11 @@ def _build_thread_reply(args: dict) -> str:
     )
 
 
+def _build_promote(args: dict) -> str:
+    thread_file = str(args["thread_file"]).strip()
+    return f'/second-brain-promote --thread "{_shell_quote(thread_file)}"'
+
+
 def _build_ingest(_args: dict) -> str:
     return "/second-brain-ingest"
 
@@ -797,12 +802,35 @@ PROMPT_TEMPLATES: dict[str, dict] = {
         "allowed_tools": _TOOLS_WIKI_WRITE,
         "disallowed_tools": _DENY_DEFAULT,
     },
+    # promote: review a thread and return durable knowledge changes as JSON.
+    # Read-only — writes nothing. The client parses the proposal from `result`.
+    "promote": {
+        "build": _build_promote,
+        "timeout": 180,
+        "output_glob": None,
+        "created_in": None,
+        "args_required": ["thread_file"],
+        "allowed_tools": _TOOLS_READ_REPORT,
+        "disallowed_tools": _DENY_DEFAULT,
+        "skip_file_read": True,
+    },
     "ingest": {
         "build": _build_ingest,
         "timeout": 600,  # batch ingest of dozens of files can take a while
         "output_glob": None,
         "created_in": None,  # ingest writes to wiki/, not raw/
         "args_required": [],
+        "allowed_tools": _TOOLS_WIKI_WRITE,
+        "disallowed_tools": _DENY_DEFAULT,
+    },
+    # promote-apply: fold approved promotions into wiki articles. Bridge-managed
+    # like ingest — the runner builds the managed prompt and owns the manifest.
+    "promote-apply": {
+        "build": lambda _args: "/second-brain-promote-apply",  # real prompt built in _run_promote_apply
+        "timeout": 300,
+        "output_glob": None,
+        "created_in": None,
+        "args_required": ["thread_file"],
         "allowed_tools": _TOOLS_WIKI_WRITE,
         "disallowed_tools": _DENY_DEFAULT,
     },
@@ -1922,6 +1950,59 @@ def _slugify(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (text or "").lower()).strip("-")
 
 
+PROMOTIONS_SUBDIR = "promotions"
+_PROMOTION_TYPES = {
+    "correction", "decision", "assumption", "distinction", "relationship", "update",
+}
+
+
+def _write_promotion_record(thread_file: str, changes: list[dict]) -> Path:
+    """Write an immutable promotion record to raw/promotions/ and return its Path.
+
+    Deterministic — the bridge already holds the approved changes, so the record
+    is written here (not by the model) to keep it immutable and drift-free.
+    """
+    date = time.strftime("%Y-%m-%d")
+    stem = Path(thread_file).name
+    stem = re.sub(r"\.md$", "", stem)
+    stem = re.sub(r"^\d{4}-\d{2}-\d{2}_", "", stem)
+    stem = re.sub(r"^thread-", "", stem)
+    slug = _slugify(stem) or "conversation"
+    base = f"{date}_promotion-{slug}"
+    out_dir = RAW_DIR / PROMOTIONS_SUBDIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    name = f"{base}.md"
+    n = 2
+    while (out_dir / name).exists():
+        name = f"{base}-{n}.md"
+        n += 1
+    lines = [
+        "---",
+        f"content_date: {date}",
+        f"source: {thread_file}",
+        "kind: promotion",
+        "---",
+        "",
+        "# Promotion — durable knowledge from a conversation",
+        "",
+    ]
+    for ch in changes:
+        ctype = str(ch.get("type", "update")).strip() or "update"
+        target = _slugify(str(ch.get("target_slug", "")).strip())
+        statement = str(ch.get("statement", "")).strip()
+        rationale = str(ch.get("rationale", "")).strip()
+        lines.append(f"## {ctype} → [[{target}]]")
+        lines.append("")
+        lines.append(statement)
+        lines.append("")
+        if rationale:
+            lines.append(f"> Context: {rationale}")
+            lines.append("")
+    path = out_dir / name
+    path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+    return path
+
+
 def _normalize_url(url: str) -> str:
     """Canonical form for URL equality: lowercase scheme+host (drop leading
     ``www.``), drop default port, fragment, tracking params, and a trailing
@@ -3015,6 +3096,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             status_code = envelope.pop("__status__", 200)
             return _json_response(self, status_code, envelope)
 
+        if kind == "promote-apply":
+            envelope = self._run_promote_apply(PROMPT_TEMPLATES[kind], args)
+            status_code = envelope.pop("__status__", 200)
+            return _json_response(self, status_code, envelope)
+
         prompt, err = _format_prompt(kind, args)
         if err is not None:
             return _json_response(self, 400, err)
@@ -3271,6 +3357,96 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 "detail": str(exc),
                 "kind": "ingest",
             }
+
+    def _run_promote_apply(self, cfg: dict, args: dict) -> dict:
+        """Write the promotion record, fold it into wiki via the apply skill,
+        and finalize only that record into the manifest.
+
+        Mirrors _run_ingest: the bridge owns record creation, the scoped scan
+        plan, and manifest finalization; the agent only edits wiki content.
+        """
+        thread_file = args.get("thread_file")
+        changes = args.get("changes")
+        if not isinstance(thread_file, str) or not thread_file.strip():
+            return {"__status__": 400, "error": "bad_request", "detail": "missing thread_file"}
+        tf = thread_file.strip()
+        if not tf.startswith("outputs/") or not tf.endswith(".md") or ".." in tf:
+            return {"__status__": 400, "error": "bad_request", "detail": "invalid thread_file"}
+        if not isinstance(changes, list) or not changes:
+            return {"__status__": 400, "error": "bad_request", "detail": "no changes to apply"}
+
+        clean: list[dict] = []
+        for ch in changes:
+            if not isinstance(ch, dict):
+                continue
+            statement = str(ch.get("statement", "")).strip()
+            target = _slugify(str(ch.get("target_slug", "")).strip())
+            if not statement or not target:
+                continue
+            ctype = str(ch.get("type", "update")).strip().lower()
+            if ctype not in _PROMOTION_TYPES:
+                ctype = "update"
+            clean.append({
+                "type": ctype,
+                "target_slug": target,
+                "statement": statement,
+                "rationale": str(ch.get("rationale", "")).strip(),
+            })
+        if not clean:
+            return {"__status__": 400, "error": "bad_request", "detail": "no valid changes to apply"}
+
+        started = time.time()
+        plan_path: Path | None = None
+        try:
+            with long_op("promote-apply"):
+                record_path = _write_promotion_record(tf, clean)
+                record_rel = record_path.relative_to(VAULT_ROOT).as_posix()
+                wiki_before = _wiki_snapshot()
+
+                prepared = ingest_state.prepare_scoped_scan(VAULT_ROOT, [record_rel])
+                plan = prepared["plan"]
+                plan_path = prepared["plan_path"]
+                rel_plan = plan_path.relative_to(VAULT_ROOT).as_posix()
+                prompt = (
+                    f'/second-brain-promote-apply --record "{record_rel}" '
+                    f'--scan-plan "{rel_plan}" --managed-manifest '
+                    f'--scan-id "{plan["scan_id"]}"'
+                )
+                status, result = run_skill(prompt, cfg)
+
+                if result.get("stopped"):
+                    ingest_state.discard_plan(plan_path)
+                    return {"__status__": 200, "stopped": True, "kind": "promote-apply",
+                            "record": record_rel}
+                if status != 200 or result.get("is_error"):
+                    ingest_state.discard_plan(plan_path)
+                    return {"__status__": status if status != 200 else 200,
+                            **result, "kind": "promote-apply", "record": record_rel}
+
+                marker = f'<!-- sb:promote-apply-complete scan_id="{plan["scan_id"]}" -->'
+                result_text = str(result.get("result") or "")
+                if marker not in result_text:
+                    ingest_state.discard_plan(plan_path)
+                    return {"__status__": 200, **result, "is_error": True,
+                            "result": (result_text +
+                                       "\n\nApply did not confirm completion; the manifest "
+                                       "was left unchanged for a safe retry.").strip(),
+                            "kind": "promote-apply", "record": record_rel}
+
+                ingest_state.finalize_plan(VAULT_ROOT, plan_path)
+                plan_path = None
+                wiki_after = _wiki_snapshot()
+                touched = sorted(s for s, m in wiki_after.items() if wiki_before.get(s) != m)
+                return {"__status__": 200, **result, "kind": "promote-apply",
+                        "record": record_rel, "articles": touched,
+                        "duration_ms": int((time.time() - started) * 1000)}
+        except Busy as busy:
+            return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
+        except (OSError, ingest_state.IngestStateError) as exc:
+            if plan_path is not None:
+                ingest_state.discard_plan(plan_path)
+            return {"__status__": 500, "error": "promote_apply_failed",
+                    "detail": str(exc), "kind": "promote-apply"}
 
     def _run_kind(self, kind: str, prompt: str, cfg: dict, args: dict | None = None) -> dict:
         """Acquire the mutex, run the skill, and return the response envelope.
