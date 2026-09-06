@@ -54,6 +54,39 @@ class IngestStateTests(unittest.TestCase):
             "fingerprint": ingest_state.fingerprint_file(path, use_cache=False),
         }
 
+    def test_scoped_scan_plans_only_named_paths(self) -> None:
+        self.raw("promotions/2026-09-06_promotion-x.md", b"# rec\n")
+        self.raw("unrelated.md", b"other\n")  # pending but NOT named
+        prepared = ingest_state.prepare_scoped_scan(
+            self.vault, ["raw/promotions/2026-09-06_promotion-x.md"]
+        )
+        plan = prepared["plan"]
+        self.assertEqual(plan["version"], ingest_state.PLAN_VERSION)
+        self.assertEqual(
+            plan["process_paths"], ["raw/promotions/2026-09-06_promotion-x.md"]
+        )
+        self.assertEqual(len(plan["pending_items"]), 1)
+        item = plan["pending_items"][0]
+        self.assertEqual(item["path"], "raw/promotions/2026-09-06_promotion-x.md")
+        self.assertEqual(item["state"], "new")
+        self.assertTrue(item["processable"])
+        self.assertIn("fingerprint", item)
+
+    def test_scoped_scan_finalizes_only_named_path(self) -> None:
+        self.raw("promotions/2026-09-06_promotion-x.md", b"# rec\n")
+        self.raw("unrelated.md", b"other\n")
+        prepared = ingest_state.prepare_scoped_scan(
+            self.vault, ["raw/promotions/2026-09-06_promotion-x.md"]
+        )
+        result = ingest_state.finalize_plan(self.vault, prepared["plan_path"])
+        self.assertEqual(
+            result["finalized"], ["raw/promotions/2026-09-06_promotion-x.md"]
+        )
+        manifest, ok = ingest_state.load_manifest(self.vault)
+        self.assertTrue(ok)
+        self.assertIn("raw/promotions/2026-09-06_promotion-x.md", manifest)
+        self.assertNotIn("raw/unrelated.md", manifest)  # untouched
+
     def test_missing_manifest_marks_every_live_file_new(self) -> None:
         self.raw("new.md")
         scan = ingest_state.scan_vault(self.vault)

@@ -433,6 +433,41 @@ def prepare_scan(vault_root: Path, *, plan_path: Path | None = None) -> dict:
     return {"plan": plan, "plan_path": plan_path}
 
 
+def prepare_scoped_scan(vault_root: Path, rel_paths: list[str]) -> dict:
+    """Persist a scan plan covering only the named raw files.
+
+    Used by promotion apply: the record was just written by the bridge, so we do
+    not scan the whole vault. We classify exactly these paths (against the current
+    manifest, so a re-applied record is handled correctly) and let finalize_plan
+    advance only them. Non-pending or unsupported paths are simply omitted.
+    """
+    state_dir = vault_root / "dashboard" / ".ingest-state"
+    state_dir.mkdir(parents=True, exist_ok=True)
+    _cleanup_old_plans(state_dir)
+
+    with _manifest_lock(vault_root):
+        manifest, _manifest_ok = load_manifest(vault_root)
+        files = {rel: (vault_root / rel) for rel in rel_paths}
+        items = [
+            _classification(rel, path, manifest.get(rel), baseline_legacy=False)
+            for rel, path in files.items()
+        ]
+        pending_items = [item for item in items if item["pending"]]
+        plan_id = uuid.uuid4().hex
+        plan_path = state_dir / f"{plan_id}.json"
+        plan = {
+            "version": PLAN_VERSION,
+            "scan_id": plan_id,
+            "created_at": _now_iso(),
+            "manifest_ok": True,
+            "baseline_entries_added": 0,
+            "pending_items": pending_items,
+            "process_paths": _plan_process_paths(pending_items, files),
+        }
+        _write_json_atomic(plan_path, plan)
+    return {"plan": plan, "plan_path": plan_path}
+
+
 def finalize_plan(vault_root: Path, plan_path: Path) -> dict:
     """Record successfully processed plan items that have not changed since scan."""
 
