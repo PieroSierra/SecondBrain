@@ -1862,35 +1862,69 @@ function _parsePromotions(text) {
   }
 }
 
-function _buildPromoteLauncher() {
-  const host = document.createElement("div");
-  host.className = "promote-host";
+// Proposals are transient but survive navigation within a session: keyed by
+// thread file, so a run that finishes while you are on another thread is waiting
+// for you when you return. In-memory only (cleared on a full page reload) — the
+// durable artifact is the raw/promotions/ record written on apply.
+const _promoteState = new Map(); // threadFile -> {status:'running'|'ready'|'error', promotions, errorText}
+
+// The discreet launcher — a ghost pill matching the app's maintenance buttons.
+function _renderPromoteLauncher(host) {
+  host.innerHTML = "";
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "promote-launch-btn";
+  btn.className = "promote-launch-btn sidebar-foot-btn";
   btn.textContent = "Promote what we just learned";
   btn.addEventListener("click", () => runPromote(host));
   host.appendChild(btn);
-  return host;
+}
+
+// In-progress state while the propose skill runs.
+function _renderPromoteRunning(host) {
+  host.innerHTML = "";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "promote-launch-btn sidebar-foot-btn";
+  btn.disabled = true;
+  btn.textContent = "Proposing…";
+  host.appendChild(btn);
+}
+
+// Paint whatever promote state a thread has (launcher / running / proposal /
+// error). Called on every thread render, so a result waits across navigation.
+function _renderPromoteHost(host, threadFile) {
+  const st = _promoteState.get(threadFile);
+  if (!st) { _renderPromoteLauncher(host); return; }
+  if (st.status === "running") { _renderPromoteRunning(host); return; }
+  if (st.status === "error") { renderPromoteProposal(host, null, st.errorText); return; }
+  renderPromoteProposal(host, st.promotions);
 }
 
 async function runPromote(host) {
   if (busyKind || !_currentThreadFile) return;
-  const launchBtn = host.querySelector(".promote-launch-btn");
-  if (launchBtn) launchBtn.disabled = true;
+  const threadFile = _currentThreadFile;
+  _promoteState.set(threadFile, { status: "running" });
+  _renderPromoteRunning(host);
   setBusy("promote");
   try {
     const { status, data } = await postJSON("/run", {
       kind: "promote",
-      args: { thread_file: _currentThreadFile },
+      args: { thread_file: threadFile },
     });
     if (status !== 200 || data.is_error) {
-      renderPromoteProposal(host, null, data.result || `HTTP ${status}`);
-      return;
+      _promoteState.set(threadFile, { status: "error", errorText: data.result || data.detail || `HTTP ${status}` });
+    } else {
+      _promoteState.set(threadFile, { status: "ready", promotions: _parsePromotions(data.result) });
     }
-    renderPromoteProposal(host, _parsePromotions(data.result));
+  } catch (err) {
+    _promoteState.set(threadFile, { status: "error", errorText: String((err && err.message) || err) });
   } finally {
     clearBusy();
+    // Only paint if the user is still on the thread that was promoted; otherwise
+    // the result waits in the map and _renderPromoteHost restores it on return.
+    if (_currentThreadFile === threadFile) {
+      _renderPromoteHost(document.querySelector(".promote-host") || host, threadFile);
+    }
   }
 }
 
@@ -1901,6 +1935,12 @@ function renderPromoteProposal(host, promotions, errorText) {
     msg.className = "promote-empty";
     msg.textContent = `Couldn't propose changes: ${errorText}`;
     host.appendChild(msg);
+    const retry = document.createElement("button");
+    retry.type = "button";
+    retry.className = "promote-launch-btn sidebar-foot-btn";
+    retry.textContent = "Try again";
+    retry.addEventListener("click", () => runPromote(host));
+    host.appendChild(retry);
     return;
   }
   if (!promotions || promotions.length === 0) {
@@ -1926,26 +1966,23 @@ function renderPromoteProposal(host, promotions, errorText) {
   footer.className = "promote-footer";
   const approveAll = document.createElement("button");
   approveAll.type = "button";
-  approveAll.className = "promote-approve-all";
+  approveAll.className = "promote-approve-all import-submit import-submit--ghost";
   approveAll.textContent = "Approve all";
   approveAll.addEventListener("click", () => {
-    panel.querySelectorAll(".promote-row").forEach((r) => {
-      r.dataset.approved = "yes";
-      r.className = "promote-row promote-row--approved";
-    });
+    panel.querySelectorAll(".promote-row").forEach((r) => _setRowApproved(r, true));
   });
   const applyBtn = document.createElement("button");
   applyBtn.type = "button";
-  applyBtn.className = "promote-apply-btn";
+  applyBtn.className = "promote-apply-btn import-submit";
   applyBtn.textContent = "Apply approved";
   applyBtn.addEventListener("click", () => applyPromotions(host));
   const cancelBtn = document.createElement("button");
   cancelBtn.type = "button";
-  cancelBtn.className = "promote-cancel-btn";
+  cancelBtn.className = "promote-cancel-btn import-submit import-submit--ghost";
   cancelBtn.textContent = "Cancel";
   cancelBtn.addEventListener("click", () => {
-    host.innerHTML = "";
-    host.appendChild(_buildPromoteLauncher().firstChild);
+    _promoteState.delete(_currentThreadFile);
+    _renderPromoteLauncher(host);
   });
   footer.append(approveAll, applyBtn, cancelBtn);
   panel.appendChild(footer);
@@ -1985,23 +2022,28 @@ function _buildPromoteRow(change) {
   actions.className = "promote-row-actions";
   const approve = document.createElement("button");
   approve.type = "button";
-  approve.className = "promote-approve";
+  approve.className = "promote-approve import-submit import-submit--ghost";
   approve.textContent = "Approve";
-  approve.addEventListener("click", () => {
-    row.dataset.approved = "yes";
-    row.className = "promote-row promote-row--approved";
-  });
+  approve.addEventListener("click", () => _setRowApproved(row, true));
   const reject = document.createElement("button");
   reject.type = "button";
-  reject.className = "promote-reject";
+  reject.className = "promote-reject import-submit import-submit--ghost";
   reject.textContent = "Reject";
-  reject.addEventListener("click", () => {
-    row.dataset.approved = "no";
-    row.className = "promote-row promote-row--rejected";
-  });
+  reject.addEventListener("click", () => _setRowApproved(row, false));
   actions.append(approve, reject);
   row.appendChild(actions);
   return row;
+}
+
+// Toggle a row's approval, mirroring the state onto the pill styling: the
+// chosen action fills with the accent so exactly one reads as selected.
+function _setRowApproved(row, approved) {
+  row.dataset.approved = approved ? "yes" : "no";
+  row.className = "promote-row " + (approved ? "promote-row--approved" : "promote-row--rejected");
+  const approve = row.querySelector(".promote-approve");
+  const reject = row.querySelector(".promote-reject");
+  if (approve) approve.className = "promote-approve import-submit" + (approved ? "" : " import-submit--ghost");
+  if (reject) reject.className = "promote-reject import-submit" + (approved ? " import-submit--ghost" : "");
 }
 
 async function applyPromotions(host) {
@@ -2024,17 +2066,23 @@ async function applyPromotions(host) {
       kind: "promote-apply",
       args: { thread_file: _currentThreadFile, changes },
     });
-    host.innerHTML = "";
-    const msg = document.createElement("div");
     if (status === 200 && !data.is_error) {
+      // Applied — the wiki now carries it; drop the transient proposal.
+      _promoteState.delete(_currentThreadFile);
+      host.innerHTML = "";
+      const msg = document.createElement("div");
       const arts = (data.articles || []).map((s) => `[[${s}]]`).join(", ");
       msg.className = "promote-done";
       msg.innerHTML = renderMarkdown(`✓ Promoted to ${arts || "the wiki"}.`);
+      host.appendChild(msg);
     } else {
-      msg.className = "promote-empty";
-      msg.textContent = `Apply failed: ${data.result || data.detail || `HTTP ${status}`}`;
+      // Keep the panel so the user can retry; surface the error inline.
+      host.querySelectorAll(".promote-apply-error").forEach((e) => e.remove());
+      const err = document.createElement("div");
+      err.className = "promote-empty promote-apply-error";
+      err.textContent = `Apply failed: ${data.result || data.detail || `HTTP ${status}`}`;
+      host.appendChild(err);
     }
-    host.appendChild(msg);
   } finally {
     clearBusy();
   }
@@ -2113,8 +2161,13 @@ function renderThreadView(container, md) {
   }
 
   // Promote control — only once the conversation is past its first answer.
+  // Restore any in-flight or completed proposal for this thread (survives
+  // navigating away and back within the session).
   if (_promoteUserTurnCount(md) >= 2 && _currentThreadFile) {
-    container.appendChild(_buildPromoteLauncher());
+    const promoteHost = document.createElement("div");
+    promoteHost.className = "promote-host";
+    container.appendChild(promoteHost);
+    _renderPromoteHost(promoteHost, _currentThreadFile);
   }
 
   // Status bar at the very bottom of the conversation — logo / spinner / done.

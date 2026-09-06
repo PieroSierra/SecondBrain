@@ -2828,56 +2828,64 @@ mark.search-hit {
   .sidebar, .nav-backdrop { transition-duration: 0.01ms; }
 }
 /* ── Promote what we just learned ─────────────────────────────────────── */
-.promote-host { margin: 12px 0 4px; }
-.promote-launch-btn {
-  font: inherit;
-  font-size: 0.85rem;
-  color: var(--muted, #667);
-  background: transparent;
-  border: 1px dashed var(--border, #ccd);
-  border-radius: 8px;
-  padding: 6px 12px;
-  cursor: pointer;
+/* Buttons reuse the app's pill system (.import-submit / .import-submit--ghost
+   for panel actions, .sidebar-foot-btn for the discreet launcher). The rules
+   here are layout and container styling only, on the shared design tokens. */
+.promote-host {
+  margin: 12px 0 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
 }
-.promote-launch-btn:hover { color: var(--text, #223); border-style: solid; }
-.promote-launch-btn:disabled { opacity: 0.5; cursor: default; }
 .promote-panel {
-  border: 1px solid var(--border, #ccd);
-  border-radius: 10px;
+  align-self: stretch;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
   padding: 12px;
-  margin: 12px 0;
-  background: var(--card, #fafaff);
+  margin: 4px 0;
+  background: var(--bg-elev);
 }
-.promote-heading { font-weight: 600; margin-bottom: 8px; }
+.promote-heading { font-weight: 600; margin-bottom: 8px; color: var(--ink); }
 .promote-row {
-  border: 1px solid var(--border, #ccd);
-  border-radius: 8px;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
   padding: 10px;
   margin: 8px 0;
+  background: var(--bg);
 }
-.promote-row--approved { border-color: #3a8; background: rgba(51,170,136,0.08); }
-.promote-row--rejected { opacity: 0.5; }
-.promote-row-meta { font-size: 0.8rem; color: var(--muted, #667); margin-bottom: 6px; }
+.promote-row--approved { border-color: var(--clay-ring); background: var(--clay-tint); }
+.promote-row--rejected { opacity: 0.55; }
+.promote-row-meta {
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+  margin-bottom: 6px;
+  text-transform: capitalize;
+}
 .promote-statement {
   width: 100%;
   font: inherit;
   box-sizing: border-box;
-  border: 1px solid var(--border, #ccd);
-  border-radius: 6px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
   padding: 6px 8px;
+  background: var(--bg-elev);
+  color: var(--ink);
   resize: vertical;
 }
-.promote-rationale { font-size: 0.8rem; color: var(--muted, #667); margin-top: 4px; font-style: italic; }
-.promote-row-actions, .promote-footer { display: flex; gap: 8px; margin-top: 8px; }
-.promote-footer { margin-top: 12px; }
-.promote-row-actions button, .promote-footer button {
-  font: inherit; font-size: 0.85rem; padding: 5px 12px;
-  border-radius: 6px; border: 1px solid var(--border, #ccd);
-  background: var(--card, #fff); cursor: pointer;
+.promote-rationale {
+  font-size: 0.8rem;
+  color: var(--ink-muted);
+  margin-top: 4px;
+  font-style: italic;
 }
-.promote-apply-btn { border-color: #3a8; color: #276; font-weight: 600; }
+.promote-row-actions,
+.promote-footer { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.promote-footer { margin-top: 12px; }
 .promote-empty, .promote-done {
-  font-size: 0.9rem; color: var(--muted, #667);
+  font-size: 0.9rem;
+  color: var(--ink-muted);
   padding: 8px 0;
 }
-.promote-done { color: #276; }
+.promote-done { color: var(--success-ink); }
+.promote-apply-error { color: var(--error-ink); }
