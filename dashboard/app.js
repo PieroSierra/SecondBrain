@@ -1843,6 +1843,203 @@ function _threadTitleFromMarkdown(md) {
  * User turns → right-aligned plain-text pill.
  * Assistant turns → left-aligned full-markdown block.
  */
+// Count user turns in a thread's raw markdown — the promote control only
+// appears once a conversation has gone past its first retrieval answer.
+function _promoteUserTurnCount(md) {
+  return (md.match(/<!--\s*sb:turn\s+[^>]*role="user"/g) || []).length;
+}
+
+// Extract the trailing ```json proposal block the promote skill emits.
+function _parsePromotions(text) {
+  const fences = String(text || "").match(/```json\s*([\s\S]*?)```/g) || [];
+  if (!fences.length) return [];
+  const last = fences[fences.length - 1].replace(/```json\s*/, "").replace(/```$/, "");
+  try {
+    const parsed = JSON.parse(last);
+    return Array.isArray(parsed.promotions) ? parsed.promotions : [];
+  } catch {
+    return [];
+  }
+}
+
+function _buildPromoteLauncher() {
+  const host = document.createElement("div");
+  host.className = "promote-host";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "promote-launch-btn";
+  btn.textContent = "Promote what we just learned";
+  btn.addEventListener("click", () => runPromote(host));
+  host.appendChild(btn);
+  return host;
+}
+
+async function runPromote(host) {
+  if (busyKind || !_currentThreadFile) return;
+  const launchBtn = host.querySelector(".promote-launch-btn");
+  if (launchBtn) launchBtn.disabled = true;
+  setBusy("promote");
+  try {
+    const { status, data } = await postJSON("/run", {
+      kind: "promote",
+      args: { thread_file: _currentThreadFile },
+    });
+    if (status !== 200 || data.is_error) {
+      renderPromoteProposal(host, null, data.result || `HTTP ${status}`);
+      return;
+    }
+    renderPromoteProposal(host, _parsePromotions(data.result));
+  } finally {
+    clearBusy();
+  }
+}
+
+function renderPromoteProposal(host, promotions, errorText) {
+  host.innerHTML = "";
+  if (errorText) {
+    const msg = document.createElement("div");
+    msg.className = "promote-empty";
+    msg.textContent = `Couldn't propose changes: ${errorText}`;
+    host.appendChild(msg);
+    return;
+  }
+  if (!promotions || promotions.length === 0) {
+    const msg = document.createElement("div");
+    msg.className = "promote-empty";
+    msg.textContent = "Nothing worth promoting from this conversation.";
+    host.appendChild(msg);
+    return;
+  }
+
+  const panel = document.createElement("div");
+  panel.className = "promote-panel";
+  const heading = document.createElement("div");
+  heading.className = "promote-heading";
+  heading.textContent = "Proposed knowledge changes";
+  panel.appendChild(heading);
+
+  promotions.forEach((change, i) => {
+    panel.appendChild(_buildPromoteRow({ ...change, id: change.id || `p${i + 1}` }));
+  });
+
+  const footer = document.createElement("div");
+  footer.className = "promote-footer";
+  const approveAll = document.createElement("button");
+  approveAll.type = "button";
+  approveAll.className = "promote-approve-all";
+  approveAll.textContent = "Approve all";
+  approveAll.addEventListener("click", () => {
+    panel.querySelectorAll(".promote-row").forEach((r) => {
+      r.dataset.approved = "yes";
+      r.className = "promote-row promote-row--approved";
+    });
+  });
+  const applyBtn = document.createElement("button");
+  applyBtn.type = "button";
+  applyBtn.className = "promote-apply-btn";
+  applyBtn.textContent = "Apply approved";
+  applyBtn.addEventListener("click", () => applyPromotions(host));
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "promote-cancel-btn";
+  cancelBtn.textContent = "Cancel";
+  cancelBtn.addEventListener("click", () => {
+    host.innerHTML = "";
+    host.appendChild(_buildPromoteLauncher().firstChild);
+  });
+  footer.append(approveAll, applyBtn, cancelBtn);
+  panel.appendChild(footer);
+  host.appendChild(panel);
+}
+
+function _buildPromoteRow(change) {
+  const row = document.createElement("div");
+  row.className = "promote-row";
+  row.dataset.approved = "no";
+  row.dataset.type = change.type || "update";
+  row.dataset.targetSlug = change.target_slug || "";
+  row.dataset.targetTitle = change.target_title || "";
+  row.dataset.isNewTopic = change.is_new_topic ? "yes" : "no";
+  row.dataset.rationale = change.rationale || "";
+
+  const meta = document.createElement("div");
+  meta.className = "promote-row-meta";
+  const target = change.target_title || change.target_slug || "(new topic)";
+  meta.textContent = `${change.type || "update"} → ${target}`;
+  row.appendChild(meta);
+
+  const box = document.createElement("textarea");
+  box.className = "promote-statement";
+  box.value = change.statement || "";
+  box.rows = 3;
+  row.appendChild(box);
+
+  if (change.rationale) {
+    const why = document.createElement("div");
+    why.className = "promote-rationale";
+    why.textContent = change.rationale;
+    row.appendChild(why);
+  }
+
+  const actions = document.createElement("div");
+  actions.className = "promote-row-actions";
+  const approve = document.createElement("button");
+  approve.type = "button";
+  approve.className = "promote-approve";
+  approve.textContent = "Approve";
+  approve.addEventListener("click", () => {
+    row.dataset.approved = "yes";
+    row.className = "promote-row promote-row--approved";
+  });
+  const reject = document.createElement("button");
+  reject.type = "button";
+  reject.className = "promote-reject";
+  reject.textContent = "Reject";
+  reject.addEventListener("click", () => {
+    row.dataset.approved = "no";
+    row.className = "promote-row promote-row--rejected";
+  });
+  actions.append(approve, reject);
+  row.appendChild(actions);
+  return row;
+}
+
+async function applyPromotions(host) {
+  if (busyKind || !_currentThreadFile) return;
+  const rows = [...host.querySelectorAll('.promote-row[data-approved="yes"]')];
+  if (!rows.length) return;
+  const changes = rows.map((r) => ({
+    type: r.dataset.type,
+    target_slug: r.dataset.targetSlug,
+    target_title: r.dataset.targetTitle,
+    is_new_topic: r.dataset.isNewTopic === "yes",
+    statement: r.querySelector(".promote-statement").value.trim(),
+    rationale: r.dataset.rationale,
+  })).filter((c) => c.statement && c.target_slug);
+  if (!changes.length) return;
+
+  setBusy("promote-apply");
+  try {
+    const { status, data } = await postJSON("/run", {
+      kind: "promote-apply",
+      args: { thread_file: _currentThreadFile, changes },
+    });
+    host.innerHTML = "";
+    const msg = document.createElement("div");
+    if (status === 200 && !data.is_error) {
+      const arts = (data.articles || []).map((s) => `[[${s}]]`).join(", ");
+      msg.className = "promote-done";
+      msg.innerHTML = renderMarkdown(`✓ Promoted to ${arts || "the wiki"}.`);
+    } else {
+      msg.className = "promote-empty";
+      msg.textContent = `Apply failed: ${data.result || data.detail || `HTTP ${status}`}`;
+    }
+    host.appendChild(msg);
+  } finally {
+    clearBusy();
+  }
+}
+
 function renderThreadView(container, md) {
   // Clean up any running status timer before replacing the DOM.
   if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
@@ -1913,6 +2110,11 @@ function renderThreadView(container, md) {
 
       container.appendChild(turn);
     }
+  }
+
+  // Promote control — only once the conversation is past its first answer.
+  if (_promoteUserTurnCount(md) >= 2 && _currentThreadFile) {
+    container.appendChild(_buildPromoteLauncher());
   }
 
   // Status bar at the very bottom of the conversation — logo / spinner / done.
