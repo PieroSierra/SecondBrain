@@ -2828,9 +2828,10 @@ mark.search-hit {
   .sidebar, .nav-backdrop { transition-duration: 0.01ms; }
 }
 /* ── Promote what we just learned ─────────────────────────────────────── */
-/* Buttons reuse the app's pill system (.import-submit / .import-submit--ghost
-   for panel actions, .sidebar-foot-btn for the discreet launcher). The rules
-   here are layout and container styling only, on the shared design tokens. */
+/* Panel actions (Approve all / Apply approved / Cancel) reuse the app's pill
+   system (.import-submit / .import-submit--ghost). The launcher and the per-row
+   Approve/Reject are self-contained pills so they can carry their own dotted
+   outline and green/pink semantics without fighting the shared pill hovers. */
 .promote-host {
   margin: 12px 0 4px;
   display: flex;
@@ -2838,6 +2839,29 @@ mark.search-hit {
   gap: 8px;
   align-items: flex-start;
 }
+/* Launcher: a discreet, text-sized pill with a dotted grey outline; a light
+   pink wash on hover marks it as a suggestion, not a required action. */
+.promote-launch-btn {
+  align-self: flex-start;
+  width: auto;
+  padding: 8px 16px;
+  border: 1px dotted var(--rule-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elev);
+  color: var(--ink-muted);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.promote-launch-btn:hover {
+  background: var(--clay-tint);
+  border-color: var(--clay-ring);
+  color: var(--clay-deep);
+}
+.promote-launch-btn:disabled { opacity: 0.5; cursor: default; }
 .promote-panel {
   align-self: stretch;
   border: 1px solid var(--rule);
@@ -2854,8 +2878,11 @@ mark.search-hit {
   margin: 8px 0;
   background: var(--bg);
 }
-.promote-row--approved { border-color: var(--clay-ring); background: var(--clay-tint); }
-.promote-row--rejected { opacity: 0.55; }
+.promote-row--approved { border-color: var(--success-rule); background: var(--success-bg); }
+.promote-row--rejected { border-color: var(--clay-ring); background: var(--clay-tint); }
+.promote-row--rejected .promote-row-meta,
+.promote-row--rejected .promote-statement,
+.promote-row--rejected .promote-rationale { opacity: 0.5; }
 .promote-row-meta {
   font-size: 0.78rem;
   color: var(--ink-muted);
@@ -2882,6 +2909,43 @@ mark.search-hit {
 .promote-row-actions,
 .promote-footer { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .promote-footer { margin-top: 12px; }
+/* Per-row Approve / Reject: ghost pills by default. Approve leans green, Reject
+   leans pink (clay) — on hover and, more strongly, once selected. */
+.promote-approve,
+.promote-reject {
+  align-self: flex-start;
+  padding: 8px 16px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius-pill);
+  background: var(--bg-elev);
+  color: var(--ink);
+  font-family: var(--font-body);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.promote-approve:hover {
+  background: var(--success-bg);
+  border-color: var(--success-rule);
+  color: var(--success-ink);
+}
+.promote-reject:hover {
+  background: var(--clay-tint);
+  border-color: var(--clay-ring);
+  color: var(--clay-deep);
+}
+.promote-approve.is-on {
+  background: var(--success-ink);
+  border-color: var(--success-ink);
+  color: #fff;
+}
+.promote-reject.is-on {
+  background: var(--clay);
+  border-color: var(--clay);
+  color: #fff;
+}
 .promote-empty, .promote-done {
   font-size: 0.9rem;
   color: var(--ink-muted);

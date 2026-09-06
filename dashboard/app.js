@@ -1873,7 +1873,7 @@ function _renderPromoteLauncher(host) {
   host.innerHTML = "";
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "promote-launch-btn sidebar-foot-btn";
+  btn.className = "promote-launch-btn";
   btn.textContent = "Promote what we just learned";
   btn.addEventListener("click", () => runPromote(host));
   host.appendChild(btn);
@@ -1884,7 +1884,7 @@ function _renderPromoteRunning(host) {
   host.innerHTML = "";
   const btn = document.createElement("button");
   btn.type = "button";
-  btn.className = "promote-launch-btn sidebar-foot-btn";
+  btn.className = "promote-launch-btn";
   btn.disabled = true;
   btn.textContent = "Proposing…";
   host.appendChild(btn);
@@ -1937,7 +1937,7 @@ function renderPromoteProposal(host, promotions, errorText) {
     host.appendChild(msg);
     const retry = document.createElement("button");
     retry.type = "button";
-    retry.className = "promote-launch-btn sidebar-foot-btn";
+    retry.className = "promote-launch-btn";
     retry.textContent = "Try again";
     retry.addEventListener("click", () => runPromote(host));
     host.appendChild(retry);
@@ -2022,12 +2022,12 @@ function _buildPromoteRow(change) {
   actions.className = "promote-row-actions";
   const approve = document.createElement("button");
   approve.type = "button";
-  approve.className = "promote-approve import-submit import-submit--ghost";
+  approve.className = "promote-approve";
   approve.textContent = "Approve";
   approve.addEventListener("click", () => _setRowApproved(row, true));
   const reject = document.createElement("button");
   reject.type = "button";
-  reject.className = "promote-reject import-submit import-submit--ghost";
+  reject.className = "promote-reject";
   reject.textContent = "Reject";
   reject.addEventListener("click", () => _setRowApproved(row, false));
   actions.append(approve, reject);
@@ -2042,8 +2042,8 @@ function _setRowApproved(row, approved) {
   row.className = "promote-row " + (approved ? "promote-row--approved" : "promote-row--rejected");
   const approve = row.querySelector(".promote-approve");
   const reject = row.querySelector(".promote-reject");
-  if (approve) approve.className = "promote-approve import-submit" + (approved ? "" : " import-submit--ghost");
-  if (reject) reject.className = "promote-reject import-submit" + (approved ? " import-submit--ghost" : "");
+  if (approve) approve.classList.toggle("is-on", approved);
+  if (reject) reject.classList.toggle("is-on", !approved);
 }
 
 async function applyPromotions(host) {
