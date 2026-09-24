@@ -3255,7 +3255,10 @@ rawModal?.addEventListener("click", (e) => {
   if (e.target.closest("[data-raw-close]")) closeRawModal();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && rawModal && !rawModal.hidden) closeRawModal();
+  if (e.key === "Escape" && rawModal && !rawModal.hidden) {
+    e.preventDefault();
+    closeRawModal();
+  }
 });
 
 // ── Image viewer ─────────────────────────────────────────────────────────
@@ -3303,7 +3306,10 @@ imageModal?.addEventListener("click", (e) => {
   if (e.target.closest("[data-image-close]")) closeImageViewer();
 });
 document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape" && imageModal && !imageModal.hidden) closeImageViewer();
+  if (e.key === "Escape" && imageModal && !imageModal.hidden) {
+    e.preventDefault();
+    closeImageViewer();
+  }
 });
 
 // ── Search overlay ─────────────────────────────────────────────────────────
