@@ -472,6 +472,18 @@
     </div>
   </div>
 
+  <!-- Image viewer: one attachment shown large. Reuses the raw-modal scrim/sheet. -->
+  <div id="image-modal" class="raw-modal" hidden>
+    <div class="raw-modal-scrim" data-image-close></div>
+    <div class="raw-modal-sheet image-modal-sheet" role="dialog" aria-modal="true" aria-label="Image">
+      <header class="raw-modal-head">
+        <span class="raw-modal-path image-modal-name"></span>
+        <button type="button" class="raw-modal-close" data-image-close aria-label="Close">×</button>
+      </header>
+      <div class="image-modal-body"><img class="image-modal-img" alt=""></div>
+    </div>
+  </div>
+
   <!-- Search overlay: keyword search across answers + wiki. Reuses the
        raw-modal scrim/positioning; opened by the sidebar magnifier or ⌘K. -->
   <div id="search-modal" class="raw-modal search-modal" hidden>

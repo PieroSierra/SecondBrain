@@ -203,6 +203,8 @@ export class AttachmentTray {
       const img = document.createElement("img");
       img.src = item.url;
       img.alt = item.file.name || `Image ${index + 1}`;
+      img.tabIndex = 0;
+      img.setAttribute("role", "button");
       chip.appendChild(img);
       const remove = document.createElement("button");
       remove.type = "button";

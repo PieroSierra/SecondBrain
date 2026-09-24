@@ -2177,6 +2177,8 @@ let _threadImageUrls = [];
 function _attachmentImage(name) {
   const img = document.createElement("img");
   img.alt = name;
+  img.tabIndex = 0;
+  img.setAttribute("role", "button");
   apiFetch(`/attachments/${encodeURIComponent(name)}`)
     .then((res) => (res.ok ? res.blob() : null))
     .then((blob) => {
@@ -2344,6 +2346,8 @@ function _optimisticUserBubble(question, images) {
       const img = document.createElement("img");
       img.src = item.url;
       img.alt = item.file.name || "Attached image";
+      img.tabIndex = 0;
+      img.setAttribute("role", "button");
       strip.appendChild(img);
     }
     bubble.appendChild(strip);
@@ -3255,6 +3259,54 @@ rawModal?.addEventListener("click", (e) => {
 });
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && rawModal && !rawModal.hidden) closeRawModal();
+});
+
+// ── Image viewer ─────────────────────────────────────────────────────────
+// Shows one attachment thumbnail (query/paste tray or thread bubble) large.
+// It copies the thumbnail's src when it opens and keeps no reference to the
+// element, so re-renders that remove the thumbnail don't affect it.
+
+const imageModal = document.getElementById("image-modal");
+const THUMB_SELECTOR = ".attach-chip img, .thread-bubble-images img";
+
+function openImageViewer(src, name) {
+  if (!imageModal || !src) return;
+  const img = imageModal.querySelector(".image-modal-img");
+  const nameEl = imageModal.querySelector(".image-modal-name");
+  if (img) { img.src = src; img.alt = name || ""; }
+  if (nameEl) nameEl.textContent = name || "";
+  imageModal.hidden = false;
+}
+
+function closeImageViewer() {
+  if (!imageModal) return;
+  imageModal.hidden = true;
+  imageModal.querySelector(".image-modal-img")?.removeAttribute("src");
+}
+
+// The thumbnail under an event, or null if it is missing or still loading.
+function _viewableThumb(target) {
+  const img = target instanceof Element ? target.closest(THUMB_SELECTOR) : null;
+  if (!img || img.classList.contains("is-missing") || !img.getAttribute("src")) return null;
+  return img;
+}
+
+document.addEventListener("click", (e) => {
+  const img = _viewableThumb(e.target);
+  if (img) openImageViewer(img.src, img.alt);
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" && e.key !== " ") return;
+  const img = _viewableThumb(e.target);
+  if (!img) return;
+  e.preventDefault();
+  openImageViewer(img.src, img.alt);
+});
+imageModal?.addEventListener("click", (e) => {
+  if (e.target.closest("[data-image-close]")) closeImageViewer();
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && imageModal && !imageModal.hidden) closeImageViewer();
 });
 
 // ── Search overlay ─────────────────────────────────────────────────────────

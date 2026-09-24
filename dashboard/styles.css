@@ -2461,6 +2461,13 @@ form.attach-drop-active {
   padding: 20px 24px 28px;
 }
 
+/* Image viewer: the sheet shrinks to the image instead of the 760px text width. */
+.image-modal-sheet { width: auto; max-width: min(1200px, 94vw); max-height: 92dvh; overflow: hidden; }
+.image-modal-body { display: flex; align-items: center; justify-content: center; padding: 16px; background: var(--bg-subtle); min-height: 0; }
+.image-modal-img { display: block; max-width: 100%; max-height: calc(92dvh - 90px); object-fit: contain; border-radius: 8px; }
+.attach-chip img, .thread-bubble-images img { cursor: zoom-in; }
+.attach-chip img:focus-visible, .thread-bubble-images img:focus-visible { outline: 2px solid var(--clay); outline-offset: 2px; }
+
 /* ── Search overlay ── */
 /* Top-anchored (spotlight feel) rather than vertically centred. */
 .search-modal { align-items: flex-start; padding-top: 12dvh; }
