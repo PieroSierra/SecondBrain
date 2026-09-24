@@ -6,6 +6,8 @@
  * No framework. ES module loaded after the vendored `marked` global.
  */
 
+import { AttachmentTray } from "./attachments.js";
+
 // ---------------------------------------------------------------------------
 // Shared utilities
 // ---------------------------------------------------------------------------
@@ -40,6 +42,15 @@ async function postJSON(path, body) {
     data = { error: "bad_response", detail: `HTTP ${res.status} (non-JSON)` };
   }
   return { status: res.status, data };
+}
+
+// Form body for POST /run-multipart: a /run kind and args plus image files.
+function imagesFormData(kind, args, files) {
+  const fd = new FormData();
+  fd.append("kind", kind);
+  fd.append("args", JSON.stringify(args));
+  for (const file of files) fd.append("image", file, file.name || "image.png");
+  return fd;
 }
 
 async function postMultipart(path, formData) {
@@ -1027,8 +1038,11 @@ function clearImportStatus(form) {
   }
 }
 
+// Returns "ok", "stopped", "error" or "busy". For a batch, pass
+// opts.createdSoFar (an array collecting every created file) and opts.progress
+// (e.g. "2 of 3") so the status panel lists the whole batch.
 async function runImport(form, kind, opts) {
-  if (busyKind) return;
+  if (busyKind) return "busy";
   const opNode = form.querySelector("[data-op-status]");
   clearImportStatus(form);
   clearDupeWarning(form);
@@ -1039,7 +1053,7 @@ async function runImport(form, kind, opts) {
       ? await postMultipart(opts.url, opts.formData)
       : await postJSON(opts.url, opts.body);
 
-    if (isStopped(data)) { opStopped(opNode); return; }
+    if (isStopped(data)) { opStopped(opNode); return "stopped"; }
 
     // Optional opt-in callback that gets first look at any 200 envelope
     // (including is_error:true). Used by web-import to detect
@@ -1049,13 +1063,13 @@ async function runImport(form, kind, opts) {
     // identically to before.
     if (status === 200 && opts.onResult) {
       const handled = opts.onResult(data, opNode);
-      if (handled) return;
+      if (handled) return "ok";
     }
 
     const err = envelopeError(kind, status, data);
     if (err !== null) {
       opError(opNode, err);
-      return;
+      return "error";
     }
     const created = Array.isArray(data.created_files) ? data.created_files : [];
     const resultText = (data.result || "").trim();
@@ -1067,23 +1081,28 @@ async function runImport(form, kind, opts) {
     if (created.length === 0 && !skillSucceeded) {
       // Real failure — surface the skill's own explanation.
       opError(opNode, resultText || "No file was created.");
-      return;
+      return "error";
     }
+    const allCreated = [...(opts.createdSoFar || []), ...created];
+    if (opts.createdSoFar) opts.createdSoFar.push(...created);
     // Headline reflects what actually happened.
     let headline;
-    if (created.length === 0) {
+    if (allCreated.length === 0) {
       headline = "Already imported.";
-    } else if (created.length === 1) {
+    } else if (allCreated.length === 1) {
       headline = "Added 1 file.";
     } else {
-      headline = `Added ${created.length} files.`;
+      headline = `Added ${allCreated.length} files.`;
     }
-    showImportStatus(form, "success", headline, created);
+    if (opts.progress) headline = `${headline.slice(0, -1)} (${opts.progress}).`;
+    showImportStatus(form, "success", headline, allCreated);
     opDone(opNode, kind, data.duration_ms);
     if (opts.onSuccess) opts.onSuccess(data);
     refreshStatus();
+    return "ok";
   } catch (e) {
     opError(opNode, `Network error: ${e?.message ?? e}`);
+    return "error";
   } finally {
     clearBusy();
   }
@@ -1094,24 +1113,39 @@ async function runImport(form, kind, opts) {
 const pasteForm = $("#paste-form");
 const pasteTitle = $("#paste-title");
 const pasteBody = $("#paste-body");
+const pasteTray = new AttachmentTray({
+  tray: $("#paste-tray"),
+  button: $("#paste-attach"),
+  pasteTarget: pasteBody,
+  dropTarget: pasteForm,
+  onError: (msg) => opError(pasteForm.querySelector("[data-op-status]"), msg),
+});
 
 pasteForm.addEventListener("submit", (e) => {
   e.preventDefault();
   const markdown = pasteBody.value;
-  if (!markdown.trim()) {
-    opError(pasteForm.querySelector("[data-op-status]"), "Paste some Markdown first.");
+  if (!markdown.trim() && pasteTray.count === 0) {
+    opError(pasteForm.querySelector("[data-op-status]"), "Paste some Markdown or images first.");
     return;
   }
   const args = { markdown };
   const title = pasteTitle.value.trim();
   if (title) args.title_hint = title;
+  const onSuccess = () => {
+    pasteBody.value = "";
+    pasteTitle.value = "";
+    pasteTray.clear();
+  };
+  if (pasteTray.count === 0) {
+    runImport(pasteForm, "md-add", { url: "/run", body: { kind: "md-add", args }, onSuccess });
+    return;
+  }
+  // With images, the bridge has the model describe them and writes one note.
   runImport(pasteForm, "md-add", {
-    url: "/run",
-    body: { kind: "md-add", args },
-    onSuccess: () => {
-      pasteBody.value = "";
-      pasteTitle.value = "";
-    },
+    url: "/run-multipart",
+    upload: true,
+    formData: imagesFormData("md-add", args, pasteTray.files()),
+    onSuccess,
   });
 });
 
@@ -1142,14 +1176,16 @@ const fileDropzone = fileForm.querySelector("[data-dropzone]");
 const FILE_FILENAME_EMPTY = "No file selected";
 
 function syncFileFilename() {
-  const file = fileInput.files?.[0];
-  if (file) {
-    fileFilename.textContent = file.name;
+  const files = [...(fileInput.files || [])];
+  if (files.length) {
+    fileFilename.textContent =
+      files.length === 1 ? files[0].name : `${files.length} files: ${files.map((f) => f.name).join(", ")}`;
     fileFilename.classList.remove("file-picker-name-empty");
     fileClear.hidden = false;
     // Selecting or dropping a file is the moment to check for a prior import
     // (drag-drop sets .files without firing "change", so we hook it here).
-    dedupeCheck(fileForm, "file", { filename: file.name });
+    if (files.length === 1) dedupeCheck(fileForm, "file", { filename: files[0].name });
+    else clearDupeWarning(fileForm);
   } else {
     fileFilename.textContent = FILE_FILENAME_EMPTY;
     fileFilename.classList.add("file-picker-name-empty");
@@ -1215,42 +1251,48 @@ fileDropzone.addEventListener("drop", (e) => {
   e.preventDefault();
   dragDepth = 0;
   fileDropzone.classList.remove("dropzone-active", "dropzone-reject");
-  const files = e.dataTransfer?.files;
-  if (!files || files.length === 0) return;
-  const file = files[0];
-  if (!isAcceptedFile(file)) {
+  const files = [...(e.dataTransfer?.files || [])];
+  if (files.length === 0) return;
+  const rejected = files.filter((f) => !isAcceptedFile(f));
+  if (rejected.length) {
     opError(
       fileForm.querySelector("[data-op-status]"),
-      `${file.name || "That file"} is not a supported type (PDF, PowerPoint, Word, Excel, CSV, image, or plain text).`,
+      `${rejected.map((f) => f.name || "A file").join(", ")} ${rejected.length === 1 ? "is" : "are"} not a supported type (PDF, PowerPoint, Word, Excel, CSV, image, or plain text).`,
     );
     return;
   }
   const dt = new DataTransfer();
-  dt.items.add(file);
+  for (const file of files) dt.items.add(file);
   fileInput.files = dt.files;
   syncFileFilename();
 });
 
-fileForm.addEventListener("submit", (e) => {
+// Files upload one per request, in order, so each keeps the single-file
+// import path. A Stop or an error ends the batch.
+fileForm.addEventListener("submit", async (e) => {
   e.preventDefault();
-  const file = fileInput.files?.[0];
-  if (!file) {
+  const files = [...(fileInput.files || [])];
+  if (!files.length) {
     opError(fileForm.querySelector("[data-op-status]"), "Select a file first.");
     return;
   }
-  const fd = new FormData();
-  fd.append("file", file);
   const ctx = fileContext.value.trim();
-  if (ctx) fd.append("context", ctx);
-  runImport(fileForm, "file-import", {
-    url: "/upload-file",
-    upload: true,
-    formData: fd,
-    onSuccess: () => {
-      fileForm.reset();
-      syncFileFilename();
-    },
-  });
+  const createdSoFar = [];
+  for (let i = 0; i < files.length; i += 1) {
+    const fd = new FormData();
+    fd.append("file", files[i]);
+    if (ctx) fd.append("context", ctx);
+    const outcome = await runImport(fileForm, "file-import", {
+      url: "/upload-file",
+      upload: true,
+      formData: fd,
+      createdSoFar: files.length > 1 ? createdSoFar : undefined,
+      progress: files.length > 1 ? `${i + 1} of ${files.length}` : undefined,
+    });
+    if (outcome !== "ok") return;
+  }
+  fileForm.reset();
+  syncFileFilename();
 });
 
 // --- Craft ----------------------------------------------------------------
@@ -1680,15 +1722,30 @@ const threadReplyInput  = document.getElementById("thread-reply-input");
 const threadReplyBtn    = document.getElementById("thread-reply-btn");
 const threadReplyOpSt   = document.getElementById("thread-reply-op-status");
 
+// Images attached to the next question. The tray stays usable while a run is
+// in flight so the next question can be prepared.
+const barTray = new AttachmentTray({
+  tray: document.getElementById("thread-reply-tray"),
+  button: document.getElementById("thread-reply-attach"),
+  pasteTarget: threadReplyInput,
+  dropTarget: threadReplyBar,
+  onError: (msg) => opError(threadReplyOpSt, msg),
+  onChange: (tray) => {
+    document.body.classList.toggle("bar-has-attachments", tray.count > 0);
+    if (tray.count > 0) opClear(threadReplyOpSt);
+  },
+});
+
 // Tracks which thread file the output viewer is currently showing.
 let _currentThreadFile = null;
 
-// While a follow-up reply is in flight, remember which thread it belongs to and
-// the question text. This survives navigating away and back: the pending turn is
-// not written to the thread file until the answer returns, so re-rendering from
-// disk would otherwise drop the question + spinner and look prematurely "done".
-// Mirrors the _delintInFlight pattern used for lint actions.
-let _pendingReply = null; // { threadFile, question } | null
+// While a follow-up reply is in flight, remember which thread it belongs to,
+// the question text and its attached images. This survives navigating away and
+// back: the pending turn is not written to the thread file until the answer
+// returns, so re-rendering from disk would otherwise drop the question +
+// spinner and look prematurely "done". Mirrors the _delintInFlight pattern used
+// for lint actions.
+let _pendingReply = null; // { threadFile, question, images } | null
 
 // Tracks the query bar's current mode: "home" (new thread) or "reply" (continue thread).
 let _barMode = "home";
@@ -2096,9 +2153,47 @@ async function applyPromotions(host) {
   }
 }
 
+// Image lines the bridge adds to a user turn: ![image n](attachments/<file>).
+// Only this exact form is treated as an image; anything else stays text.
+const TURN_IMAGE_RE = /^!\[[^\]\n]*\]\(attachments\/([A-Za-z0-9_.-]+\.(?:png|jpe?g|gif|webp))\)$/;
+
+function _splitTurnImages(body) {
+  const images = [];
+  const kept = [];
+  for (const line of body.split("\n")) {
+    const m = line.trim().match(TURN_IMAGE_RE);
+    if (m) images.push(m[1]);
+    else kept.push(line);
+  }
+  return { text: kept.join("\n").trim(), images };
+}
+
+// Blob URLs for thread images currently on screen; revoked on re-render.
+let _threadImageUrls = [];
+
+// An <img> for outputs/attachments/<name>. The bridge needs the token header,
+// which a plain <img src> can't send, so the bytes are fetched and shown
+// through a blob URL.
+function _attachmentImage(name) {
+  const img = document.createElement("img");
+  img.alt = name;
+  apiFetch(`/attachments/${encodeURIComponent(name)}`)
+    .then((res) => (res.ok ? res.blob() : null))
+    .then((blob) => {
+      if (!blob) { img.classList.add("is-missing"); return; }
+      const url = URL.createObjectURL(blob);
+      _threadImageUrls.push(url);
+      img.src = url;
+    })
+    .catch(() => img.classList.add("is-missing"));
+  return img;
+}
+
 function renderThreadView(container, md) {
   // Clean up any running status timer before replacing the DOM.
   if (_threadStatusTimer) { clearInterval(_threadStatusTimer); _threadStatusTimer = null; }
+  for (const url of _threadImageUrls) URL.revokeObjectURL(url);
+  _threadImageUrls = [];
 
   container.innerHTML = "";
   const TURN_RE = /<!--\s*sb:turn\s+([^>]+?)-->/g;
@@ -2126,7 +2221,18 @@ function renderThreadView(container, md) {
       const bubble = document.createElement("div");
       bubble.className = "thread-bubble thread-bubble--user";
       if (ts) bubble.title = ts;
-      bubble.textContent = body;
+      const { text, images } = _splitTurnImages(body);
+      if (text) {
+        const textEl = document.createElement("div");
+        textEl.textContent = text;
+        bubble.appendChild(textEl);
+      }
+      if (images.length) {
+        const strip = document.createElement("div");
+        strip.className = "thread-bubble-images";
+        for (const name of images) strip.appendChild(_attachmentImage(name));
+        bubble.appendChild(strip);
+      }
       container.appendChild(bubble);
     } else {
       // Wrap assistant turn: bubble + copy row, all in .thread-turn.
@@ -2194,13 +2300,55 @@ function renderThreadView(container, md) {
 async function handleBarSubmit() {
   if (!threadReplyInput) return;
   const question = threadReplyInput.value.trim();
-  if (!question) return;
+  if (!question && barTray.count === 0) return;
   if (busyKind) return;
+  // The attachments go with this question; the tray is free for the next one.
+  const images = barTray.snapshot();
+  barTray.clear();
   if (_barMode === "home") {
-    await _optimisticThreadStart(question);
+    await _optimisticThreadStart(question, images);
   } else {
-    await _threadReply(question);
+    await _threadReply(question, images);
   }
+}
+
+// Send a thread question, as multipart when images are attached.
+function _postThreadRun(kind, args, images) {
+  if (!images.length) return postJSON("/run", { kind, args });
+  return postMultipart(
+    "/run-multipart",
+    imagesFormData(kind, args, images.map((item) => item.file)),
+  );
+}
+
+// Put a stopped question's text and images back in the composer.
+function _restoreQuestion(question, images) {
+  if (threadReplyInput) { threadReplyInput.value = question; sizeReplyInput(); }
+  if (images.length) barTray.restore(images);
+}
+
+// The user's question bubble before the thread file has it: the text plus
+// thumbnails of the attached images (data URLs from the tray).
+function _optimisticUserBubble(question, images) {
+  const bubble = document.createElement("div");
+  bubble.className = "thread-bubble thread-bubble--user";
+  if (question) {
+    const text = document.createElement("div");
+    text.textContent = question;
+    bubble.appendChild(text);
+  }
+  if (images.length) {
+    const strip = document.createElement("div");
+    strip.className = "thread-bubble-images";
+    for (const item of images) {
+      const img = document.createElement("img");
+      img.src = item.url;
+      img.alt = item.file.name || "Attached image";
+      strip.appendChild(img);
+    }
+    bubble.appendChild(strip);
+  }
+  return bubble;
 }
 
 // While an op runs the send button is a Stop control. Clicking it asks the
@@ -2230,7 +2378,7 @@ function isStopped(data) {
 }
 
 // Home mode: navigate immediately, show user bubble + spinner, fill in real content on return.
-async function _optimisticThreadStart(question) {
+async function _optimisticThreadStart(question, images = []) {
   setBusy("thread-start");
 
   const panel    = document.getElementById("panel-output-viewer");
@@ -2248,10 +2396,7 @@ async function _optimisticThreadStart(question) {
 
   if (bodyEl) {
     bodyEl.innerHTML = "";
-    const bubble = document.createElement("div");
-    bubble.className = "thread-bubble thread-bubble--user";
-    bubble.textContent = question;
-    bodyEl.appendChild(bubble);
+    bodyEl.appendChild(_optimisticUserBubble(question, images));
     const statusBar = document.createElement("div");
     statusBar.className = "thread-status-bar";
     bodyEl.appendChild(statusBar);
@@ -2265,16 +2410,13 @@ async function _optimisticThreadStart(question) {
   }
 
   try {
-    const { status, data } = await postJSON("/run", {
-      kind: "thread-start",
-      args: { question },
-    });
+    const { status, data } = await _postThreadRun("thread-start", { question }, images);
 
     if (isStopped(data)) {
       // Cancelled before any thread file was written — show a neutral "Stopped",
       // restore the question so it can be retried, and return to the home box.
       _threadStatusStopped();
-      if (threadReplyInput) { threadReplyInput.value = question; sizeReplyInput(); }
+      _restoreQuestion(question, images);
       setTimeout(() => { showPanel("panel-home-new"); _lastHomePanel = "panel-home-new"; setBarMode("home"); }, 1500);
       return;
     }
@@ -2321,11 +2463,9 @@ async function _optimisticThreadStart(question) {
 // Used both on first submit and when the user returns to a thread whose reply
 // is still running (renderThreadView() rebuilds from disk, which has no pending
 // turn yet, so we re-add the optimistic bubble afterwards).
-function _showPendingReplyBubble(bodyEl, question) {
+function _showPendingReplyBubble(bodyEl, question, images = []) {
   if (!bodyEl || !_threadStatusBar?.parentNode) return;
-  const bubble = document.createElement("div");
-  bubble.className = "thread-bubble thread-bubble--user";
-  bubble.textContent = question;
+  const bubble = _optimisticUserBubble(question, images);
   _threadStatusBar.parentNode.insertBefore(bubble, _threadStatusBar);
   _threadStatusThinking();
   // Scroll to the true bottom AFTER inserting the bubble + spinner. When called
@@ -2336,7 +2476,7 @@ function _showPendingReplyBubble(bodyEl, question) {
 }
 
 // Reply mode: append a follow-up turn to the current thread.
-async function _threadReply(question) {
+async function _threadReply(question, images = []) {
   if (!_currentThreadFile) return;
   // Capture the target thread up front — the user may navigate to a different
   // thread while this reply runs, moving _currentThreadFile out from under us.
@@ -2345,14 +2485,14 @@ async function _threadReply(question) {
 
   // Record the in-flight reply so navigating away and back to this thread can
   // re-show the question + spinner instead of a stale, done-looking view.
-  _pendingReply = { threadFile: replyThreadFile, question };
+  _pendingReply = { threadFile: replyThreadFile, question, images };
 
   // Optimistically show the user's question the instant they submit — just above
   // the bottom status bar — so it appears before the answer is ready instead of
   // popping in with the reply.
   const panel  = document.getElementById("panel-output-viewer");
   const bodyEl = panel?.querySelector(".viewer-body");
-  _showPendingReplyBubble(bodyEl, question); // also scrolls the bubble into view
+  _showPendingReplyBubble(bodyEl, question, images); // also scrolls the bubble into view
 
   // Clear the submitted question now so text entered while this reply runs is
   // a new draft and is never erased when the response returns.
@@ -2367,17 +2507,18 @@ async function _threadReply(question) {
   const stillViewing = () => _currentThreadFile === replyThreadFile;
 
   try {
-    const { status, data } = await postJSON("/run", {
-      kind: "thread-reply",
-      args: { question, thread_file: replyThreadFile },
-    });
+    const { status, data } = await _postThreadRun(
+      "thread-reply",
+      { question, thread_file: replyThreadFile },
+      images,
+    );
 
     if (isStopped(data)) {
       // Cancelled — the thread already exists on disk but no answer was written.
       // Show a neutral "Stopped" and restore the question for retry.
       if (stillViewing()) {
         _threadStatusStopped();
-        if (threadReplyInput) { threadReplyInput.value = question; sizeReplyInput(); }
+        _restoreQuestion(question, images);
       }
       return;
     }
@@ -2678,7 +2819,7 @@ async function openOutput(filename, title, date, kind, highlightTerm = "") {
       // question + spinner that renderThreadView() dropped (the turn is not yet
       // in the file). Without this, returning mid-reply looks prematurely done.
       if (_pendingReply && _pendingReply.threadFile === `outputs/${filename}`) {
-        _showPendingReplyBubble(bodyEl, _pendingReply.question);
+        _showPendingReplyBubble(bodyEl, _pendingReply.question, _pendingReply.images);
       }
     } else {
       if (bodyEl)    bodyEl.innerHTML = renderMarkdown(md);

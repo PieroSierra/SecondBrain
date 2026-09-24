@@ -1708,6 +1708,9 @@ def _safe_static_path(url_path: str) -> Path | None:
     rel = url_path[len("/static/"):]
     if not rel or rel.startswith("/"):
         return None
+    # Dot-folders (.uploads staging, .ingest-state plans) are never static assets.
+    if any(part.startswith(".") for part in rel.split("/")):
+        return None
     candidate = (DASHBOARD_DIR / rel).resolve()
     try:
         candidate.relative_to(DASHBOARD_DIR.resolve())

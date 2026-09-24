@@ -432,6 +432,15 @@ class KeepOriginalTests(VaultTestCase):
         self.assertEqual(bridge._keep_image_original(staged, []), [])
 
 
+class StaticPathTests(VaultTestCase):
+    def test_static_never_serves_staging_or_dot_folders(self) -> None:
+        [staged] = self.stage(PNG)
+        (self.vault / "dashboard" / "app.js").write_text("x")
+        self.assertIsNotNone(bridge._safe_static_path("/static/app.js"))
+        self.assertIsNone(bridge._safe_static_path(f"/static/.uploads/{staged.name}"))
+        self.assertIsNone(bridge._safe_static_path("/static/lib/../.uploads/x.png"))
+
+
 class AttachmentRouteTests(VaultTestCase):
     def get(self, name: str) -> tuple[int, bytes]:
         sent = {"status": None}

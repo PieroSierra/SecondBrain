@@ -1977,6 +1977,10 @@ body { overflow: hidden; }
 body.bar-visible .panel {
   padding-bottom: calc(120px + env(safe-area-inset-bottom));
 }
+/* The attachment tray above the composer adds a row of thumbnails. */
+body.bar-visible.bar-has-attachments .panel {
+  padding-bottom: calc(190px + env(safe-area-inset-bottom));
+}
 
 /* Centred inner container — intentionally 10% wider than the content above
    so the query box visually "over-extends" the conversation width. */
@@ -2003,8 +2007,8 @@ body.bar-visible .panel {
      descenders renders ~2px above the box's centre. The 2px is moved from
      the bottom to the top rather than added, so total height — and the
      auto-grow calculation in app.js — is unchanged.
-     Right pad leaves room for the Ask button. */
-  padding: 14px 54px 10px 16px;
+     Right pad leaves room for the Attach and Ask buttons. */
+  padding: 14px 92px 10px 16px;
   border: 1px solid var(--rule-strong);
   border-radius: var(--radius-lg);
   background: var(--bg-elev);
@@ -2092,6 +2096,120 @@ body.bar-visible .panel {
 }
 @media (prefers-reduced-motion: reduce) {
   .stop-ripple-canvas { display: none; }
+}
+
+/* ── Image attachments (query bar + Paste Markdown) ─────────────────────────── */
+
+.attach-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--ink-muted);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.attach-btn:hover:not(:disabled) {
+  color: var(--clay-deep);
+  background: var(--clay-tint);
+}
+.attach-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Paperclip inside the composer, left of the Ask button. */
+.thread-reply-attach {
+  position: absolute;
+  right: 50px;
+  bottom: 9px;
+  width: 36px;
+  height: 36px;
+  border-radius: 11px;
+}
+
+.attach-btn-labelled {
+  padding: 5px 10px;
+  border-radius: var(--radius-pill);
+  font-family: var(--font-body);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.paste-attach-row {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.attach-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.attach-tray[hidden] { display: none; }
+.thread-reply-tray { margin-bottom: 8px; }
+
+.attach-chip {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  border: 1px solid var(--rule-strong);
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  overflow: hidden;
+}
+.attach-chip img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.attach-remove {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 0.9rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.attach-remove:hover:not(:disabled) { background: rgba(0, 0, 0, 0.8); }
+
+/* Drop highlight on the composer and the Paste Markdown card. */
+.attach-drop-active .thread-reply-textarea,
+form.attach-drop-active {
+  border-color: var(--clay);
+  background: var(--clay-tint);
+}
+
+/* Images in a user's question bubble. */
+.thread-bubble-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.thread-bubble-images:not(:first-child) { margin-top: 8px; }
+.thread-bubble-images img {
+  max-width: 220px;
+  max-height: 160px;
+  border-radius: 10px;
+  border: 1px solid var(--rule);
+  background: var(--bg-elev);
+  object-fit: contain;
+}
+.thread-bubble-images img.is-missing {
+  width: 80px;
+  height: 60px;
 }
 
 /* Footer op-status kept for fallback errors but hidden by default in thread mode. */

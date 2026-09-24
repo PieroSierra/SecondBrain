@@ -239,9 +239,19 @@
                   id="paste-body"
                   class="import-textarea"
                   rows="6"
-                  placeholder="Paste Markdown here…"
-                  required
+                  placeholder="Paste Markdown or images here…"
                 ></textarea>
+                <div class="paste-attach-row">
+                  <button type="button" id="paste-attach" class="attach-btn attach-btn-labelled"
+                    title="Attach images">
+                    <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" fill="none"
+                      stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                      <path d="M21 11.5l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l9-9a3.7 3.7 0 0 1 5.2 5.2l-9 9a1.8 1.8 0 0 1-2.6-2.6l8.3-8.3"/>
+                    </svg>
+                    Attach images
+                  </button>
+                  <div class="attach-tray" id="paste-tray" hidden></div>
+                </div>
                 <div class="dupe-warning" data-dupe-warning hidden></div>
                 <div class="import-row">
                   <button type="submit" class="import-submit">Add</button>
@@ -260,17 +270,18 @@
                     class="visually-hidden"
                     type="file"
                     accept=".pdf,.pptx,.docx,.xlsx,.xlsm,.csv,.png,.jpg,.jpeg,.gif,.webp,.txt,.md"
+                    multiple
                     required
                   />
-                  <label for="file-input" class="file-picker-btn">Choose file…</label>
+                  <label for="file-input" class="file-picker-btn">Choose files…</label>
                   <div class="file-picker-name-row">
                     <span class="file-picker-name file-picker-name-empty" data-file-filename>No file selected</span>
                     <button
                       type="button"
                       class="file-clear"
                       data-file-clear
-                      aria-label="Clear selected file"
-                      title="Clear selected file"
+                      aria-label="Clear selected files"
+                      title="Clear selected files"
                       hidden
                     >×</button>
                   </div>
@@ -425,9 +436,17 @@
            position:fixed so it floats above all panels; JS hides it on wiki/lint views. -->
       <div id="thread-reply-bar" class="thread-reply-bar">
         <div class="thread-reply-inner">
+          <div class="attach-tray thread-reply-tray" id="thread-reply-tray" hidden></div>
           <div class="thread-reply-input-wrap">
             <textarea id="thread-reply-input" class="thread-reply-textarea"
               rows="1" placeholder="Ask the knowledge base…" aria-label="Ask a question"></textarea>
+            <button type="button" id="thread-reply-attach" class="attach-btn thread-reply-attach"
+              title="Attach images" aria-label="Attach images">
+              <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none"
+                stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 11.5l-8.5 8.5a5.5 5.5 0 0 1-7.8-7.8l9-9a3.7 3.7 0 0 1 5.2 5.2l-9 9a1.8 1.8 0 0 1-2.6-2.6l8.3-8.3"/>
+              </svg>
+            </button>
             <button type="button" id="thread-reply-btn" class="thread-reply-submit"
               title="Ask" aria-label="Ask" aria-busy="false">
               <img src="/static/icons/up.png" alt="Ask" width="16" height="16" aria-hidden="true">
