@@ -134,7 +134,20 @@ class IngestStateTests(unittest.TestCase):
         self.raw("images/a__1.png", b"\x89PNG a1")
         self.raw("orphan.png", b"\x89PNG o")
         self.manifest({})
-        self.assertEqual(ingest_state.scan_vault(self.vault)["pending_count"], 2)
+        scan = ingest_state.scan_vault(self.vault)
+        self.assertEqual(scan["pending_count"], 2)
+        self.assertEqual(scan["note_count"], 2)
+
+    def test_changed_image_counts_its_note_as_pending(self) -> None:
+        md = self.raw("images/a.md", b"# a\n")
+        img = self.raw("images/a.png", b"\x89PNG a")
+        self.raw("images/b.md", b"# b\n")
+        self.manifest({
+            f"raw/images/{p.name}": self.fingerprint_entry(p) for p in (md, img)
+        } | {"raw/images/b.md": self.fingerprint_entry(self.vault / "raw/images/b.md")})
+        img.write_bytes(b"\x89PNG a changed")
+        scan = ingest_state.scan_vault(self.vault)
+        self.assertEqual((scan["pending_count"], scan["note_count"]), (1, 2))
 
     def test_finalize_records_image_only_with_its_own_note(self) -> None:
         self.raw("images/a.md", b"# a\n")

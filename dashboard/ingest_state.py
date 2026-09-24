@@ -281,16 +281,14 @@ def scan_vault(
         items.append(
             _classification(rel, path, entry, baseline_legacy=baseline_legacy)
         )
-    # An image whose note is also pending is ingested with that note, so it is
-    # not counted as a separate pending item.
-    pending_paths = {item["path"] for item in items if item["pending"]}
-    folded = {
-        img for img, md in associated_images(files).items()
-        if md in pending_paths
-    }
+    # Counts are in notes: an image that belongs to one note is part of that
+    # note, so a pending image makes its note pending rather than adding one.
+    owner = associated_images(files)
+    pending_notes = {owner.get(item["path"], item["path"]) for item in items if item["pending"]}
     return {
         "items": items,
-        "pending_count": len(pending_paths - folded),
+        "note_count": len({owner.get(rel, rel) for rel in files}),
+        "pending_count": len(pending_notes),
         "processable_count": sum(1 for item in items if item["processable"]),
         "total_count": len(items),
     }

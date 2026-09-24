@@ -1765,9 +1765,10 @@ def _load_ingest_manifest() -> tuple[dict, bool]:
     return ingest_state.load_manifest(VAULT_ROOT)
 
 
-def _raw_pending_count(manifest: dict, manifest_ok: bool,
-                       raw_files: dict[str, Path]) -> int:
-    """Number of new or content-changed raw files awaiting ingestion."""
+def _raw_counts(manifest: dict, manifest_ok: bool,
+                raw_files: dict[str, Path]) -> tuple[int, int]:
+    """(notes, pending notes) in raw/. An image that belongs to a note counts
+    as part of that note, not separately."""
 
     scan = ingest_state.scan_vault(
         VAULT_ROOT,
@@ -1775,7 +1776,14 @@ def _raw_pending_count(manifest: dict, manifest_ok: bool,
         manifest_ok=manifest_ok,
         files=raw_files,
     )
-    return scan["pending_count"]
+    return scan["note_count"], scan["pending_count"]
+
+
+def _raw_pending_count(manifest: dict, manifest_ok: bool,
+                       raw_files: dict[str, Path]) -> int:
+    """Number of new or content-changed raw notes awaiting ingestion."""
+
+    return _raw_counts(manifest, manifest_ok, raw_files)[1]
 
 
 def _vault_status() -> dict:
@@ -1829,7 +1837,7 @@ def _vault_status() -> dict:
     manifest, manifest_ok = _load_ingest_manifest()
 
     raw_files = _raw_user_files()
-    pending = _raw_pending_count(manifest, manifest_ok, raw_files)
+    note_count, pending = _raw_counts(manifest, manifest_ok, raw_files)
 
     # last_ingest_iso
     last_ingest_iso: str | None = None
@@ -1860,9 +1868,9 @@ def _vault_status() -> dict:
 
     return {
         "wiki_article_count": wiki_count,
-        # Total user-facing raw files — the same universe pending is measured
-        # against, so raw_pending_count is always a subset of this.
-        "raw_total_count": len(raw_files),
+        # Total raw notes — the same unit pending is measured in, so
+        # raw_pending_count is always a subset of this.
+        "raw_total_count": note_count,
         "raw_pending_count": pending,
         "raw_breakdown": {
             "paste": paste_count,
