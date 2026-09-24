@@ -1581,7 +1581,8 @@ def _parse_describe_result(text: str, count: int) -> list[dict]:
     try:
         data = json.loads(candidate)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"describe-images reply is not JSON: {exc}") from exc
+        snippet = " ".join((text or "").split())[:200] or "(empty reply)"
+        raise ValueError(f"describe-images reply is not JSON: {snippet}") from exc
     images = data.get("images") if isinstance(data, dict) else None
     if not isinstance(images, list) or len(images) != count:
         raise ValueError(f"expected {count} image descriptions")

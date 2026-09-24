@@ -2,7 +2,7 @@
 name: "second-brain-describe-images"
 description: "Describe one or more images pasted with a note and return the descriptions as JSON. Read-only; the dashboard bridge writes the note. Bridge-managed."
 argument-hint: "--image \"<path>\" [--image \"<path>\"]... [--context-file \"<path>\"]"
-user-invocable: false
+user-invocable: true
 ---
 
 # Second Brain — Describe images
