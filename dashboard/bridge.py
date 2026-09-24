@@ -37,6 +37,7 @@ import tempfile
 import threading
 import time
 import urllib.parse
+import uuid
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
@@ -50,6 +51,8 @@ import ingest_state
 VAULT_ROOT = Path(__file__).resolve().parent.parent
 DASHBOARD_DIR = VAULT_ROOT / "dashboard"
 OUTPUTS_DIR = VAULT_ROOT / "outputs"
+# Images attached to thread questions: outputs/attachments/<thread-stem>-<n>.<ext>
+ATTACHMENTS_DIR = OUTPUTS_DIR / "attachments"
 RAW_DIR = VAULT_ROOT / "raw"
 
 DEFAULT_PORT = 4173
@@ -269,7 +272,7 @@ _CSP = (
     "default-src 'self'; "
     "script-src 'self'; "
     "style-src 'self' 'unsafe-inline'; "
-    "img-src 'self' data:; "
+    "img-src 'self' data: blob:; "
     "connect-src 'self'; "
     "object-src 'none'; "
     "base-uri 'none'; "
@@ -509,8 +512,18 @@ def _shell_quote(s: str) -> str:
     return s.replace("\\", "\\\\").replace('"', '\\"')
 
 
+def _image_flags(args: dict) -> str:
+    """Repeatable `--image "<path>"` flags for bridge-staged attachments."""
+
+    paths = args.get("image_paths") or []
+    return "".join(f' --image "{_shell_quote(str(p))}"' for p in paths)
+
+
 def _build_query(args: dict) -> str:
-    return f'/second-brain-query "{_shell_quote(args["question"])}"'
+    return (
+        f"/second-brain-query{_image_flags(args)} "
+        f'"{_shell_quote(args["question"])}"'
+    )
 
 
 def _build_md_add(args: dict) -> str:
@@ -543,13 +556,14 @@ def _build_pdf_import(args: dict) -> str:
 def _build_file_import(args: dict) -> str:
     # `file_path` is set by the bridge after the file is staged to .uploads/.
     path = args["file_path"]
+    prompt = f'/second-brain-import-file "{_shell_quote(path)}"'
     context = (args.get("context") or "").strip()
     if context:
-        return (
-            f'/second-brain-import-file "{_shell_quote(path)}" '
-            f'--context "{_shell_quote(context)}"'
-        )
-    return f'/second-brain-import-file "{_shell_quote(path)}"'
+        prompt += f' --context "{_shell_quote(context)}"'
+    source_name = (args.get("source_name") or "").strip()
+    if source_name:
+        prompt += f' --source-name "{_shell_quote(source_name)}"'
+    return prompt
 
 
 _IMAGE_EXTS = frozenset({".png", ".jpg", ".jpeg", ".gif", ".webp"})
@@ -631,9 +645,11 @@ def _build_thread_reply(args: dict) -> str:
     tf_path = Path(thread_file)
     if ".." in tf_path.parts or not thread_file.startswith("outputs/"):
         raise ValueError(f"invalid thread_file: {thread_file!r}")
+    # Image flags must precede the question: the skill treats everything
+    # after the flags as the question text.
     return (
-        f'/second-brain-follow-up --thread "{_shell_quote(thread_file)}" '
-        f'"{_shell_quote(args["question"])}"'
+        f'/second-brain-follow-up --thread "{_shell_quote(thread_file)}"'
+        f'{_image_flags(args)} "{_shell_quote(args["question"])}"'
     )
 
 
@@ -1100,7 +1116,7 @@ def _to_codex_prompt(prompt: str) -> str:
     return prompt
 
 
-def run_codex(prompt: str, cfg: dict) -> tuple[int, dict]:
+def run_codex(prompt: str, cfg: dict, images: list[str] | None = None) -> tuple[int, dict]:
     """Exec `codex exec "$skill …"` and return (status_code, body_dict).
 
     Mirrors run_claude's contract: 200 on success (body has `result`/`is_error`),
@@ -1132,6 +1148,9 @@ def run_codex(prompt: str, cfg: dict) -> tuple[int, dict]:
         _t = _CODEX_MODEL_TIER
         if _t and _t != "default" and _t in _CODEX_TIER_MAP:
             argv += ["--model", _CODEX_TIER_MAP[_t]]
+        # `-i` takes one or more values, so it goes last.
+        for image in images or []:
+            argv += ["-i", str(image)]
 
         try:
             cp, _outcome = _run_capture(argv, timeout)
@@ -1161,7 +1180,7 @@ def run_codex(prompt: str, cfg: dict) -> tuple[int, dict]:
     return 200, body
 
 
-def run_opencode(prompt: str, cfg: dict) -> tuple[int, dict]:
+def run_opencode(prompt: str, cfg: dict, images: list[str] | None = None) -> tuple[int, dict]:
     """Exec `opencode run <prompt> --format json --auto ...`.
 
     Mirrors run_claude's contract: 200 on success (body has `result`/`is_error`),
@@ -1189,6 +1208,9 @@ def run_opencode(prompt: str, cfg: dict) -> tuple[int, dict]:
     if _t and _t != "default":
         # Tier alias (e.g. "sonnet") → full ID; raw ID (e.g. "openai/gpt-5.6-sol") → as-is.
         argv += ["-m", _OPENCODE_TIER_MAP.get(_t, _t)]
+    # `-f` takes one or more values, so it goes last.
+    for image in images or []:
+        argv += ["-f", str(image)]
 
     try:
         cp, _outcome = _run_capture(argv, timeout)
@@ -1239,12 +1261,18 @@ def run_opencode(prompt: str, cfg: dict) -> tuple[int, dict]:
     return 200, body
 
 
-def run_skill(prompt: str, cfg: dict) -> tuple[int, dict]:
-    """Dispatch a built skill prompt to the configured engine (claude|codex|opencode)."""
+def run_skill(
+    prompt: str, cfg: dict, images: list[str] | None = None
+) -> tuple[int, dict]:
+    """Dispatch a built skill prompt to the configured engine (claude|codex|opencode).
+
+    ``images`` are attached explicitly for Codex (`-i`) and OpenCode (`-f`).
+    Claude reads them from the paths in the prompt with its Read tool.
+    """
     if AGENT_ENGINE == "codex":
-        return run_codex(prompt, cfg)
+        return run_codex(prompt, cfg, images)
     if AGENT_ENGINE == "opencode":
-        return run_opencode(prompt, cfg)
+        return run_opencode(prompt, cfg, images)
     return run_claude(
         prompt,
         timeout=cfg["timeout"],
@@ -1418,6 +1446,204 @@ def _ensure_thread_end_sentinel(thread_file: str) -> None:
         p.write_text(new_text, encoding="utf-8")
     except OSError:
         return
+
+
+# ---------------------------------------------------------------------------
+# Image attachments (thread questions and pasted notes)
+# ---------------------------------------------------------------------------
+
+# Question recorded when the user sends images with no text.
+_IMAGE_ONLY_QUESTION = "What does my knowledge base say about the attached image(s)?"
+
+_DESCRIBE_IMAGES_CFG = {
+    "timeout": 300,
+    "allowed_tools": ["Read"],
+    "disallowed_tools": _DENY_DEFAULT,
+}
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
+    fd, tmp = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".tmp", dir=path.parent)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        _unlink_quietly([tmp])
+        raise
+
+
+def _insert_turn_images(text: str, lines: list[str]) -> str:
+    """Add image lines at the end of the thread's latest user turn."""
+
+    marker = '<!-- sb:turn role="user"'
+    start = text.rfind(marker)
+    if start < 0:
+        raise ValueError("thread has no user turn")
+    end = text.find("<!-- sb:turn", start + len(marker))
+    if end < 0:
+        end = text.find(_THREAD_END_SENTINEL, start)
+    if end < 0:
+        end = len(text)
+    head = text[:end].rstrip("\n")
+    return head + "\n\n" + "\n".join(lines) + "\n\n" + text[end:].lstrip("\n")
+
+
+def _attach_thread_images(thread_file: str, staged: list[Path]) -> list[str]:
+    """Copy staged images into outputs/attachments/ and reference them from
+    the thread's latest user turn.
+
+    All-or-nothing: if any copy or the thread write fails, the copies made so
+    far are deleted and the error propagates. Returns the new files, relative
+    to the vault.
+    """
+
+    path = (OUTPUTS_DIR / Path(thread_file).name).resolve()
+    path.relative_to(OUTPUTS_DIR.resolve())
+    text = path.read_text(encoding="utf-8")
+    stem = path.stem
+    existing = _thread_attachments(stem)
+    n = int(existing[-1].stem.rsplit("-", 1)[1]) if existing else 0
+
+    ATTACHMENTS_DIR.mkdir(parents=True, exist_ok=True)
+    copied: list[Path] = []
+    lines: list[str] = []
+    try:
+        for src in staged:
+            n += 1
+            dest = ATTACHMENTS_DIR / f"{stem}-{n}{src.suffix}"
+            shutil.copyfile(src, dest)
+            copied.append(dest)
+            lines.append(f"![image {n}](attachments/{dest.name})")
+        _write_text_atomic(path, _insert_turn_images(text, lines))
+    except BaseException:
+        _unlink_quietly(copied)
+        raise
+    return [str(c.relative_to(VAULT_ROOT)) for c in copied]
+
+
+def _keep_image_original(staged: Path, created: list[str]) -> list[str]:
+    """Copy an imported image next to the description note the skill wrote.
+
+    The copy takes the note's stem (``X.md`` -> ``X.png``) so ingest pairs
+    them, and the note's front matter gains ``original: X.png``. Does nothing
+    unless the run created exactly one note in raw/images/. Returns the new
+    files, relative to the vault.
+    """
+
+    notes = [
+        rel for rel in created
+        if rel.startswith("raw/images/") and rel.endswith(".md")
+    ]
+    if len(notes) != 1:
+        return []
+    note = VAULT_ROOT / notes[0]
+    dest = note.with_suffix(staged.suffix)
+    if dest.exists():
+        return []
+    try:
+        text = note.read_text(encoding="utf-8")
+        shutil.copyfile(staged, dest)
+    except OSError as exc:
+        print(f"[bridge] could not keep image original: {exc}", file=sys.stderr)
+        return []
+    if text.startswith("---\n"):
+        close = text.find("\n---", 4)
+        if close > 0:
+            text = text[:close] + f"\noriginal: {dest.name}" + text[close:]
+            try:
+                _write_text_atomic(note, text)
+            except OSError as exc:
+                _unlink_quietly([dest])
+                print(f"[bridge] could not keep image original: {exc}", file=sys.stderr)
+                return []
+    return [str(dest.relative_to(VAULT_ROOT))]
+
+
+def _build_describe_images(image_paths: list[str], context_file: str | None) -> str:
+    prompt = "/second-brain-describe-images" + _image_flags({"image_paths": image_paths})
+    if context_file:
+        prompt += f' --context-file "{_shell_quote(context_file)}"'
+    return prompt
+
+
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*\n(.*?)\n```", re.DOTALL)
+
+
+def _parse_describe_result(text: str, count: int) -> list[dict]:
+    """Parse the describe-images skill's JSON reply into one dict per image.
+
+    Raises ValueError unless there is exactly one well-formed entry per image.
+    """
+
+    blocks = _JSON_FENCE_RE.findall(text or "")
+    candidate = blocks[-1] if blocks else (text or "").strip()
+    try:
+        data = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"describe-images reply is not JSON: {exc}") from exc
+    images = data.get("images") if isinstance(data, dict) else None
+    if not isinstance(images, list) or len(images) != count:
+        raise ValueError(f"expected {count} image descriptions")
+    out = []
+    for i, item in enumerate(images, start=1):
+        if not isinstance(item, dict):
+            raise ValueError(f"image {i}: not an object")
+        description = item.get("description")
+        if not isinstance(description, str) or not description.strip():
+            raise ValueError(f"image {i}: missing description")
+
+        def text_field(key: str) -> str:
+            value = item.get(key)
+            return value.strip() if isinstance(value, str) else ""
+
+        out.append({
+            "title": text_field("title").replace("\n", " "),
+            "description": description.strip(),
+            "visible_text": text_field("visible_text"),
+            "content_date": text_field("content_date"),
+        })
+    return out
+
+
+def _render_paste_note(
+    *,
+    title: str,
+    today: str,
+    body: str,
+    words: int,
+    content_date: str | None,
+    images: list[dict],
+    image_names: list[str],
+) -> str:
+    """Markdown for a pasted note with images: the text verbatim, then one
+    section per image with its description and a link to the original."""
+
+    fm = [
+        "---",
+        "source: pasted",
+        f"imported: {today}",
+        f"title: {title}",
+        f"words: {words}",
+    ]
+    if content_date:
+        fm.append(f"content_date: {content_date}")
+    fm.append("images:")
+    fm += [f"  - {name}" for name in image_names]
+    fm.append("---")
+
+    parts = ["\n".join(fm), "", f"# {title}", ""]
+    if body:
+        parts += [body, ""]
+    parts += ["## Images", ""]
+    for n, (info, name) in enumerate(zip(images, image_names), start=1):
+        heading = f"### Image {n}"
+        if info["title"]:
+            heading += f" — {info['title']}"
+        parts += [heading, "", f"![image {n}]({name})", "", info["description"], ""]
+        if info["visible_text"]:
+            parts += ["Visible text:", "", "```text", info["visible_text"], "```", ""]
+    return "\n".join(parts).rstrip() + "\n"
 
 
 def _newest_match(dir_: Path, glob: str, exclude: set[Path]) -> str | None:
@@ -2226,25 +2452,24 @@ def _dedupe_check(payload: dict) -> dict:
 # Multipart upload parser (RFC 7578 subset)
 # ---------------------------------------------------------------------------
 #
-# We accept a single file field. We do NOT use cgi.FieldStorage — it was
-# removed in Python 3.13 and absent on 3.14. We also do NOT use the
-# email.parser machinery, which decodes payloads as text and corrupts
-# binary content. Instead: split the raw bytes on the boundary, and read
-# the first file part.
+# We do NOT use cgi.FieldStorage — it was removed in Python 3.13 and absent on
+# 3.14. We also do NOT use the email.parser machinery, which decodes payloads
+# as text and corrupts binary content. Instead: split the raw bytes on the
+# boundary and read each part.
 
 
 class UploadError(Exception):
     pass
 
 
-def _parse_multipart_pdf(
+def _parse_multipart(
     content_type: str, raw: bytes
-) -> tuple[str, bytes, dict[str, str]]:
-    """Extract (filename, body_bytes, fields) from a multipart upload.
+) -> tuple[list[tuple[str, str, bytes]], dict[str, str]]:
+    """Extract ``(files, fields)`` from a multipart upload.
 
-    `fields` holds any non-file text parts, keyed by their form field name
-    (e.g. an optional "context" note). Raises UploadError(detail) with a
-    human-readable message on any failure.
+    ``files`` is a list of ``(field_name, filename, body_bytes)`` in request
+    order. ``fields`` holds the non-file text parts, keyed by field name.
+    Raises UploadError(detail) with a human-readable message on any failure.
     """
 
     if not content_type:
@@ -2263,8 +2488,7 @@ def _parse_multipart_pdf(
 
     sep = b"--" + boundary.encode("ascii")
     chunks = raw.split(sep)
-    filename: str | None = None
-    body: bytes = b""
+    files: list[tuple[str, str, bytes]] = []
     fields: dict[str, str] = {}
     # chunks[0] is the preamble, last is the closing "--\r\n" — both ignored.
     for chunk in chunks[1:-1]:
@@ -2294,16 +2518,120 @@ def _parse_multipart_pdf(
                 part_name = piece[len("name="):].strip().strip('"')
 
         if part_filename:
-            if filename is None:  # first file part wins
-                filename, body = part_filename, part_body
+            files.append((part_name, part_filename, part_body))
         elif part_name:
             fields[part_name] = part_body.decode("utf-8", errors="replace")
 
-    if filename is None:
+    return files, fields
+
+
+def _parse_multipart_pdf(
+    content_type: str, raw: bytes
+) -> tuple[str, bytes, dict[str, str]]:
+    """Extract (filename, body_bytes, fields) from a single-file upload.
+
+    The first file part is used; any others are ignored.
+    """
+
+    files, fields = _parse_multipart(content_type, raw)
+    if not files:
         raise UploadError("no file part found in multipart body")
+    _name, filename, body = files[0]
     return filename, body, fields
 
-    raise UploadError("no file part found in multipart body")
+
+# Images attached to a query or a pasted note.
+_MAX_IMAGES = 10
+_MAX_IMAGE_BYTES = 20 * 1024 * 1024
+
+
+def _sniff_image_ext(body: bytes) -> str | None:
+    """Return the image extension that matches the file's first bytes."""
+
+    if body.startswith(b"\x89PNG\r\n\x1a\n"):
+        return ".png"
+    if body.startswith(b"\xff\xd8\xff"):
+        return ".jpg"
+    if body.startswith((b"GIF87a", b"GIF89a")):
+        return ".gif"
+    if len(body) >= 12 and body[:4] == b"RIFF" and body[8:12] == b"WEBP":
+        return ".webp"
+    return None
+
+
+def _validate_images(files: list[tuple[str, str, bytes]]) -> list[tuple[bytes, str]]:
+    """Check count, sizes and types of attached images.
+
+    Returns ``(body, ext)`` pairs, with the extension taken from the file's
+    first bytes. Raises UploadError on any failure.
+    """
+
+    if len(files) > _MAX_IMAGES:
+        raise UploadError(f"too many images: {len(files)} (max {_MAX_IMAGES})")
+    total = 0
+    out: list[tuple[bytes, str]] = []
+    for _name, filename, body in files:
+        if len(body) > _MAX_IMAGE_BYTES:
+            raise UploadError(
+                f"image too large: {filename} is {len(body) // (1024 * 1024)} MB "
+                f"(max {_MAX_IMAGE_BYTES // (1024 * 1024)} MB)"
+            )
+        total += len(body)
+        ext = _sniff_image_ext(body)
+        if ext is None:
+            raise UploadError(
+                f"not a supported image: {filename} (PNG, JPEG, GIF or WebP)"
+            )
+        out.append((body, ext))
+    if total > _MAX_UPLOAD_AGENTIC_BYTES:
+        raise UploadError(
+            f"images too large in total: {total // (1024 * 1024)} MB "
+            f"(max {_MAX_UPLOAD_AGENTIC_BYTES // (1024 * 1024)} MB)"
+        )
+    return out
+
+
+def _stage_image(body: bytes, ext: str) -> Path:
+    """Write an attached image to dashboard/.uploads/ under a random name."""
+
+    uploads = DASHBOARD_DIR / ".uploads"
+    uploads.mkdir(exist_ok=True)
+    target = uploads / f"{uuid.uuid4().hex}{ext}"
+    target.write_bytes(body)
+    return target
+
+
+def _unlink_quietly(paths) -> None:
+    for path in paths:
+        try:
+            Path(path).unlink()
+        except OSError:
+            pass
+
+
+_ATTACHMENT_CTYPES = {
+    ".png": "image/png",
+    ".jpg": "image/jpeg",
+    ".jpeg": "image/jpeg",
+    ".gif": "image/gif",
+    ".webp": "image/webp",
+}
+
+
+def _thread_attachments(thread_stem: str) -> list[Path]:
+    """Existing attachment files for a thread, ordered by their number."""
+
+    if not ATTACHMENTS_DIR.is_dir():
+        return []
+    pattern = re.compile(
+        re.escape(thread_stem) + r"-(\d+)\.(?:png|jpg|jpeg|gif|webp)"
+    )
+    found = []
+    for path in ATTACHMENTS_DIR.iterdir():
+        m = pattern.fullmatch(path.name)
+        if m and path.is_file():
+            found.append((int(m.group(1)), path))
+    return [path for _n, path in sorted(found)]
 
 
 def _count_pdf_pages(body: bytes) -> int | None:
@@ -2349,6 +2677,13 @@ def _stage_file(filename: str, body: bytes) -> Path:
             f"unsupported file type: {ext}. Accepted: "
             + ", ".join(sorted(ACCEPTED_FILE_EXTS))
         )
+    if ext in _IMAGE_EXTS:
+        sniffed = _sniff_image_ext(body)
+        if sniffed is None:
+            raise UploadError(
+                f"not a supported image: {filename} (PNG, JPEG, GIF or WebP)"
+            )
+        ext = sniffed
     uploads = DASHBOARD_DIR / ".uploads"
     uploads.mkdir(exist_ok=True)
     stem = Path(filename).stem or "upload"
@@ -2501,6 +2836,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return _json_response(self, 200, _outputs_list())
         if path.startswith("/outputs/") and len(path) > 9:
             return self._serve_output_file(path[9:])
+        if path.startswith("/attachments/") and len(path) > 13:
+            return self._serve_attachment(path[13:])
         if path == "/search":
             params = urllib.parse.parse_qs(parsed.query)
             q = (params.get("q", [""])[0] or "").strip()
@@ -2530,6 +2867,11 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             if not self._authorize():
                 return self._deny()
 
+        # Token only: attachments are a dashboard feature, not an extension one.
+        if path == "/run-multipart":
+            if not self._authorize():
+                return self._deny()
+
         if path in ("/run", "/cancel", "/upload-pdf", "/upload-file", "/dedupe-check",
                     "/open-folder", "/patch-finding", "/rename-output",
                     "/set-model"):
@@ -2540,6 +2882,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
         if path == "/run":
             return self._handle_run()
+        if path == "/run-multipart":
+            return self._handle_run_multipart()
         if path == "/cancel":
             return self._handle_cancel()
         if path == "/upload-pdf":
@@ -2682,8 +3026,17 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     "file_path": str(tempfile_path),
                     "context": context,
                 }
+                post_run = None
+                if ext in _IMAGE_EXTS:
+                    file_args["source_name"] = filename
+
+                    def post_run(_output_file, created, _src=tempfile_path):
+                        return created + _keep_image_original(_src, created)
+
                 prompt = cfg["build"](file_args)
-                envelope = self._run_kind("file-import", prompt, cfg, file_args)
+                envelope = self._run_kind(
+                    "file-import", prompt, cfg, file_args, post_run=post_run
+                )
         finally:
             try:
                 tempfile_path.unlink()
@@ -3039,6 +3392,204 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                 }
         except Busy as busy:
             return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
+
+    def _handle_run_multipart(self) -> None:
+        """POST /run-multipart — a thread question or pasted note with images.
+
+        Form fields: `kind` (thread-start | thread-reply | md-add), `args` (a
+        JSON object, as for /run) and 1-10 `image` file parts. Images are
+        staged under dashboard/.uploads/ for the run and always deleted
+        afterwards; they are copied into the vault only after a successful,
+        un-stopped run.
+        """
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length <= 0:
+            return _json_response(self, 400, {"error": "bad_upload", "detail": "empty body"})
+        if length > _MAX_UPLOAD_AGENTIC_BYTES + 1024 * 1024:
+            return _json_response(self, 413, {
+                "error": "too_large",
+                "detail": f"images too large in total "
+                          f"(max {_MAX_UPLOAD_AGENTIC_BYTES // (1024 * 1024)} MB)",
+            })
+        raw = self.rfile.read(length)
+        try:
+            files, fields = _parse_multipart(self.headers.get("Content-Type", ""), raw)
+        except UploadError as exc:
+            return _json_response(self, 400, {"error": "bad_upload", "detail": str(exc)})
+
+        kind = fields.get("kind")
+        if kind not in ("thread-start", "thread-reply", "md-add"):
+            return _json_response(self, 400, {
+                "error": "bad_request", "detail": f"unsupported kind: {kind!r}",
+            })
+        try:
+            args = json.loads(fields.get("args") or "{}")
+        except json.JSONDecodeError:
+            args = None
+        if not isinstance(args, dict):
+            return _json_response(self, 400, {
+                "error": "bad_request", "detail": "args must be a JSON object",
+            })
+        image_files = [f for f in files if f[0] == "image"]
+        if not image_files:
+            return _json_response(self, 400, {"error": "bad_upload", "detail": "no images attached"})
+        try:
+            images = _validate_images(image_files)
+        except UploadError as exc:
+            return _json_response(self, 400, {"error": "bad_upload", "detail": str(exc)})
+
+        staged: list[Path] = []
+        try:
+            for body, ext in images:
+                staged.append(_stage_image(body, ext))
+            if kind == "md-add":
+                envelope = self._run_paste_with_images(args, staged)
+            else:
+                envelope = self._run_thread_with_images(kind, args, staged)
+        finally:
+            _unlink_quietly(staged)
+        status_code = envelope.pop("__status__", 200)
+        _json_response(self, status_code, envelope)
+
+    def _run_thread_with_images(self, kind: str, args: dict, staged: list[Path]) -> dict:
+        args = dict(args)
+        args["image_paths"] = [str(p) for p in staged]
+        if not str(args.get("question") or "").strip():
+            args["question"] = _IMAGE_ONLY_QUESTION
+        prompt, err = _format_prompt(kind, args)
+        if err is not None:
+            return {"__status__": 400, **err}
+        base = PROMPT_TEMPLATES[kind]
+        cfg = {**base, "timeout": max(base["timeout"], 300)}
+        before = _snapshot(OUTPUTS_DIR, "*.md")
+
+        def post_run(output_file: str | None, created: list[str]) -> list[str]:
+            if not output_file:
+                return created
+            # A thread-start must have created a new file; never attach the
+            # images to an older thread the reply happened to mention.
+            if kind == "thread-start" and (VAULT_ROOT / output_file) in before:
+                return created
+            try:
+                return created + _attach_thread_images(output_file, staged)
+            except (OSError, ValueError) as exc:
+                print(f"[bridge] could not attach images to {output_file}: {exc}",
+                      file=sys.stderr)
+                return created
+
+        return self._run_kind(
+            kind, prompt, cfg, args, images=args["image_paths"], post_run=post_run
+        )
+
+    def _run_paste_with_images(self, args: dict, staged: list[Path]) -> dict:
+        """Write one raw note from pasted text plus images.
+
+        The describe-images skill returns a JSON description of each image;
+        the bridge writes the note itself so the pasted text is kept verbatim.
+        The originals are copied next to the note as <stem>__<n>.<ext>.
+        """
+        import text_extract  # dashboard/ is on sys.path (script dir)
+
+        content = (args.get("markdown") or "").strip()
+        title_hint = (args.get("title_hint") or "").strip() or None
+        context = (args.get("context") or "").strip() or None
+        text_file: Path | None = None
+        try:
+            with long_op("md-add"):
+                started = time.time()
+                data = None
+                if content:
+                    try:
+                        data = text_extract.text_from_string(
+                            content, title_hint=title_hint, context=context
+                        )
+                    except text_extract.TextError as exc:
+                        return {"__status__": 422, "error": "bad_text", "detail": str(exc)}
+                    text_file = DASHBOARD_DIR / ".uploads" / f"{uuid.uuid4().hex}.md"
+                    text_file.write_text(content, encoding="utf-8")
+
+                image_paths = [str(p) for p in staged]
+                prompt = _build_describe_images(
+                    image_paths, str(text_file) if text_file else None
+                )
+                status, result = run_skill(prompt, _DESCRIBE_IMAGES_CFG, image_paths)
+                if status != 200:
+                    return {"__status__": status, **result, "kind": "md-add"}
+                if result.get("stopped"):
+                    return {"__status__": 200, "stopped": True, "kind": "md-add"}
+                if result.get("is_error"):
+                    return {"__status__": 200, **result, "kind": "md-add",
+                            "output_file": None, "created_files": []}
+                try:
+                    infos = _parse_describe_result(result.get("result", ""), len(staged))
+                except ValueError as exc:
+                    return {"__status__": 422, "error": "bad_describe", "detail": str(exc)}
+
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                title = (
+                    title_hint
+                    or (data and (data.get("title") or "").strip())
+                    or infos[0]["title"]
+                    or "Pasted images"
+                )
+                slug = _slugify(title)[:60].strip("-") or "pasted-images"
+                folder = RAW_DIR / "images"
+                folder.mkdir(parents=True, exist_ok=True)
+                stem = f"{today}_{slug}"
+                counter = 2
+                while (folder / f"{stem}.md").exists() or any(folder.glob(f"{stem}__*")):
+                    stem = f"{today}_{slug}-{counter}"
+                    counter += 1
+
+                image_names = [
+                    f"{stem}__{n}{src.suffix}" for n, src in enumerate(staged, start=1)
+                ]
+                content_date = (
+                    _detect_date(context)
+                    or (data and data.get("content_date"))
+                    or next((d for d in (_detect_date(i["content_date"]) for i in infos)
+                             if d), None)
+                )
+                note = _render_paste_note(
+                    title=title,
+                    today=today,
+                    body=data["markdown"] if data else "",
+                    words=data["words"] if data else 0,
+                    content_date=content_date,
+                    images=infos,
+                    image_names=image_names,
+                )
+
+                note_path = folder / f"{stem}.md"
+                written: list[Path] = []
+                try:
+                    for src, name in zip(staged, image_names):
+                        shutil.copyfile(src, folder / name)
+                        written.append(folder / name)
+                    _write_text_atomic(note_path, note)
+                    written.append(note_path)
+                except OSError as exc:
+                    _unlink_quietly(written)
+                    return {"__status__": 500, "error": "write_failed", "detail": str(exc)}
+
+                created = [str(p.relative_to(VAULT_ROOT)) for p in (note_path, *written[:-1])]
+                return {
+                    "__status__": 200,
+                    "result": (
+                        f"✓ Markdown added\n\nTitle: {title}\n"
+                        f"Output: {created[0]}\nImages: {len(staged)}"
+                    ),
+                    "kind": "md-add",
+                    "output_file": None,
+                    "created_files": created,
+                    "is_error": False,
+                    "duration_ms": int((time.time() - started) * 1000),
+                }
+        except Busy as busy:
+            return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
+        finally:
+            if text_file is not None:
+                _unlink_quietly([text_file])
 
     def _handle_cancel(self) -> None:
         """Cancel the single in-flight run, if any, by killing its process group.
@@ -3448,11 +3999,24 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return {"__status__": 500, "error": "promote_apply_failed",
                     "detail": str(exc), "kind": "promote-apply"}
 
-    def _run_kind(self, kind: str, prompt: str, cfg: dict, args: dict | None = None) -> dict:
+    def _run_kind(
+        self,
+        kind: str,
+        prompt: str,
+        cfg: dict,
+        args: dict | None = None,
+        *,
+        images: list[str] | None = None,
+        post_run=None,
+    ) -> dict:
         """Acquire the mutex, run the skill, and return the response envelope.
 
         The envelope includes a private `__status__` key the caller pops to
         send the right HTTP code (200/409/504/502).
+
+        ``post_run(output_file, created_files)`` runs under the mutex after a
+        successful, un-stopped run and returns the (possibly extended)
+        created_files list. It is where attachments are copied into the vault.
         """
         args = args or {}
         started = time.time()
@@ -3476,37 +4040,46 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
                     tf = args.get("thread_file")
                     if isinstance(tf, str) and tf:
                         _ensure_thread_end_sentinel(tf)
-                status, result = run_skill(prompt, cfg)
+                status, result = run_skill(prompt, cfg, images)
+                if status != 200:
+                    return {"__status__": status, **result, "kind": kind}
+
+                output_file = None
+                if cfg.get("output_glob"):
+                    output_file = _newest_match(
+                        OUTPUTS_DIR, cfg["output_glob"], before_outputs
+                    )
+
+                # If no new file was created but the skill's reply references an
+                # existing outputs/<file>.md path (which happens when the same
+                # query runs twice in a day and the skill short-circuits),
+                # surface that path. If the reply doesn't even mention a path,
+                # fall back to a slug-based lookup using the original arg (e.g.
+                # the question text).
+                result_text = result.get("result", "") or ""
+                if output_file is None and cfg.get("output_glob"):
+                    output_file = _extract_outputs_path(result_text)
+                if output_file is None and cfg.get("fallback_finder"):
+                    try:
+                        output_file = cfg["fallback_finder"](args)
+                    except (KeyError, OSError):
+                        output_file = None
+
+                created_files = []
+                if scoped_raw_dir and scoped_raw_dir.exists():
+                    after = _snapshot(scoped_raw_dir, "*")
+                    created_files = sorted(
+                        str(p.relative_to(VAULT_ROOT)) for p in (after - before_raw)
+                    )
+
+                if (
+                    post_run is not None
+                    and not result.get("stopped")
+                    and not result.get("is_error")
+                ):
+                    created_files = post_run(output_file, created_files)
         except Busy as busy:
             return {"__status__": 409, "error": "busy", "in_flight": busy.in_flight}
-
-        if status != 200:
-            return {"__status__": status, **result, "kind": kind}
-
-        output_file = None
-        if cfg.get("output_glob"):
-            output_file = _newest_match(OUTPUTS_DIR, cfg["output_glob"], before_outputs)
-
-        # If no new file was created but the skill's reply references an
-        # existing outputs/<file>.md path (which happens when the same query
-        # runs twice in a day and the skill short-circuits), surface that
-        # path. If the reply doesn't even mention a path, fall back to a
-        # slug-based lookup using the original arg (e.g. the question text).
-        result_text = result.get("result", "") or ""
-        if output_file is None and cfg.get("output_glob"):
-            output_file = _extract_outputs_path(result_text)
-        if output_file is None and cfg.get("fallback_finder"):
-            try:
-                output_file = cfg["fallback_finder"](args)
-            except (KeyError, OSError):
-                output_file = None
-
-        created_files = []
-        if scoped_raw_dir and scoped_raw_dir.exists():
-            after = _snapshot(scoped_raw_dir, "*")
-            created_files = sorted(
-                str(p.relative_to(VAULT_ROOT)) for p in (after - before_raw)
-            )
 
         # The skill's contract (second-brain-query Step 7, second-brain-lint
         # equivalent) is that the saved file IS the canonical record. The
@@ -3783,7 +4356,32 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             resolved.unlink()
         except OSError as exc:
             return _json_response(self, 500, {"error": "delete_failed", "detail": str(exc)})
+        _unlink_quietly(_thread_attachments(resolved.stem))
         return _json_response(self, 200, {"ok": True})
+
+    def _serve_attachment(self, name: str) -> None:
+        # Serve one image from outputs/attachments/. Plain filenames only,
+        # raster image types only (never SVG), contained in the folder.
+        ctype = _ATTACHMENT_CTYPES.get(Path(name).suffix.lower())
+        if (
+            ctype is None
+            or not _SAFE_FILENAME_RE.fullmatch(name)
+            or name.startswith(".")
+        ):
+            return _json_response(self, 404, {"error": "not_found"})
+        try:
+            resolved = (ATTACHMENTS_DIR / name).resolve()
+            resolved.relative_to(ATTACHMENTS_DIR.resolve())
+            data = resolved.read_bytes()
+        except (ValueError, OSError):
+            return _json_response(self, 404, {"error": "not_found"})
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
 
     def _serve_raw_file(self, subpath: str) -> None:
         # Serve a single markdown file from raw/ (read-only). Unlike wiki and

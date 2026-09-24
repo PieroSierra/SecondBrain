@@ -52,7 +52,7 @@ class PromoteProposeTests(unittest.TestCase):
         (self.vault / "outputs" / "t.md").write_text("thread", encoding="utf-8")
         args = {"thread_file": "outputs/t.md"}
 
-        def fake_run(prompt: str, cfg: dict) -> tuple[int, dict]:
+        def fake_run(prompt: str, cfg: dict, images=None) -> tuple[int, dict]:
             return 200, {
                 "result": '```json\n{"promotions": []}\n```',
                 "is_error": False,
@@ -124,7 +124,7 @@ class PromoteApplyTests(unittest.TestCase):
             "# Knowledge Base Index\n", encoding="utf-8"
         )
 
-        def fake_run(prompt: str, cfg: dict) -> tuple[int, dict]:
+        def fake_run(prompt: str, cfg: dict, images=None) -> tuple[int, dict]:
             scan_id = _re.search(r'--scan-id "([0-9a-f]+)"', prompt).group(1)
             record_rel = _re.search(r'--record "([^"]+)"', prompt).group(1)
             # The skill would read the record + fold it in. Simulate the write.
