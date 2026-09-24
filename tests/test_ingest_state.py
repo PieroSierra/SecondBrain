@@ -87,6 +87,76 @@ class IngestStateTests(unittest.TestCase):
         self.assertIn("raw/promotions/2026-09-06_promotion-x.md", manifest)
         self.assertNotIn("raw/unrelated.md", manifest)  # untouched
 
+    def test_image_pairs_with_note_of_same_name(self) -> None:
+        self.raw("images/2026-09-24_a.md", b"# a\n")
+        self.raw("images/2026-09-24_a.png", b"\x89PNG a")
+        self.raw("images/2026-09-24_b__1.png", b"\x89PNG b1")
+        self.raw("images/2026-09-24_b__2.jpg", b"\xff\xd8\xff b2")
+        self.raw("images/2026-09-24_b.md", b"# b\n")
+        self.raw("images/2026-09-24_c.md", b"# c\n")
+        self.manifest({})
+        plan = ingest_state.prepare_scan(self.vault)["plan"]
+        self.assertEqual(plan["associated_images"], {
+            "raw/images/2026-09-24_a.md": ["raw/images/2026-09-24_a.png"],
+            "raw/images/2026-09-24_b.md": [
+                "raw/images/2026-09-24_b__1.png",
+                "raw/images/2026-09-24_b__2.jpg",
+            ],
+        })
+
+    def test_changed_image_pulls_in_only_its_own_note(self) -> None:
+        a_md = self.raw("images/a.md", b"# a\n")
+        a_img = self.raw("images/a.png", b"\x89PNG a")
+        b_md = self.raw("images/b.md", b"# b\n")
+        entries = {
+            f"raw/images/{p.name}": self.fingerprint_entry(p)
+            for p in (a_md, a_img, b_md)
+        }
+        self.manifest(entries)
+        a_img.write_bytes(b"\x89PNG a changed")
+        plan = ingest_state.prepare_scan(self.vault)["plan"]
+        self.assertEqual(plan["process_paths"], ["raw/images/a.md"])
+
+    def test_unnamed_image_falls_back_to_all_notes_in_folder(self) -> None:
+        self.raw("deck/one.md", b"# one\n")
+        self.raw("deck/two.md", b"# two\n")
+        self.raw("deck/slide.png", b"\x89PNG s")
+        self.manifest({})
+        plan = ingest_state.prepare_scan(self.vault)["plan"]
+        self.assertEqual(plan["associated_images"], {
+            "raw/deck/one.md": ["raw/deck/slide.png"],
+            "raw/deck/two.md": ["raw/deck/slide.png"],
+        })
+
+    def test_image_with_pending_note_is_not_counted_separately(self) -> None:
+        self.raw("images/a.md", b"# a\n")
+        self.raw("images/a.png", b"\x89PNG a")
+        self.raw("images/a__1.png", b"\x89PNG a1")
+        self.raw("orphan.png", b"\x89PNG o")
+        self.manifest({})
+        self.assertEqual(ingest_state.scan_vault(self.vault)["pending_count"], 2)
+
+    def test_finalize_records_image_only_with_its_own_note(self) -> None:
+        self.raw("images/a.md", b"# a\n")
+        self.raw("images/a.png", b"\x89PNG a")
+        self.raw("images/b.md", b"# b\n")
+        self.raw("images/b.png", b"\x89PNG b")
+        prepared = ingest_state.prepare_scoped_scan(
+            self.vault, ["raw/images/a.md", "raw/images/a.png", "raw/images/b.png"]
+        )
+        self.assertEqual(
+            prepared["plan"]["process_paths"], ["raw/images/a.md", "raw/images/b.md"]
+        )
+        self.assertEqual(prepared["plan"]["associated_images"], {
+            "raw/images/a.md": ["raw/images/a.png"],
+            "raw/images/b.md": ["raw/images/b.png"],
+        })
+        result = ingest_state.finalize_plan(self.vault, prepared["plan_path"])
+        self.assertEqual(
+            sorted(result["finalized"]),
+            ["raw/images/a.md", "raw/images/a.png", "raw/images/b.png"],
+        )
+
     def test_missing_manifest_marks_every_live_file_new(self) -> None:
         self.raw("new.md")
         scan = ingest_state.scan_vault(self.vault)

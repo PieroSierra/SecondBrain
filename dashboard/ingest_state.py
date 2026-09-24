@@ -13,6 +13,7 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import tempfile
 import time
 import uuid
@@ -280,9 +281,16 @@ def scan_vault(
         items.append(
             _classification(rel, path, entry, baseline_legacy=baseline_legacy)
         )
+    # An image whose note is also pending is ingested with that note, so it is
+    # not counted as a separate pending item.
+    pending_paths = {item["path"] for item in items if item["pending"]}
+    folded = {
+        img for img, md in associated_images(files).items()
+        if md in pending_paths
+    }
     return {
         "items": items,
-        "pending_count": sum(1 for item in items if item["pending"]),
+        "pending_count": len(pending_paths - folded),
         "processable_count": sum(1 for item in items if item["processable"]),
         "total_count": len(items),
     }
@@ -355,12 +363,51 @@ def migrate_manifest(vault_root: Path) -> dict:
         return {"updated": updated, "manifest_ok": True, **scan}
 
 
+_ATTACHMENT_SUFFIX_RE = re.compile(r"__\d+$")
+
+
+def image_owners(img: Path, markdown_in_dir: list[Path]) -> list[Path]:
+    """Return the markdown file(s) an image belongs to.
+
+    ``X.png`` and ``X__n.png`` belong to ``X.md`` in the same directory. An
+    image whose name matches no note belongs to every markdown file in its
+    directory.
+    """
+
+    stem = _ATTACHMENT_SUFFIX_RE.sub("", img.stem)
+    for md in markdown_in_dir:
+        if md.stem == stem:
+            return [md]
+    return list(markdown_in_dir)
+
+
+def _markdown_by_dir(files: dict[str, Path]) -> dict[Path, list[Path]]:
+    out: dict[Path, list[Path]] = {}
+    for path in files.values():
+        if path.suffix.lower() == ".md":
+            out.setdefault(path.parent, []).append(path)
+    return out
+
+
+def associated_images(files: dict[str, Path]) -> dict[str, str]:
+    """Map each image that belongs to exactly one note to that note (rel paths)."""
+
+    rel_of = {path: rel for rel, path in files.items()}
+    by_dir = _markdown_by_dir(files)
+    out: dict[str, str] = {}
+    for rel, path in files.items():
+        if path.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        owners = image_owners(path, by_dir.get(path.parent, []))
+        if len(owners) == 1:
+            out[rel] = rel_of[owners[0]]
+    return out
+
+
 def _plan_process_paths(items: list[dict], files: dict[str, Path]) -> list[str]:
     process_paths: set[str] = set()
-    markdown_by_dir: dict[Path, list[str]] = {}
-    for rel, path in files.items():
-        if path.suffix.lower() == ".md":
-            markdown_by_dir.setdefault(path.parent, []).append(rel)
+    rel_of = {path: rel for rel, path in files.items()}
+    by_dir = _markdown_by_dir(files)
 
     for item in items:
         if not item["processable"]:
@@ -368,10 +415,28 @@ def _plan_process_paths(items: list[dict], files: dict[str, Path]) -> list[str]:
         rel = item["path"]
         path = files[rel]
         if path.suffix.lower() in IMAGE_SUFFIXES:
-            process_paths.update(markdown_by_dir.get(path.parent, []))
+            for md in image_owners(path, by_dir.get(path.parent, [])):
+                process_paths.add(rel_of[md])
         else:
             process_paths.add(rel)
     return sorted(process_paths)
+
+
+def _plan_images(process_paths: list[str], files: dict[str, Path]) -> dict[str, list[str]]:
+    """For each markdown file in the plan, the images the ingest should read."""
+
+    wanted = set(process_paths)
+    rel_of = {path: rel for rel, path in files.items()}
+    by_dir = _markdown_by_dir(files)
+    out: dict[str, list[str]] = {}
+    for rel, path in sorted(files.items()):
+        if path.suffix.lower() not in IMAGE_SUFFIXES:
+            continue
+        for md in image_owners(path, by_dir.get(path.parent, [])):
+            md_rel = rel_of[md]
+            if md_rel in wanted:
+                out.setdefault(md_rel, []).append(rel)
+    return out
 
 
 def _cleanup_old_plans(state_dir: Path) -> None:
@@ -420,6 +485,7 @@ def prepare_scan(vault_root: Path, *, plan_path: Path | None = None) -> dict:
         if plan_path is None:
             plan_path = state_dir / f"{plan_id}.json"
         pending_items = [item for item in scan["items"] if item["pending"]]
+        process_paths = _plan_process_paths(pending_items, files)
         plan = {
             "version": PLAN_VERSION,
             "scan_id": plan_id,
@@ -427,7 +493,8 @@ def prepare_scan(vault_root: Path, *, plan_path: Path | None = None) -> dict:
             "manifest_ok": manifest_ok,
             "baseline_entries_added": updated,
             "pending_items": pending_items,
-            "process_paths": _plan_process_paths(pending_items, files),
+            "process_paths": process_paths,
+            "associated_images": _plan_images(process_paths, files),
         }
         _write_json_atomic(plan_path, plan)
     return {"plan": plan, "plan_path": plan_path}
@@ -455,6 +522,10 @@ def prepare_scoped_scan(vault_root: Path, rel_paths: list[str]) -> dict:
         pending_items = [item for item in items if item["pending"]]
         plan_id = uuid.uuid4().hex
         plan_path = state_dir / f"{plan_id}.json"
+        # Pair images against every raw file on disk, not only the named ones,
+        # so an image never falls back to an unrelated note.
+        files = {**raw_user_files(vault_root), **files}
+        process_paths = _plan_process_paths(pending_items, files)
         plan = {
             "version": PLAN_VERSION,
             "scan_id": plan_id,
@@ -462,7 +533,8 @@ def prepare_scoped_scan(vault_root: Path, rel_paths: list[str]) -> dict:
             "manifest_ok": True,
             "baseline_entries_added": 0,
             "pending_items": pending_items,
-            "process_paths": _plan_process_paths(pending_items, files),
+            "process_paths": process_paths,
+            "associated_images": _plan_images(process_paths, files),
         }
         _write_json_atomic(plan_path, plan)
     return {"plan": plan, "plan_path": plan_path}
@@ -493,16 +565,19 @@ def finalize_plan(vault_root: Path, plan_path: Path) -> dict:
             manifest = {}
         now = _now_iso()
         for rel, item in planned.items():
-            # Images are finalized when their associated markdown was part of
-            # the process set; all other processable items name themselves.
+            # Images are finalized when the markdown they belong to was part
+            # of the process set; all other processable items name themselves.
             path = vault_root / rel
             if path.suffix.lower() in IMAGE_SUFFIXES:
-                siblings = {
-                    candidate.relative_to(vault_root).as_posix()
-                    for candidate in path.parent.glob("*.md")
+                siblings = [
+                    candidate for candidate in path.parent.glob("*.md")
                     if candidate.is_file()
+                ]
+                owners = {
+                    md.relative_to(vault_root).as_posix()
+                    for md in image_owners(path, siblings)
                 }
-                was_processed = bool(siblings & process_paths)
+                was_processed = bool(owners & process_paths)
             else:
                 was_processed = rel in process_paths
             if not was_processed:
