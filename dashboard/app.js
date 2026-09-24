@@ -2449,6 +2449,12 @@ async function _optimisticThreadStart(question, images = []) {
       await loadOutputsList(true);
       const newBtn = document.querySelector(`[data-output-filename="${CSS.escape(filename)}"]`);
       if (newBtn) setActiveNavItem(newBtn);
+    } else {
+      // The run finished but no thread file was written, so there is nothing
+      // to show. Say so and hand the question back instead of spinning.
+      _threadStatusError("The answer wasn't saved to a thread. Try asking again.");
+      _restoreQuestion(question, images);
+      setTimeout(() => { showPanel("panel-home-new"); _lastHomePanel = "panel-home-new"; setBarMode("home"); }, 4000);
     }
   } catch (err) {
     _threadStatusError(`Network error: ${err?.message ?? err}`);
