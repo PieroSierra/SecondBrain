@@ -2258,11 +2258,8 @@ function renderThreadView(container, md) {
         btn.className = "copy-btn thread-copy-btn";
         btn.dataset.copy = mode;
         btn.title = mode === "rich" ? "Copy formatted" : "Copy as Markdown";
-        const icon = document.createElement("img");
-        icon.src = "/static/icons/copy.png";
-        icon.width = 16;
-        icon.height = 16;
-        icon.alt = "";
+        const icon = document.createElement("span");
+        icon.className = "btn-icon";
         icon.setAttribute("aria-hidden", "true");
         btn.appendChild(icon);
         if (mode === "md") {

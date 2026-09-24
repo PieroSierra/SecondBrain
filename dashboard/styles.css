@@ -1941,8 +1941,18 @@ body { overflow: hidden; }
   align-items: center;
   gap: 4px;
 }
-.thread-copy-btn:hover img {
-  filter: brightness(0) invert(1);
+/* The glyph is painted from currentColor through an alpha mask, so it tracks the
+   button's text colour — --ink-muted at rest, --clay-deep on hover — instead of
+   being a fixed-colour bitmap that needs a filter to recolour. (flashCopyButton
+   swaps the button's innerHTML for a text label, so no icon is present while the
+   copy confirmation flashes.) */
+.thread-copy-btn .btn-icon {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  background-color: currentColor;
+  -webkit-mask: url("/static/icons/copy.png") center / contain no-repeat;
+  mask: url("/static/icons/copy.png") center / contain no-repeat;
 }
 
 /* Second Brain logo mark — appears after each assistant response */
