@@ -6,8 +6,8 @@ This is the **only** interface introduced by this feature. The dashboard page ta
 
 - **Base URL**: `http://127.0.0.1:<port>` (default `4173`).
 - **Binding**: `127.0.0.1` only. Never listens on `0.0.0.0`.
-- **Auth**: none. Single-user local. The bridge refuses to start if any external network interface is requested.
-- **Content type**: JSON for everything except static asset GETs and the PDF upload.
+- **Auth**: every endpoint except `/`, `/static/*`, `/healthz` and `/busy` requires the per-start `X-Bridge-Token` header (see `dashboard/README.md`, Security model). The bridge refuses to start if any external network interface is requested.
+- **Content type**: JSON for everything except static asset GETs, the file uploads and `/run-multipart`.
 - **CORS**: not needed; the page is served by the bridge itself.
 - **Process model**: foreground; Ctrl-C stops cleanly.
 
@@ -17,7 +17,11 @@ This is the **only** interface introduced by this feature. The dashboard page ta
 Serves `index.html`.
 
 ### `GET /static/<path>`
-Serves `styles.css`, `app.js`, `lib/marked.min.js`. Path is constrained to the `dashboard/` directory; traversal attempts return 404.
+Serves `styles.css`, `app.js`, `attachments.js`, `lib/marked.min.js`. Path is constrained to the `dashboard/` directory; traversal attempts and any path segment starting with `.` (such as the `.uploads/` staging folder) return 404.
+
+### `GET /attachments/<name>` → `200 image/*` | `404`
+
+Serves one image attached to a thread question from `outputs/attachments/`. `<name>` must be a plain filename (`[A-Za-z0-9_.-]`, no `/`, not starting with `.`) ending in `.png`, `.jpg`, `.jpeg`, `.gif` or `.webp`. SVG is never served. Responses carry `X-Content-Type-Options: nosniff`. Requires the bridge token, so the page fetches the bytes and displays them through a `blob:` URL (the CSP allows `img-src 'self' data: blob:`).
 
 ### `GET /status` → `200 application/json`
 
@@ -101,6 +105,30 @@ Server actions:
 
 If step 2 fails, no skill is run and no mutex is acquired.
 
+### `POST /upload-file` → `200 application/json` | `400` | `409` | `413` | `504`
+
+`multipart/form-data` with a `file` part and an optional `context` text part (up to 2000 characters). One file per request; the dashboard sends several files as consecutive requests. Office and CSV files are converted in-process. PDFs, images, `.txt` and `.md` go through their import paths. Images must pass a first-bytes check (PNG, JPEG, GIF, WebP). After a successful image import, the bridge copies the original next to the description note under the same stem (`raw/images/X.md` → `raw/images/X.png`), adds `original: X.png` to its front matter, and lists the copy in `created_files`.
+
+### `POST /run-multipart` → `200 application/json` | `400` | `409` | `413` | `422` | `504`
+
+A thread question or a pasted note with attached images. Token only; the Chrome extension cannot call it.
+
+| field   | required | description |
+|---------|----------|-------------|
+| `kind`  | yes      | `thread-start`, `thread-reply` or `md-add` |
+| `args`  | yes      | JSON object, same shape as `/run` for that kind. An empty `question` is replaced with a default question about the attached images. |
+| `image` | 1-10     | Image files: PNG, JPEG, GIF or WebP by first bytes; 20 MB each, 64 MB in total |
+
+Server actions:
+
+1. Validate the kind, args and images. On failure return `400` without running anything.
+2. Stage each image as `dashboard/.uploads/<uuid>.<ext>`.
+3. `thread-start` / `thread-reply`: run the skill with repeatable `--image "<path>"` flags before the question (and `-i` / `-f` for Codex / OpenCode). After a successful, un-stopped run, copy the images to `outputs/attachments/<thread-stem>-<n>.<ext>` and add one `![image n](attachments/<file>)` line per image at the end of the latest user turn.
+4. `md-add`: run `second-brain-describe-images`, which returns JSON describing each image. Write `raw/images/<date>_<slug>.md` with the pasted text verbatim followed by one section per image, and copy the originals next to it as `<stem>__<n>.<ext>`. A reply that is not valid JSON for every image returns `422 {"error": "bad_describe"}` and writes nothing.
+5. Delete the staged files, whatever the outcome.
+
+Copies into the vault are all-or-nothing: if any copy or the note/thread write fails, the copies already made are deleted. A stopped or failed run copies nothing. `DELETE /outputs/<thread>.md` also deletes that thread's attachments.
+
 ## Error envelope
 
 All error responses use the same shape:
@@ -108,11 +136,11 @@ All error responses use the same shape:
 { "error": "<short_code>", "detail": "<human-readable string>" }
 ```
 
-Codes used in this feature: `busy`, `timeout`, `spawn_failed`, `not_a_pdf`, `bad_request`, `not_found`.
+Codes used in this feature: `busy`, `timeout`, `spawn_failed`, `not_a_pdf`, `bad_request`, `bad_upload`, `bad_file`, `bad_describe`, `too_large`, `write_failed`, `not_found`.
 
 ## What the bridge is *not* allowed to do
 
-- Parse the model's `result` text to make decisions. The only structured signals it reads from `claude` are `is_error`, `result` (passed through), and JSON shape.
+- Parse the model's `result` text to make decisions. The only structured signals it reads from `claude` are `is_error`, `result` (passed through), and JSON shape. The exception is `second-brain-describe-images`, whose reply is a fenced JSON block the bridge validates and turns into a note.
 - Touch `raw/`, `wiki/`, or `outputs/` other than as documented (status reads + before/after listings).
 - Run any binary other than `claude`.
 - Listen on any interface other than `127.0.0.1`.
