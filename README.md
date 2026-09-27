@@ -67,8 +67,9 @@ Just download it and drag it into your Applications folder. Launch it, point it 
 The everyday loop, all from the dashboard:
 
 - **Capture** — paste a Markdown note, drop or pick a file (PDF, PowerPoint, Word, Excel, CSV, image, text), import from a URL, or pull a document from Craft. Office and CSV files convert instantly, in-process, with no model call.
+- **Add photos** — attach images to a pasted note or a question: paste them straight from the clipboard (⌘V), drag them in, or click **Attach images**. A pasted note keeps a written description of each image, so it becomes searchable after the next wiki update. Click any thumbnail to see it full size.
 - **Update wiki** — when new material is waiting, a row appears telling you how many items aren't searchable yet, with an **Update wiki** button. Click it and your wiki is rebuilt and cross-linked.
-- **Ask** — type a question in the hero box and read the sourced answer right on the page. Past answers and articles stay browsable in the sidebar.
+- **Ask** — type a question in the hero box and read the sourced answer right on the page. Include a screenshot or photo and the answer takes it into account. Past answers and articles stay browsable in the sidebar.
 - **Tidy up** — **Run lint** flags contradictions and gaps; a plain-English edit box lets you fix any article without touching files.
 
 **Capture straight from Chrome.** A companion extension imports the page you're on with one click, no need to open the dashboard first. [Install it in a minute →](dashboard/README.md#chrome-extension)
