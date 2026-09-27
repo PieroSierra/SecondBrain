@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 import WebKit
 
 /// The single dashboard window: an `NSWindow` hosting a `WKWebView` pointed at the
@@ -194,6 +195,8 @@ extension WebWindow: WKUIDelegate {
         panel.canChooseFiles = true
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = parameters.allowsMultipleSelection
+        let types = Self.acceptedContentTypes(parameters)
+        if !types.isEmpty { panel.allowedContentTypes = types }
         let finish: (NSApplication.ModalResponse) -> Void = { resp in
             completionHandler(resp == .OK ? panel.urls : nil)
         }
@@ -202,5 +205,25 @@ extension WebWindow: WKUIDelegate {
         } else {
             finish(panel.runModal())
         }
+    }
+
+    /// The input's `accept` list as content types, so the panel greys out other files.
+    /// WKOpenPanelParameters exposes `accept` only through the private
+    /// `_acceptedMIMETypes` / `_acceptedFileExtensions` properties; if a WebKit
+    /// release drops them this returns [] and the panel shows every file.
+    private static func acceptedContentTypes(_ parameters: WKOpenPanelParameters) -> [UTType] {
+        func strings(_ key: String) -> [String] {
+            guard parameters.responds(to: NSSelectorFromString(key)) else { return [] }
+            return parameters.value(forKey: key) as? [String] ?? []
+        }
+        var types: [UTType] = []
+        for mime in strings("_acceptedMIMETypes") {
+            if let t = UTType(mimeType: mime) { types.append(t) }
+        }
+        for ext in strings("_acceptedFileExtensions") {
+            let bare = ext.hasPrefix(".") ? String(ext.dropFirst()) : ext
+            if let t = UTType(filenameExtension: bare) { types.append(t) }
+        }
+        return types
     }
 }
