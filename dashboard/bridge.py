@@ -125,9 +125,10 @@ _CLAUDE_TIER_MAP: dict[str, str] = {
     "haiku":  "haiku",
 }
 _CODEX_TIER_MAP: dict[str, str] = {
-    "sol":   "gpt-5.6-sol",
+    "astra": "gpt-6-astra",
+    "sol":   "gpt-6-sol",
+    "luna":  "gpt-6-luna",
     "terra": "gpt-5.6-terra",
-    "luna":  "gpt-5.6-luna",
 }
 # OpenCode uses fully-qualified provider/model IDs.
 # Short aliases (fable/opus/sonnet/haiku) map to Anthropic models.
@@ -135,22 +136,20 @@ _CODEX_TIER_MAP: dict[str, str] = {
 # select them by key and the bridge passes them straight through.
 _OPENCODE_TIER_MAP: dict[str, str] = {
     # Anthropic tier aliases
-    "fable":  "anthropic/claude-fable-5",
-    "opus":   "anthropic/claude-opus-4-8",
-    "sonnet": "anthropic/claude-sonnet-5",
+    "fable":  "anthropic/claude-fable-5-1",
+    "opus":   "anthropic/claude-opus-5-5",
+    "sonnet": "anthropic/claude-sonnet-5-5",
     "haiku":  "anthropic/claude-haiku-4-5",
     # OpenAI — full IDs used as keys so app.js can select them by value
-    "openai/gpt-5.6-sol":        "openai/gpt-5.6-sol",
-    "openai/gpt-5.6-sol-fast":   "openai/gpt-5.6-sol-fast",
-    "openai/gpt-5.6-luna":       "openai/gpt-5.6-luna",
-    "openai/gpt-5.6-luna-fast":  "openai/gpt-5.6-luna-fast",
+    "openai/gpt-6-sol":        "openai/gpt-6-sol",
+    "openai/gpt-6-sol-fast":   "openai/gpt-6-sol-fast",
+    "openai/gpt-6-astra":        "openai/gpt-6-astra",
+    "openai/gpt-6-astra-fast":   "openai/gpt-6-astra-fast",
+    "openai/gpt-6-luna":         "openai/gpt-6-luna",
+    "openai/gpt-6-luna-fast":    "openai/gpt-6-luna-fast",
     "openai/gpt-5.6-terra":      "openai/gpt-5.6-terra",
-    "openai/gpt-5.5":            "openai/gpt-5.5",
-    "openai/gpt-5.5-fast":       "openai/gpt-5.5-fast",
     "openai/gpt-5.4-mini":       "openai/gpt-5.4-mini",
     # OpenCode Zen (free)
-    "opencode/hy3-free":               "opencode/hy3-free",
-    "opencode/deepseek-v4-flash-free": "opencode/deepseek-v4-flash-free",
     "opencode/nemotron-3-ultra-free":  "opencode/nemotron-3-ultra-free",
 }
 

@@ -592,23 +592,21 @@ const NATIVE_ENGINE_SWITCH = !!window.webkit?.messageHandlers?.secondBrain;
 // Tier labels for each engine. Keys match the bridge's tier-map keys.
 // These are display names only; the bridge owns the actual CLI alias/ID mapping.
 const CLAUDE_TIER_LABELS    = { default: "Default", fable: "Fable", opus: "Opus", sonnet: "Sonnet", haiku: "Haiku" };
-const CODEX_TIER_LABELS     = { default: "Default", sol: "Sol", terra: "Terra", luna: "Luna" };
+const CODEX_TIER_LABELS     = { default: "Default", astra: "GPT-6 Astra", sol: "GPT-6 Sol", luna: "GPT-6 Luna", terra: "GPT-5.6 Terra" };
 const OPENCODE_TIER_LABELS  = {
   default: "Default",
   // Anthropic
-  fable: "Fable 5", opus: "Opus 4.8", sonnet: "Sonnet 5", haiku: "Haiku 4.5",
+  fable: "Fable 5.1", opus: "Opus 5.5", sonnet: "Sonnet 5.5", haiku: "Haiku 4.5",
   // OpenAI
-  "openai/gpt-5.6-sol":       "GPT Sol",
-  "openai/gpt-5.6-sol-fast":  "GPT Sol Fast",
-  "openai/gpt-5.6-luna":      "GPT Luna",
-  "openai/gpt-5.6-luna-fast": "GPT Luna Fast",
-  "openai/gpt-5.6-terra":     "GPT Terra",
-  "openai/gpt-5.5":           "GPT-5.5",
-  "openai/gpt-5.5-fast":      "GPT-5.5 Fast",
+  "openai/gpt-6-sol":       "GPT-6 Sol",
+  "openai/gpt-6-sol-fast":  "GPT-6 Sol Fast",
+  "openai/gpt-6-astra":       "GPT-6 Astra",
+  "openai/gpt-6-astra-fast":  "GPT-6 Astra Fast",
+  "openai/gpt-6-luna":        "GPT-6 Luna",
+  "openai/gpt-6-luna-fast":   "GPT-6 Luna Fast",
+  "openai/gpt-5.6-terra":     "GPT-5.6 Terra",
   "openai/gpt-5.4-mini":      "GPT-5.4 Mini",
   // OpenCode Zen (free)
-  "opencode/hy3-free":               "Hy3 Free",
-  "opencode/deepseek-v4-flash-free": "DeepSeek Flash Free",
   "opencode/nemotron-3-ultra-free":  "Nemotron Ultra Free",
 };
 
