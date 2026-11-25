@@ -248,6 +248,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         notifyWebViewModelChange(engine: engine, tier: tier)
     }
 
+    private func addModelItems(to sub: NSMenu, engine: String, tiers: [(String, String)]) {
+        for (tier, label) in tiers {
+            let mi = sub.addItem(withTitle: label,
+                                 action: #selector(selectModelTier(_:)),
+                                 keyEquivalent: "")
+            mi.target = self
+            mi.representedObject = "\(engine):\(tier)"
+            modelMenuItems["\(engine):\(tier)"] = mi
+        }
+    }
+
+    /// Entry point for the dashboard (via the WebWindow script bridge): replace the
+    /// OpenCode model submenu with the models the bridge discovered from the CLI.
+    /// A saved choice that is no longer offered falls back to "default".
+    func setModelTiers(engine: String, tiers: [(String, String)]) {
+        guard engine == "opencode", let sub = opencodeItem?.submenu, !tiers.isEmpty else { return }
+        for key in modelMenuItems.keys where key.hasPrefix("opencode:") {
+            modelMenuItems.removeValue(forKey: key)
+        }
+        sub.removeAllItems()
+        addModelItems(to: sub, engine: engine, tiers: tiers)
+        if !tiers.contains(where: { $0.0 == Preferences.opencodeModelChoice }) {
+            Preferences.opencodeModelChoice = "default"
+        }
+        updateModelChecks()
+    }
+
     private func updateModelChecks() {
         for (key, item) in modelMenuItems {
             let parts = key.split(separator: ":", maxSplits: 1).map(String.init)
@@ -342,14 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                            tiers: [(String, String)]) -> NSMenuItem {
             let parent = NSMenuItem(title: title, action: nil, keyEquivalent: "")
             let sub = NSMenu()
-            for (tier, label) in tiers {
-                let mi = sub.addItem(withTitle: label,
-                                     action: #selector(selectModelTier(_:)),
-                                     keyEquivalent: "")
-                mi.target = self
-                mi.representedObject = "\(engine):\(tier)"
-                modelMenuItems["\(engine):\(tier)"] = mi
-            }
+            addModelItems(to: sub, engine: engine, tiers: tiers)
             parent.submenu = sub
             engineMenu.addItem(parent)
             return parent
@@ -363,21 +383,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             ("default", "Default"), ("astra", "GPT-6 Astra"), ("sol", "GPT-6 Sol"),
             ("luna", "GPT-6 Luna"), ("terra", "GPT-5.6 Terra"),
         ])
+        // OpenCode's models depend on the installed CLI's providers; the dashboard
+        // fills this submenu from the bridge via setModelTiers once it loads.
         opencodeItem = addEngineItem(title: "OpenCode", engine: "opencode", tiers: [
             ("default", "Default"),
-            // Anthropic
-            ("fable",  "Fable 5.1"), ("opus", "Opus 5.5"), ("sonnet", "Sonnet 5.5"), ("haiku", "Haiku 4.5"),
-            // OpenAI
-            ("openai/gpt-6-sol",       "GPT-6 Sol"),
-            ("openai/gpt-6-sol-fast",  "GPT-6 Sol Fast"),
-            ("openai/gpt-6-astra",       "GPT-6 Astra"),
-            ("openai/gpt-6-astra-fast",  "GPT-6 Astra Fast"),
-            ("openai/gpt-6-luna",        "GPT-6 Luna"),
-            ("openai/gpt-6-luna-fast",   "GPT-6 Luna Fast"),
-            ("openai/gpt-5.6-terra",     "GPT-5.6 Terra"),
-            ("openai/gpt-5.4-mini",      "GPT-5.4 Mini"),
-            // OpenCode Zen (free)
-            ("opencode/nemotron-3-ultra-free",  "Nemotron Ultra Free"),
         ])
 
         updateEngineChecks()

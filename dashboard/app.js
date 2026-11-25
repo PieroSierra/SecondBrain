@@ -575,6 +575,20 @@ async function ensureConfig() {
                       : (data.claude_model_tier || "default");
     renderModelTile(_currentEngine, currentTier, _currentTierLabels);
 
+    // The bridge discovers OpenCode's models from the installed CLI, so the app's
+    // Engine › OpenCode menu takes its list from here rather than hardcoding one.
+    if (NATIVE_ENGINE_SWITCH) {
+      const tiers = [["default", "Default"]];
+      for (const id of Object.keys(data.opencode_tier_map || {})) {
+        tiers.push([id, OPENCODE_TIER_LABELS[id] || id]);
+      }
+      window.webkit.messageHandlers.secondBrain.postMessage({
+        action: "setModelTiers",
+        engine: "opencode",
+        tiers,
+      });
+    }
+
     _configLoaded = true;
   } catch {
     /* best-effort */

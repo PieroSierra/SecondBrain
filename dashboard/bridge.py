@@ -130,7 +130,8 @@ _CODEX_TIER_MAP: dict[str, str] = {
     "luna":  "gpt-6-luna",
     "terra": "gpt-5.6-terra",
 }
-# OpenCode uses fully-qualified provider/model IDs.
+# OpenCode uses fully-qualified provider/model IDs. This map is the fallback;
+# at startup _apply_opencode_models replaces it with `opencode models` output.
 # Short aliases (fable/opus/sonnet/haiku) map to Anthropic models.
 # Full provider/model IDs map to themselves (identity) so the dropdown can
 # select them by key and the bridge passes them straight through.
@@ -159,6 +160,55 @@ _OPENCODE_TIER_MAP: dict[str, str] = {
 _CLAUDE_MODEL_TIER:    str = os.environ.get("CLAUDE_MODEL",    "default").strip().lower()
 _CODEX_MODEL_TIER:     str = os.environ.get("CODEX_MODEL",     "default").strip().lower()
 _OPENCODE_MODEL_TIER:  str = os.environ.get("OPENCODE_MODEL",  "default").strip().lower()
+
+# OpenCode's available models depend on the user's providers and policy (e.g. a
+# company build that enables only a Portkey provider), so the bridge asks the
+# installed CLI at startup. _OPENCODE_TIER_MAP above is the fallback when the
+# CLI is missing or returns nothing.
+_OPENCODE_MODEL_RE = re.compile(r"^[\w.-]+/\S+$")
+
+
+def _parse_opencode_models(stdout: str) -> list[str]:
+    """Return the `provider/model` IDs from `opencode models` output, in order."""
+    models: list[str] = []
+    for line in stdout.splitlines():
+        line = line.strip()
+        if _OPENCODE_MODEL_RE.match(line) and line not in models:
+            models.append(line)
+    return models
+
+
+def _discover_opencode_models() -> list[str]:
+    """Run `opencode models`; return [] if the CLI is missing, fails or times out."""
+    try:
+        cp = subprocess.run(
+            [OPENCODE_BIN, "models"],
+            capture_output=True, text=True, timeout=5,
+            stdin=subprocess.DEVNULL,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return []
+    if cp.returncode != 0:
+        return []
+    return _parse_opencode_models(cp.stdout or "")
+
+
+def _apply_opencode_models(models: list[str]) -> None:
+    """Use discovered models as the OpenCode tier map.
+
+    A saved model the CLI no longer offers (e.g. `openai/...` after a policy
+    change) falls back to "default" so runs don't fail with "Model not found".
+    An empty list keeps the built-in map and the saved model unchanged.
+    """
+    global _OPENCODE_TIER_MAP, _OPENCODE_MODEL_TIER
+    if not models:
+        return
+    _OPENCODE_TIER_MAP = {m: m for m in models}
+    if _OPENCODE_MODEL_TIER != "default" and _OPENCODE_MODEL_TIER not in _OPENCODE_TIER_MAP:
+        sys.stderr.write(
+            f"OpenCode model {_OPENCODE_MODEL_TIER!r} is not available; using default\n"
+        )
+        _OPENCODE_MODEL_TIER = "default"
 
 # ---------------------------------------------------------------------------
 # Security: CSRF gate
@@ -1201,8 +1251,9 @@ def run_opencode(prompt: str, cfg: dict, images: list[str] | None = None) -> tup
         prompt,
         "--format", "json",
         "--auto",
-        "--dir", str(VAULT_ROOT),
     ]
+    # No --dir: OpenCode V2 rejects it. _run_capture starts the process with the
+    # vault as its cwd, which both V1 and V2 use as the working directory.
     _t = _OPENCODE_MODEL_TIER
     if _t and _t != "default":
         # Tier alias (e.g. "sonnet") → full ID; raw ID (e.g. "openai/gpt-5.6-sol") → as-is.
@@ -4479,6 +4530,7 @@ def main(argv: list[str] | None = None) -> int:
     DASHBOARD_ORIGINS = frozenset(origins)
 
     _clean_uploads()
+    _apply_opencode_models(_discover_opencode_models())
 
     # Add fingerprints to legacy manifest entries and absorb metadata-only
     # changes before the first status request. This is deterministic and never

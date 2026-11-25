@@ -124,6 +124,12 @@ extension WebWindow: WKScriptMessageHandler {
                let tier   = body["tier"]   as? String {
                 (NSApp.delegate as? AppDelegate)?.switchModel(engine: engine, to: tier)
             }
+        case "setModelTiers":
+            if let engine = body["engine"] as? String,
+               let raw    = body["tiers"]  as? [[String]] {
+                let tiers = raw.compactMap { $0.count == 2 ? ($0[0], $0[1]) : nil }
+                (NSApp.delegate as? AppDelegate)?.setModelTiers(engine: engine, tiers: tiers)
+            }
         case "setTitle":
             // The page owns the vault's display name (it comes from .env via
             // /config), so it drives the window title rather than the app
