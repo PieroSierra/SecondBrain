@@ -553,8 +553,8 @@
                 aria-controls="mcp-panel-claude" aria-selected="true">Claude</button>
         <button type="button" role="tab" class="mcp-tab" id="mcp-tab-chatgpt" data-mcp-tab="chatgpt"
                 aria-controls="mcp-panel-chatgpt" aria-selected="false" tabindex="-1">ChatGPT</button>
-        <button type="button" role="tab" class="mcp-tab" id="mcp-tab-openwebui" data-mcp-tab="openwebui"
-                aria-controls="mcp-panel-openwebui" aria-selected="false" tabindex="-1">Open WebUI</button>
+        <button type="button" role="tab" class="mcp-tab" id="mcp-tab-opencode" data-mcp-tab="opencode"
+                aria-controls="mcp-panel-opencode" aria-selected="false" tabindex="-1">OpenCode</button>
       </div>
 
       <section class="mcp-tab-panel" id="mcp-panel-claude" role="tabpanel" aria-labelledby="mcp-tab-claude">
@@ -581,30 +581,25 @@
           so it cannot reach <code>127.0.0.1</code>. Connecting it needs a tunnel from this computer to OpenAI
           (OpenAI's Secure MCP Tunnel, or a public tunnel such as Cloudflare Tunnel) and an authentication method
           ChatGPT supports. Second Brain does not set either up yet.</p>
-        <p class="mcp-modal-hint">To use your Second Brain from a ChatGPT-style chat today, use Claude Desktop or
-          Open WebUI, which run locally.</p>
+        <p class="mcp-modal-hint">To use your Second Brain from an OpenAI model today, run it in OpenCode,
+          which connects locally.</p>
       </section>
 
-      <section class="mcp-tab-panel" id="mcp-panel-openwebui" role="tabpanel" aria-labelledby="mcp-tab-openwebui" hidden>
-        <p class="mcp-modal-hint">Needs Open WebUI 0.6.31 or later and an admin account.</p>
-        <ol class="mcp-steps">
-          <li>Open <b>Admin Settings &rsaquo; Settings &rsaquo; Integrations</b>.</li>
-          <li>Under <b>External Tool Servers</b>, click <b>+ Add Connection</b>.</li>
-          <li>Set <b>Type</b> to <b>MCP (Streamable HTTP)</b>.</li>
-          <li>Set <b>URL</b> to the address below that matches how you run Open WebUI.</li>
-          <li>Set <b>Auth</b> to <b>Bearer</b> and paste the token below into <b>Key</b>.</li>
-          <li>Click <b>Save</b>, then enable the tool in a chat.</li>
-        </ol>
-        <p class="mcp-modal-hint">Open WebUI installed directly (pip, uv, or the desktop app):</p>
+      <section class="mcp-tab-panel" id="mcp-panel-opencode" role="tabpanel" aria-labelledby="mcp-tab-opencode" hidden>
+        <h3 class="mcp-modal-heading">OpenCode</h3>
+        <p class="mcp-modal-hint">Run in a terminal. This adds the server to your global OpenCode config;
+          drop <code>--global</code> to add it to the current project only.</p>
         <div class="mcp-code-row">
-          <pre class="mcp-code" data-mcp-field="endpoint"></pre>
-          <button type="button" class="status-pill mcp-copy" data-mcp-copy="endpoint">copy</button>
+          <pre class="mcp-code" data-mcp-field="opencode"></pre>
+          <button type="button" class="status-pill mcp-copy" data-mcp-copy="opencode">copy</button>
         </div>
-        <p class="mcp-modal-hint">Open WebUI in Docker:</p>
+        <p class="mcp-modal-hint">Or merge this into <code>~/.config/opencode/opencode.json</code>.
+          <code>"oauth": false</code> stops OpenCode from trying to sign in with OAuth.</p>
         <div class="mcp-code-row">
-          <pre class="mcp-code" data-mcp-field="docker_endpoint"></pre>
-          <button type="button" class="status-pill mcp-copy" data-mcp-copy="docker_endpoint">copy</button>
+          <pre class="mcp-code" data-mcp-field="opencode_json"></pre>
+          <button type="button" class="status-pill mcp-copy" data-mcp-copy="opencode_json">copy</button>
         </div>
+        <p class="mcp-modal-hint">Then run <code>opencode mcp list</code> to check that <code>second-brain</code> is connected.</p>
       </section>
 
       <h3 class="mcp-modal-heading">Endpoint and token</h3>

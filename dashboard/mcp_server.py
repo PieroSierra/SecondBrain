@@ -63,9 +63,7 @@ MAX_LEGACY_SESSIONS = 256
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 RESOURCE_PREFIX = "sb://wiki/"
-# Loopback names, plus the name a Docker container (e.g. Open WebUI) uses to
-# reach the host. Browsers are excluded separately by the Origin check.
-ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "host.docker.internal"})
+ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1"})
 CAPTURE_SUBDIR = "mcp"
 
 # JSON-RPC error codes.

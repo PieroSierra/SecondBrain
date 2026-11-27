@@ -105,10 +105,10 @@ class GateTests(_Base):
         resp = self.post({"jsonrpc": "2.0", "id": 1, "method": "ping"}, {"Host": "evil.example:4173"})
         self.assertEqual(resp.status, 403)
 
-    def test_accepts_docker_host_alias(self):
+    def test_rejects_docker_host_alias(self):
         resp = self.post({"jsonrpc": "2.0", "id": 1, "method": "ping"},
                          {"Host": "host.docker.internal:4173"})
-        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.status, 403)
 
     def test_rejects_any_origin(self):
         resp = self.post({"jsonrpc": "2.0", "id": 1, "method": "ping"},
@@ -390,7 +390,10 @@ class TokenTests(unittest.TestCase):
         bridge._MCP_TOKEN = "abc"
         cfg = bridge._mcp_config()
         self.assertIn("Authorization: Bearer abc", cfg["claude_code"])
-        self.assertTrue(cfg["docker_endpoint"].startswith("http://host.docker.internal:"))
+        self.assertIn('--header "Authorization=Bearer abc"', cfg["opencode"])
+        server = cfg["opencode_json"]["mcp"]["servers"]["second-brain"]
+        self.assertEqual(server["headers"]["Authorization"], "Bearer abc")
+        self.assertIs(server["oauth"], False)
         self.assertEqual(cfg["claude_desktop"]["mcpServers"]["second-brain"]["args"][-1],
                          "Authorization: Bearer abc")
 

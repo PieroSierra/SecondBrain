@@ -441,7 +441,6 @@ def _mcp_config() -> dict:
     header = f"Authorization: Bearer {_MCP_TOKEN}"
     return {
         "endpoint": endpoint,
-        "docker_endpoint": f"http://host.docker.internal:{_BRIDGE_PORT}/mcp",
         "token": _MCP_TOKEN,
         "claude_code": (f"claude mcp add --transport http second-brain {endpoint} "
                         f"--header \"{header}\""),
@@ -449,6 +448,16 @@ def _mcp_config() -> dict:
             "command": "npx",
             "args": ["-y", "mcp-remote", endpoint, "--header", header],
         }}},
+        # OpenCode V2 takes headers as name=value. oauth:false stops it
+        # attempting OAuth discovery against a header-authenticated server.
+        "opencode": (f"opencode mcp add second-brain --global --url {endpoint} "
+                     f"--header \"Authorization=Bearer {_MCP_TOKEN}\""),
+        "opencode_json": {"mcp": {"servers": {"second-brain": {
+            "type": "remote",
+            "url": endpoint,
+            "oauth": False,
+            "headers": {"Authorization": f"Bearer {_MCP_TOKEN}"},
+        }}}},
     }
 
 
