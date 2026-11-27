@@ -548,20 +548,64 @@
       <p class="mcp-modal-intro">Local agents can read your wiki and save notes to
         <code>raw/mcp/</code> while this app is running. Saved notes reach the wiki when you update it.</p>
 
-      <h3 class="mcp-modal-heading">Claude Code</h3>
-      <p class="mcp-modal-hint">Run in a terminal:</p>
-      <div class="mcp-code-row">
-        <pre class="mcp-code" data-mcp-field="claude_code"></pre>
-        <button type="button" class="status-pill mcp-copy" data-mcp-copy="claude_code">copy</button>
+      <div class="mcp-tabs" role="tablist" aria-label="Agent">
+        <button type="button" role="tab" class="mcp-tab" id="mcp-tab-claude" data-mcp-tab="claude"
+                aria-controls="mcp-panel-claude" aria-selected="true">Claude</button>
+        <button type="button" role="tab" class="mcp-tab" id="mcp-tab-chatgpt" data-mcp-tab="chatgpt"
+                aria-controls="mcp-panel-chatgpt" aria-selected="false" tabindex="-1">ChatGPT</button>
+        <button type="button" role="tab" class="mcp-tab" id="mcp-tab-openwebui" data-mcp-tab="openwebui"
+                aria-controls="mcp-panel-openwebui" aria-selected="false" tabindex="-1">Open WebUI</button>
       </div>
 
-      <h3 class="mcp-modal-heading">Claude Desktop</h3>
-      <p class="mcp-modal-hint">Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>,
-        then restart Claude Desktop. Needs Node.js.</p>
-      <div class="mcp-code-row">
-        <pre class="mcp-code" data-mcp-field="claude_desktop"></pre>
-        <button type="button" class="status-pill mcp-copy" data-mcp-copy="claude_desktop">copy</button>
-      </div>
+      <section class="mcp-tab-panel" id="mcp-panel-claude" role="tabpanel" aria-labelledby="mcp-tab-claude">
+        <h3 class="mcp-modal-heading">Claude Code</h3>
+        <p class="mcp-modal-hint">Run in a terminal:</p>
+        <div class="mcp-code-row">
+          <pre class="mcp-code" data-mcp-field="claude_code"></pre>
+          <button type="button" class="status-pill mcp-copy" data-mcp-copy="claude_code">copy</button>
+        </div>
+
+        <h3 class="mcp-modal-heading">Claude Desktop</h3>
+        <p class="mcp-modal-hint">Add to <code>~/Library/Application Support/Claude/claude_desktop_config.json</code>,
+          then restart Claude Desktop. Needs Node.js.</p>
+        <div class="mcp-code-row">
+          <pre class="mcp-code" data-mcp-field="claude_desktop"></pre>
+          <button type="button" class="status-pill mcp-copy" data-mcp-copy="claude_desktop">copy</button>
+        </div>
+        <p class="mcp-modal-hint">Claude on the web (claude.ai) connects from Anthropic's servers and cannot reach this computer.</p>
+      </section>
+
+      <section class="mcp-tab-panel" id="mcp-panel-chatgpt" role="tabpanel" aria-labelledby="mcp-tab-chatgpt" hidden>
+        <h3 class="mcp-modal-heading">Not available yet</h3>
+        <p class="mcp-modal-hint">ChatGPT connects to MCP servers from OpenAI's servers, not from your computer,
+          so it cannot reach <code>127.0.0.1</code>. Connecting it needs a tunnel from this computer to OpenAI
+          (OpenAI's Secure MCP Tunnel, or a public tunnel such as Cloudflare Tunnel) and an authentication method
+          ChatGPT supports. Second Brain does not set either up yet.</p>
+        <p class="mcp-modal-hint">To use your Second Brain from a ChatGPT-style chat today, use Claude Desktop or
+          Open WebUI, which run locally.</p>
+      </section>
+
+      <section class="mcp-tab-panel" id="mcp-panel-openwebui" role="tabpanel" aria-labelledby="mcp-tab-openwebui" hidden>
+        <p class="mcp-modal-hint">Needs Open WebUI 0.6.31 or later and an admin account.</p>
+        <ol class="mcp-steps">
+          <li>Open <b>Admin Settings &rsaquo; Settings &rsaquo; Integrations</b>.</li>
+          <li>Under <b>External Tool Servers</b>, click <b>+ Add Connection</b>.</li>
+          <li>Set <b>Type</b> to <b>MCP (Streamable HTTP)</b>.</li>
+          <li>Set <b>URL</b> to the address below that matches how you run Open WebUI.</li>
+          <li>Set <b>Auth</b> to <b>Bearer</b> and paste the token below into <b>Key</b>.</li>
+          <li>Click <b>Save</b>, then enable the tool in a chat.</li>
+        </ol>
+        <p class="mcp-modal-hint">Open WebUI installed directly (pip, uv, or the desktop app):</p>
+        <div class="mcp-code-row">
+          <pre class="mcp-code" data-mcp-field="endpoint"></pre>
+          <button type="button" class="status-pill mcp-copy" data-mcp-copy="endpoint">copy</button>
+        </div>
+        <p class="mcp-modal-hint">Open WebUI in Docker:</p>
+        <div class="mcp-code-row">
+          <pre class="mcp-code" data-mcp-field="docker_endpoint"></pre>
+          <button type="button" class="status-pill mcp-copy" data-mcp-copy="docker_endpoint">copy</button>
+        </div>
+      </section>
 
       <h3 class="mcp-modal-heading">Endpoint and token</h3>
       <div class="mcp-code-row">

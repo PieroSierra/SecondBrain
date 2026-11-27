@@ -441,6 +441,7 @@ def _mcp_config() -> dict:
     header = f"Authorization: Bearer {_MCP_TOKEN}"
     return {
         "endpoint": endpoint,
+        "docker_endpoint": f"http://host.docker.internal:{_BRIDGE_PORT}/mcp",
         "token": _MCP_TOKEN,
         "claude_code": (f"claude mcp add --transport http second-brain {endpoint} "
                         f"--header \"{header}\""),

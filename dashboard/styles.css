@@ -2645,6 +2645,36 @@ mark.search-hit {
   box-shadow: var(--shadow-lift);
   padding: 26px 28px 22px;
 }
+.mcp-tabs {
+  display: flex;
+  gap: 4px;
+  margin: 16px 0 4px;
+  border-bottom: 1px solid var(--rule-strong);
+}
+.mcp-tab {
+  padding: 7px 12px;
+  margin-bottom: -1px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--ink-muted);
+  font: 600 0.82rem var(--font-body);
+  cursor: pointer;
+}
+.mcp-tab:hover { color: var(--ink); }
+.mcp-tab[aria-selected="true"] {
+  color: var(--clay-deep);
+  border-bottom-color: var(--clay);
+}
+.mcp-tab-panel { padding-top: 2px; }
+.mcp-tab-panel[hidden] { display: none; }
+.mcp-steps {
+  margin: 4px 0 12px;
+  padding-left: 20px;
+  font-size: 0.82rem;
+  line-height: 1.55;
+  color: var(--ink);
+}
 .mcp-modal-intro {
   margin: 0 0 6px;
   font-size: 0.88rem;

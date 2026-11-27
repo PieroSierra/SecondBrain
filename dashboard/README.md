@@ -78,9 +78,13 @@ While the bridge runs, it serves an [MCP](https://modelcontextprotocol.io) endpo
 
 The `sb_answer` prompt gives the agent the query skill's answering rules (citations, dated claims, gap notice) for a strict, sourced answer.
 
-**Set up:** click **connect an agent** in the status strip. The panel shows a `claude mcp add` command for Claude Code and a `claude_desktop_config.json` entry for Claude Desktop (which uses `npx mcp-remote`, so it needs Node.js).
+**Set up:** click **connect an agent** in the status strip. The panel has a tab per client:
 
-**Security:** the endpoint accepts only loopback `Host` values, rejects any request with an `Origin` header (so web pages and the Chrome extension cannot reach it), and requires `Authorization: Bearer <MCP_TOKEN>`. The token is created on first start and stored in `.env` (mode 0600). **New token** in the panel replaces it, and connected agents must be set up again. No MCP call runs a model, takes the long-operation lock, writes to `wiki/` or `outputs/`, or changes an existing raw file. Each call is logged as `[bridge] mcp …`.
+- **Claude:** a `claude mcp add` command for Claude Code and a `claude_desktop_config.json` entry for Claude Desktop (which uses `npx mcp-remote`, so it needs Node.js).
+- **Open WebUI** (0.6.31+): steps for **Admin Settings › Settings › Integrations › External Tool Servers**, with the URL for a direct install (`http://127.0.0.1:4173/mcp`) or a Docker install (`http://host.docker.internal:4173/mcp`), and Bearer auth.
+- **ChatGPT:** not supported. ChatGPT connects from OpenAI's servers and cannot reach `127.0.0.1` without a tunnel and an auth method it supports.
+
+**Security:** the endpoint accepts only loopback `Host` values (plus `host.docker.internal` for Docker clients), rejects any request with an `Origin` header (so web pages and the Chrome extension cannot reach it), and requires `Authorization: Bearer <MCP_TOKEN>`. The token is created on first start and stored in `.env` (mode 0600). **New token** in the panel replaces it, and connected agents must be set up again. No MCP call runs a model, takes the long-operation lock, writes to `wiki/` or `outputs/`, or changes an existing raw file. Each call is logged as `[bridge] mcp …`.
 
 The server speaks MCP `2026-07-28` and the `initialize`-based revisions `2025-11-25`, `2025-06-18`, and `2025-03-26` on the same endpoint.
 

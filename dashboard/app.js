@@ -3828,9 +3828,32 @@ async function rotateMcpToken(btn) {
   }
 }
 
+function selectMcpTab(name, { focus = false } = {}) {
+  mcpModal.querySelectorAll("[data-mcp-tab]").forEach((tab) => {
+    const on = tab.dataset.mcpTab === name;
+    tab.setAttribute("aria-selected", String(on));
+    tab.tabIndex = on ? 0 : -1;
+    if (on && focus) tab.focus();
+    const panel = document.getElementById(tab.getAttribute("aria-controls"));
+    if (panel) panel.hidden = !on;
+  });
+}
+
+// Arrow keys move between tabs (WAI-ARIA tabs pattern).
+mcpModal?.querySelector(".mcp-tabs")?.addEventListener("keydown", (e) => {
+  if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+  const tabs = [...mcpModal.querySelectorAll("[data-mcp-tab]")];
+  const i = tabs.findIndex((t) => t.getAttribute("aria-selected") === "true");
+  const next = tabs[(i + (e.key === "ArrowRight" ? 1 : tabs.length - 1)) % tabs.length];
+  selectMcpTab(next.dataset.mcpTab, { focus: true });
+  e.preventDefault();
+});
+
 document.getElementById("mcp-connect-pill")?.addEventListener("click", openMcpModal);
 mcpModal?.addEventListener("click", async (e) => {
   if (e.target.closest("[data-mcp-close]")) return closeMcpModal();
+  const tab = e.target.closest("[data-mcp-tab]");
+  if (tab) return selectMcpTab(tab.dataset.mcpTab);
   const rotate = e.target.closest("[data-mcp-rotate]");
   if (rotate) return rotateMcpToken(rotate);
   const copy = e.target.closest("[data-mcp-copy]");

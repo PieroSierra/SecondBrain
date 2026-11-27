@@ -63,6 +63,9 @@ MAX_LEGACY_SESSIONS = 256
 
 SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 RESOURCE_PREFIX = "sb://wiki/"
+# Loopback names, plus the name a Docker container (e.g. Open WebUI) uses to
+# reach the host. Browsers are excluded separately by the Origin check.
+ALLOWED_HOSTS = frozenset({"localhost", "127.0.0.1", "host.docker.internal"})
 CAPTURE_SUBDIR = "mcp"
 
 # JSON-RPC error codes.
@@ -187,7 +190,7 @@ def handle(vault: Vault, http_method: str, headers: Mapping[str, str],
 
     host = h.get("host", "")
     hostname = host.rsplit(":", 1)[0] if host else ""
-    if hostname not in ("localhost", "127.0.0.1"):
+    if hostname not in ALLOWED_HOSTS:
         return _http_error(403, INVALID_REQUEST, "forbidden host", log)
     if h.get("origin"):
         # Supported clients are not browsers. Any Origin means a web page.
