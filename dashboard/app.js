@@ -3762,6 +3762,88 @@ document.addEventListener("keydown", (e) => {
   else if (document.body.classList.contains("nav-open")) closeNav();
 });
 
+// ── MCP connection panel ─────────────────────────────────────────────────
+// Shows the endpoint, token, and setup snippets from GET /mcp/config. The token
+// is fetched only when the panel opens and is never stored client-side.
+
+const mcpModal = document.getElementById("mcp-modal");
+let _mcpConfig = null;
+
+function _mcpText(field) {
+  if (!_mcpConfig) return "";
+  const value = _mcpConfig[field];
+  return typeof value === "string" ? value : JSON.stringify(value, null, 2);
+}
+
+function renderMcpConfig() {
+  mcpModal.querySelectorAll("[data-mcp-field]").forEach((el) => {
+    el.textContent = _mcpText(el.dataset.mcpField);
+  });
+}
+
+function showMcpError(message) {
+  const el = mcpModal.querySelector(".mcp-modal-error");
+  el.textContent = message || "";
+  el.hidden = !message;
+}
+
+async function openMcpModal() {
+  if (!mcpModal) return;
+  showMcpError("");
+  _mcpConfig = null;
+  renderMcpConfig();
+  mcpModal.hidden = false;
+  mcpModal.querySelector("[data-mcp-close].rename-modal-confirm")?.focus();
+  try {
+    const res = await apiFetch("/mcp/config");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    _mcpConfig = await res.json();
+    renderMcpConfig();
+  } catch (err) {
+    showMcpError(`Could not load connection details: ${err.message}`);
+  }
+}
+
+function closeMcpModal() {
+  if (!mcpModal) return;
+  mcpModal.hidden = true;
+  _mcpConfig = null;
+  renderMcpConfig();
+  document.getElementById("mcp-connect-pill")?.focus();
+}
+
+async function rotateMcpToken(btn) {
+  btn.disabled = true;
+  showMcpError("");
+  try {
+    const { status, data } = await postJSON("/mcp/rotate-token", {});
+    if (status !== 200) throw new Error(data?.detail || `HTTP ${status}`);
+    _mcpConfig = data;
+    renderMcpConfig();
+    showMcpError("New token issued. Set up each agent again with the commands above.");
+  } catch (err) {
+    showMcpError(`Could not issue a new token: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+document.getElementById("mcp-connect-pill")?.addEventListener("click", openMcpModal);
+mcpModal?.addEventListener("click", async (e) => {
+  if (e.target.closest("[data-mcp-close]")) return closeMcpModal();
+  const rotate = e.target.closest("[data-mcp-rotate]");
+  if (rotate) return rotateMcpToken(rotate);
+  const copy = e.target.closest("[data-mcp-copy]");
+  if (copy && _mcpConfig) {
+    await writePlainClipboard(_mcpText(copy.dataset.mcpCopy));
+    copy.textContent = "copied";
+    setTimeout(() => { copy.textContent = "copy"; }, 1200);
+  }
+});
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && mcpModal && !mcpModal.hidden) closeMcpModal();
+});
+
 // Tab button clicks
 document.querySelectorAll(".nav-tab").forEach((btn) => {
   btn.addEventListener("click", () => switchSection(btn.dataset.navTab));

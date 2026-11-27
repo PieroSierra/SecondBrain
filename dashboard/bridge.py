@@ -43,6 +43,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import ingest_state
+import mcp_server
 
 # ---------------------------------------------------------------------------
 # Paths & constants
@@ -259,6 +260,12 @@ BRIDGE_TOKEN = secrets.token_urlsafe(32)
 
 # Populated in main() once the port is known.
 DASHBOARD_ORIGINS: frozenset[str] = frozenset()
+_BRIDGE_PORT: int = DEFAULT_PORT
+
+# Bearer token for the MCP endpoint (POST /mcp). Unlike BRIDGE_TOKEN it persists
+# in .env, so local agents keep working across bridge restarts. Created on first
+# start by _ensure_mcp_token(); rotated from the dashboard.
+_MCP_TOKEN: str = os.environ.get("MCP_TOKEN", "").strip()
 
 # Optional pin for the extension's origin (e.g.
 # "chrome-extension://abcdefghijklmnopabcdefghijklmnop"). When unset, any
@@ -401,6 +408,47 @@ def _write_env_var(key: str, value: str) -> None:
         except OSError:
             pass
         raise
+
+
+def _ensure_mcp_token() -> None:
+    """Create and persist MCP_TOKEN when absent. Never fatal."""
+    global _MCP_TOKEN
+    if _MCP_TOKEN:
+        return
+    token = mcp_server.new_token()
+    try:
+        _write_env_var("MCP_TOKEN", token)
+    except OSError as exc:
+        sys.stderr.write(f"Warning: could not save MCP_TOKEN to .env ({exc}); "
+                         "MCP clients must be reconfigured after a restart\n")
+    _MCP_TOKEN = token
+
+
+def _rotate_mcp_token() -> None:
+    """Replace MCP_TOKEN. Raises OSError (state unchanged) if .env cannot be written."""
+    global _MCP_TOKEN
+    token = mcp_server.new_token()
+    _write_env_var("MCP_TOKEN", token)
+    _MCP_TOKEN = token
+
+
+def _mcp_vault() -> mcp_server.Vault:
+    return mcp_server.Vault(root=VAULT_ROOT, search=_search_vault, slugify=_slugify)
+
+
+def _mcp_config() -> dict:
+    endpoint = f"http://127.0.0.1:{_BRIDGE_PORT}/mcp"
+    header = f"Authorization: Bearer {_MCP_TOKEN}"
+    return {
+        "endpoint": endpoint,
+        "token": _MCP_TOKEN,
+        "claude_code": (f"claude mcp add --transport http second-brain {endpoint} "
+                        f"--header \"{header}\""),
+        "claude_desktop": {"mcpServers": {"second-brain": {
+            "command": "npx",
+            "args": ["-y", "mcp-remote", endpoint, "--header", header],
+        }}},
+    }
 
 
 def _is_extension_origin(origin: str) -> bool:
@@ -2391,7 +2439,7 @@ def _raw_index() -> list[dict]:
             parts = rel.split("/")
             subdir = (
                 parts[1]
-                if len(parts) >= 3 and parts[1] in ("pdf", "web", "craft", "images", "pptx", "docx", "xlsx", "csv")
+                if len(parts) >= 3 and parts[1] in ("pdf", "web", "craft", "images", "pptx", "docx", "xlsx", "csv", "mcp")
                 else "paste"
             )
             slug = _DATE_PREFIX.sub("", parts[-1][:-3])  # drop date prefix + ".md"
@@ -2857,6 +2905,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             return self._serve_file(resolved)
         if path == "/healthz":
             return _json_response(self, 200, {"ok": True})
+        if path == "/mcp":
+            return self._handle_mcp("GET")
         if path == "/busy":
             # Lightweight app-state for the native app's Dock indicator: whether a
             # skill is running (from the long-op mutex) and how many raw files await
@@ -2890,6 +2940,8 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
             })
         if path == "/status":
             return _json_response(self, 200, _vault_status())
+        if path == "/mcp/config":
+            return _json_response(self, 200, _mcp_config())
         if path == "/wiki":
             return _json_response(self, 200, _wiki_list())
         if path.startswith("/wiki/") and len(path) > 6:
@@ -2916,6 +2968,16 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        # The MCP endpoint authenticates with its own bearer token, not the
+        # dashboard token or the extension Origin.
+        if path == "/mcp":
+            return self._handle_mcp("POST")
+        # Token only: the extension must never read or rotate the MCP token.
+        if path == "/mcp/rotate-token":
+            if not self._authorize():
+                return self._deny()
+            return self._handle_mcp_rotate()
 
         # All POST endpoints trigger a skill (or a cheap read-only check) →
         # require authorization. The extension authenticates by its allowlisted
@@ -2972,6 +3034,9 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
     def do_DELETE(self) -> None:  # noqa: N802
         parsed = urllib.parse.urlparse(self.path)
         path = parsed.path
+
+        if path == "/mcp":
+            return self._handle_mcp("DELETE")
 
         # Deleting a saved output mutates the vault → require authorization.
         if not self._authorize():
@@ -4303,6 +4368,52 @@ class DashboardHandler(http.server.BaseHTTPRequestHandler):
 
     # ----- helpers --------------------------------------------------------
 
+    def _handle_mcp(self, method: str) -> None:
+        length = int(self.headers.get("Content-Length", "0") or 0)
+        if length > mcp_server.MAX_BODY_BYTES:
+            body = b""
+            self.close_connection = True
+            oversized = True
+        else:
+            body = self.rfile.read(length) if length > 0 else b""
+            oversized = False
+        if oversized:
+            resp = mcp_server.Response(
+                413, {"Content-Type": "application/json"},
+                b'{"jsonrpc":"2.0","error":{"code":-32600,"message":"request body too large"}}',
+                {"method": None, "outcome": "http 413"},
+            )
+        else:
+            resp = mcp_server.handle(_mcp_vault(), method, self.headers, body, _MCP_TOKEN)
+
+        log = resp.log
+        if log.get("method"):
+            bits = [f"[bridge] mcp {log['method']}"]
+            if log.get("tool"):
+                bits.append(log["tool"])
+            if log.get("client"):
+                bits.append(f"client={log['client']}")
+            bits.append(f"-> {log.get('outcome')}")
+            if log.get("path"):
+                bits.append(log["path"])
+            sys.stderr.write(" ".join(bits) + "\n")
+
+        self.send_response(resp.status)
+        for key, value in resp.headers.items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(resp.body)))
+        self.end_headers()
+        if resp.body:
+            self.wfile.write(resp.body)
+
+    def _handle_mcp_rotate(self) -> None:
+        try:
+            _rotate_mcp_token()
+        except OSError as exc:
+            return _json_response(self, 500, {"error": "write_failed", "detail": str(exc)})
+        sys.stderr.write("[bridge] mcp token rotated\n")
+        return _json_response(self, 200, _mcp_config())
+
     def _read_json_body(self) -> dict | None:
         length = int(self.headers.get("Content-Length", "0") or 0)
         if length <= 0:
@@ -4522,12 +4633,14 @@ def main(argv: list[str] | None = None) -> int:
     # _origin_allowed also drives the CORS preflight and response headers, and
     # an allowlist that is right in one place and wrong in another is worse
     # than one that is wrong everywhere.
-    global DASHBOARD_ORIGINS
+    global DASHBOARD_ORIGINS, _BRIDGE_PORT
     origins = {f"http://localhost:{args.port}", f"http://127.0.0.1:{args.port}"}
     for h in REMOTE_HOSTS:
         origins.add(f"https://{h}")
         origins.add(f"http://{h}")
     DASHBOARD_ORIGINS = frozenset(origins)
+    _BRIDGE_PORT = args.port
+    _ensure_mcp_token()
 
     _clean_uploads()
     _apply_opencode_models(_discover_opencode_models())

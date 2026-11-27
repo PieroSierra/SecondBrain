@@ -481,6 +481,7 @@ body.is-busy .brand-busy-dot {
 .engine-test-pill.test-err:hover {
   background: var(--error-deep); border-color: var(--error-deep); color: #fff;
 }
+.mcp-connect-pill { margin-left: 6px; }
 /* Agent engine dropdown (app only): reads as the status text but carries a caret
    and hover affordance so it's discoverable as a control. */
 /* Baseline (not center): a center-aligned flex container exposes no text
@@ -2633,6 +2634,57 @@ mark.search-hit {
 .rename-modal-confirm:hover { background: var(--clay-deep); border-color: var(--clay-deep); }
 .rename-modal-confirm:disabled { opacity: 0.5; cursor: not-allowed; }
 
+.mcp-modal-sheet {
+  position: relative;
+  width: 100%;
+  max-width: 620px;
+  max-height: 85dvh;
+  overflow: auto;
+  background: var(--bg-content);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lift);
+  padding: 26px 28px 22px;
+}
+.mcp-modal-intro {
+  margin: 0 0 6px;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: var(--ink-muted);
+}
+.mcp-modal-heading {
+  margin: 18px 0 4px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+.mcp-modal-hint {
+  margin: 0 0 6px;
+  font-size: 0.78rem;
+  color: var(--ink-muted);
+}
+.mcp-code-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.mcp-code {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  background: var(--bg-subtle);
+  color: var(--ink);
+  font: 0.74rem/1.45 var(--font-mono);
+  white-space: pre-wrap;
+  word-break: break-all;
+  min-height: 1.45em;
+}
+.mcp-copy { margin-top: 6px; flex: none; }
+.mcp-modal-error { margin: 14px 0 0; }
+.mcp-modal-sheet .delete-modal-actions { margin-top: 20px; }
+
 .delete-modal-sheet {
   position: relative;
   width: 100%;
@@ -2952,7 +3004,7 @@ mark.search-hit {
   }
   .search-modal { padding-top: 10px; }
   .raw-modal-sheet, .search-modal-sheet,
-  .rename-modal-sheet, .delete-modal-sheet {
+  .rename-modal-sheet, .delete-modal-sheet, .mcp-modal-sheet {
     max-height: calc(100dvh - 24px - var(--kb-inset, 0px));
   }
 }

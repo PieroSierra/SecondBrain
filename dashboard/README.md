@@ -65,6 +65,25 @@ Do **not** add bare `Write`, `Edit`, or `Bash` to `permissions.allow` in `.claud
 | Status strip stuck on `—` | `/status` is failing — check the bridge log for stack traces. |
 | PDF import 504 with a large file | Per-kind timeout is 360 s. Very large PDFs may need to be split. |
 
+## Connect an agent (MCP)
+
+While the bridge runs, it serves an [MCP](https://modelcontextprotocol.io) endpoint at `http://127.0.0.1:4173/mcp`. Local agents such as Claude Code and Claude Desktop can read your wiki as context and save notes into it.
+
+| Tool | What it does |
+|---|---|
+| `sb_list_topics` | Lists every topic in `wiki/INDEX.md` with its summary and date. |
+| `sb_search` | Searches wiki articles for a term. |
+| `sb_read_article` | Returns one article with its Sources footer. Articles are also resources at `sb://wiki/<slug>`. |
+| `sb_capture` | Saves markdown the agent wrote as a new note in `raw/mcp/`. It reaches the wiki when you next update it. |
+
+The `sb_answer` prompt gives the agent the query skill's answering rules (citations, dated claims, gap notice) for a strict, sourced answer.
+
+**Set up:** click **connect an agent** in the status strip. The panel shows a `claude mcp add` command for Claude Code and a `claude_desktop_config.json` entry for Claude Desktop (which uses `npx mcp-remote`, so it needs Node.js).
+
+**Security:** the endpoint accepts only loopback `Host` values, rejects any request with an `Origin` header (so web pages and the Chrome extension cannot reach it), and requires `Authorization: Bearer <MCP_TOKEN>`. The token is created on first start and stored in `.env` (mode 0600). **New token** in the panel replaces it, and connected agents must be set up again. No MCP call runs a model, takes the long-operation lock, writes to `wiki/` or `outputs/`, or changes an existing raw file. Each call is logged as `[bridge] mcp …`.
+
+The server speaks MCP `2026-07-28` and the `initialize`-based revisions `2025-11-25`, `2025-06-18`, and `2025-03-26` on the same endpoint.
+
 ## Chrome extension
 
 A companion browser extension lets you import any page from Chrome without opening the dashboard first.
@@ -87,6 +106,7 @@ SecondBrain/                     vault root
 ├── dashboard/                   this web front-end
 │   ├── bridge.py                HTTP server + claude proxy
 │   ├── ingest_state.py          shared fingerprint scan + manifest finalizer
+│   ├── mcp_server.py            MCP endpoint for local agents (tools, resources, prompt)
 │   ├── index.html               single-page UI
 │   ├── styles.css               visual design (white sheet, Newsreader/Figtree)
 │   ├── app.js                   front-end controller (vanilla ES module)
