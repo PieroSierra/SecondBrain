@@ -65,7 +65,7 @@ Do **not** add bare `Write`, `Edit`, or `Bash` to `permissions.allow` in `.claud
 | Status strip stuck on `—` | `/status` is failing — check the bridge log for stack traces. |
 | PDF import 504 with a large file | Per-kind timeout is 360 s. Very large PDFs may need to be split. |
 
-## Connect an agent (MCP)
+## Connect an external agent (MCP)
 
 While the bridge runs, it serves an [MCP](https://modelcontextprotocol.io) endpoint at `http://127.0.0.1:4173/mcp`. Local agents such as Claude Code and Claude Desktop can read your wiki as context and save notes into it.
 
@@ -78,7 +78,7 @@ While the bridge runs, it serves an [MCP](https://modelcontextprotocol.io) endpo
 
 The `sb_answer` prompt gives the agent the query skill's answering rules (citations, dated claims, gap notice) for a strict, sourced answer.
 
-**Set up:** click **connect an agent** in the status strip. The panel has a tab per client:
+**Set up:** click **connect external agent** in the status strip. The panel has a tab per client:
 
 - **Claude:** a `claude mcp add` command for Claude Code and a `claude_desktop_config.json` entry for Claude Desktop (which uses `npx mcp-remote`, so it needs Node.js).
 - **OpenCode:** an `opencode mcp add second-brain --global …` command, or the equivalent `mcp.servers` entry for `~/.config/opencode/opencode.json` with `"oauth": false`.

@@ -481,7 +481,6 @@ body.is-busy .brand-busy-dot {
 .engine-test-pill.test-err:hover {
   background: var(--error-deep); border-color: var(--error-deep); color: #fff;
 }
-.mcp-connect-pill { margin-left: 6px; }
 /* Agent engine dropdown (app only): reads as the status text but carries a caret
    and hover affordance so it's discoverable as a control. */
 /* Baseline (not center): a center-aligned flex container exposes no text
@@ -2675,11 +2674,12 @@ mark.search-hit {
   line-height: 1.55;
   color: var(--ink);
 }
+.mcp-modal-title { margin-bottom: 14px; text-align: center; }
 .mcp-modal-art {
   display: block;
   width: min(320px, 100%);
   height: auto;
-  margin: 4px auto 18px;
+  margin: 0 auto 18px;
 }
 .mcp-modal-heading {
   margin: 18px 0 4px;
