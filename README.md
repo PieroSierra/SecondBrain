@@ -117,6 +117,25 @@ Set `AGENT_ENGINE` in a `.env` file at the vault root (`claude` / `codex` / `ope
 
 > The engines enforce their sandbox differently. Claude Code denies shell/network and path-scopes writes to the vault; Codex and OpenCode confine writes to the vault but **can** run shell commands inside it. Read the [security model](dashboard/README.md#security-model) before using any engine on untrusted content.
 
+## Connect other agents (MCP)
+
+<p align="center">
+  <img src="dashboard/icons/mcp.png" alt="MCP" width="320" />
+</p>
+
+Second Brain also runs a local [MCP](https://modelcontextprotocol.io) server, so the agents you already chat with can use your wiki. Ask **Claude Desktop**, **Claude Code**, or **OpenCode** a question and it can look up your articles, cite them, and save a note back into your vault.
+
+- **Read** — the agent lists your topics, searches the wiki, and reads full articles with their sources.
+- **Capture** — the agent can save a note it wrote into `raw/mcp/`. It joins the wiki the next time you click **Update wiki**.
+
+The agent does its own thinking; Second Brain only hands it your material. Nothing an agent does through MCP edits the wiki or your saved answers.
+
+**Set it up:** in the dashboard, click **connect external agent** in the status bar. Pick your agent's tab and copy the command or config shown there. The server only listens on your own machine and needs a token, which the panel shows and can replace.
+
+ChatGPT isn't supported: it connects from OpenAI's servers and can't reach a server on your computer. To use OpenAI models with your wiki, connect OpenCode instead.
+
+Details on the tools, protocol versions, and security: [Connect an external agent (MCP)](dashboard/README.md#connect-an-external-agent-mcp).
+
 ## Configuration (`.env`)
 
 Create a `.env` file at the vault root to override defaults without editing any code:
@@ -182,6 +201,7 @@ SecondBrain/
 │   ├── csv/                    Markdown tables extracted from CSV files
 │   ├── images/                 Visual descriptions of imported images
 │   ├── web/                    Pages fetched by web-import
+│   ├── mcp/                    Notes saved by external agents over MCP
 │   └── .ingest-manifest.json   Machine-managed ingestion state
 ├── wiki/                       AI-organised topic articles
 │   └── INDEX.md                Master topic index (rebuilt on every ingest)
@@ -195,6 +215,7 @@ SecondBrain/
 │   └── second-brain-setup/        first-time configuration
 ├── dashboard/                  Local web UI
 │   ├── bridge.py               Python stdlib HTTP server + claude/codex/opencode proxy
+│   ├── mcp_server.py           Local MCP endpoint for external agents
 │   ├── index.html              Single-page dashboard
 │   ├── styles.css              Visual design
 │   ├── app.js                  Front-end controller
