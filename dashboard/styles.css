@@ -2711,7 +2711,7 @@ mark.search-hit {
   word-break: break-all;
   min-height: 1.45em;
 }
-.mcp-copy { margin-top: 6px; flex: none; }
+.mcp-copy { margin-top: 4px; flex: none; }
 .mcp-modal-error { margin: 14px 0 0; }
 .mcp-modal-sheet .delete-modal-actions { margin-top: 20px; }
 

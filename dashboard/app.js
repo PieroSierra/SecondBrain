@@ -959,7 +959,7 @@ function flashCopyButton(btn, label) {
 // One delegated listener handles every [data-copy] button on the page.
 document.addEventListener("click", async (e) => {
   const btn = e.target.closest(".copy-btn");
-  if (!btn) return;
+  if (!btn || "mcpCopy" in btn.dataset) return; // MCP panel buttons have their own handler
   const card = btn.closest(".viewer-content, #panel-wiki-viewer, .thread-turn");
   const markdown = card?.dataset?.markdown;
   if (!markdown) {
@@ -3861,9 +3861,12 @@ mcpModal?.addEventListener("click", async (e) => {
   if (rotate) return rotateMcpToken(rotate);
   const copy = e.target.closest("[data-mcp-copy]");
   if (copy && _mcpConfig) {
-    await writePlainClipboard(_mcpText(copy.dataset.mcpCopy));
-    copy.textContent = "copied";
-    setTimeout(() => { copy.textContent = "copy"; }, 1200);
+    try {
+      await writePlainClipboard(_mcpText(copy.dataset.mcpCopy));
+      flashCopyButton(copy, "COPIED");
+    } catch {
+      flashCopyButton(copy, "Copy failed");
+    }
   }
 });
 document.addEventListener("keydown", (e) => {
