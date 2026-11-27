@@ -3793,7 +3793,10 @@ async function openMcpModal() {
   _mcpConfig = null;
   renderMcpConfig();
   mcpModal.hidden = false;
-  mcpModal.querySelector("[data-mcp-close].rename-modal-confirm")?.focus();
+  // Focus Done without scrolling the sheet down to it; the art and tabs lead.
+  mcpModal.querySelector("[data-mcp-close].rename-modal-confirm")?.focus({ preventScroll: true });
+  const sheet = mcpModal.querySelector(".mcp-modal-sheet");
+  if (sheet) sheet.scrollTop = 0;
   try {
     const res = await apiFetch("/mcp/config");
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
